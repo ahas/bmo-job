@@ -10,7 +10,7 @@ through bmo-agency, rooms through bmo-receiver, suites and deploys through bmo-t
 | Folder | Holds |
 |---|---|
 | `src/` | The service's own package: the library and, under `src/bin/`, the server and the unit's command line |
-| `crates/` | `base`, the library base every crate stands on: refusals, the database, settings and the clock; `policy`, which reads the files of `policy/`; `queue-read`, which reads the queue as the database holds it; and `queue-rows`, which writes the TODO's rows and work orders |
+| `crates/` | `base`, the library base every crate stands on: refusals, the database, settings and the clock; `codes`, every refusal, answer and fact the service gives as codes with structured fields; `policy`, which reads the files of `policy/`; `queue-read`, which reads the queue as the database holds it; and `queue-rows`, which writes the TODO's rows and work orders |
 | `migration/` | The schema of the tables the service owns, as migrations that run up and down |
 | `policy/` | The service's fixed numbers and words, as TOML files read by its policy loader |
 | `tests/` | The root package's tests, the repository checks among them |
@@ -23,7 +23,7 @@ At the root stand the Cargo workspace manifest, the version, `testbed.toml`, `ru
 
 | Document | States |
 |---|---|
-| `docs/api.md` | The API: how a refused request is answered |
+| `docs/api.md` | The API: how a refused request is answered, and every code the service gives |
 | `docs/settings.md` | The settings file: the database, the deployment's names and its words |
 | `docs/policy.md` | The policy: the parts under `policy/`, their marks, patterns and words, and how they load |
 | `docs/schema.md` | The schema: the tables the service owns, the rules they keep, and the migrations |
