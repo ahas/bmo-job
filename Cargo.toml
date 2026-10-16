@@ -1,5 +1,5 @@
 # The workspace: the service's own package at the root, the library base, the codes, the policy loader, the
-# two queue crates and the agency and receiver ports under `crates/` and the migration crate. The root
+# two queue crates and the agency, receiver and testbed ports under `crates/` and the migration crate. The root
 # package also holds the repository checks and the ports' contract tests in `tests/`.
 [workspace]
 members = [
@@ -10,6 +10,7 @@ members = [
   "crates/queue-read",
   "crates/queue-rows",
   "crates/receiver",
+  "crates/testbed",
   "migration",
 ]
 resolver = "3"
@@ -27,6 +28,7 @@ job-base = { path = "crates/base" }
 job-codes = { path = "crates/codes" }
 job-policy = { path = "crates/policy" }
 job-receiver = { path = "crates/receiver" }
+job-testbed = { path = "crates/testbed" }
 pulldown-cmark = { version = "0.13.4", default-features = false }
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
@@ -53,12 +55,15 @@ publish.workspace = true
 job-base.workspace = true
 
 [dev-dependencies]
-# The ports' contract tests run each against an in-process stand-in served over loopback.
+# The ports' contract tests run each against a stand-in: an in-process server on loopback for an HTTP
+# port, and a stand-in program in a scratch directory for the testbed's.
 axum = { workspace = true, features = ["http1", "matched-path", "tokio"] }
 job-agency.workspace = true
 job-codes.workspace = true
 job-receiver.workspace = true
+job-testbed.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["net"] }
 toml.workspace = true
 url.workspace = true

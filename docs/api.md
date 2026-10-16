@@ -1011,3 +1011,99 @@ service, its route for the rooms an item belongs to, which answers `RoomHoldings
 - **A holding:** `name` and `effect`: `kept` where the rows stay and keep the room's chat after it is
   removed, `warns` where bmo-receiver shows what the unit answers before it removes the room.
 - Declaring again replaces the unit's declaration.
+
+### bmo-testbed
+
+Checks, suites, heavy commands, a repository's close line, the unit links into a checkout and the
+commits waiting to go live are bmo-testbed's. Its API is its binary, `bmo-testbed`, whose first word is
+the verb; it serves no HTTP. The service reaches it through the calls below and nothing else. The crate
+`job-testbed` holds them: the trait `Testbed` declares every call, and `TestbedClient` makes them by
+running the binary at the path it is given.
+
+- **The program** is the binary's absolute path, from the deployment. A path of any other kind is
+  refused when the client is made.
+- **A call runs one verb with the words below,** in the checkout it names where it names one, with the
+  service's own environment handed on: the testbed reads the job's agent process and its own variables
+  from it.
+- **A call answering a structure** asks for `--json` and reads standard output as JSON. **A call that
+  runs something,** a check, a count or a suite, writes standard output and standard error together to
+  the log file the call names, and answers its exit code read as an outcome. A close hands its output on
+  as the service's own.
+- **An outcome** is `passed` for exit code 0, `failed` for 1 and `not_run` for 75: the turn did not
+  come, and the same call is made again.
+- **Exit code 2 is a refusal,** handed on with the last line the verb wrote as it stands.
+- **An exit code the call does not name,** a program ended by a signal, a program that does not start, a
+  log file that cannot be written or an answer that does not read as its shape is a failure of the call
+  naming which call it was.
+
+#### Checks and the suite
+
+| Call | Words | Answer |
+|---|---|---|
+| Check a change | `check [--since <commit>]` | an outcome |
+| Count the tests | `count [--since <commit>]` | an outcome |
+| Run the suite | `suite [--since <commit>] [--again] [--guard <s>] [--file-guard <s>] [--turn-wait <s>] [<word>…]` | an outcome |
+| Read a suite's log | `log <file> --json` | a reading, on exit code 0 or 1 |
+| Close in the close line | `close -- <command…>` | the command's exit code, or `not_run` |
+
+- **A check** is the change check: the static steps and the quick checks over what changed since the
+  commit. **A count** fails where the range removed a test that is not accounted for.
+- **A suite** runs the units the change since the commit reaches, or all of them with no commit. A word
+  naming a path narrows the files, a word that is a unit's name picks that unit, and every other word
+  goes to each file's runner; `--again` runs once more what failed or never started. The guards and the
+  wait for the turn are whole seconds.
+- **A reading of a log:** `passed`, `failed` and `skipped` (counts), `verdict`, `failed_units`,
+  `unstarted_units`, and `failures`, each with `test` and `unit`.
+- **A close** stands in the close line of the checkout's repository and, once its turn comes, runs the
+  command there, standing next after the front for every heavy command the command starts, and passes
+  the command's exit code on. Exit code 75 is a close whose job was gone before its turn came; every other exit code is the
+  command's, a 2 among them, so a close is never read as a refusal. A
+  close's check and suite are calls its command makes inside the line.
+
+#### Heavy commands
+
+| Call | Words | Answer |
+|---|---|---|
+| Classify a shell line | `classify --json <line>` | a classification, on exit code 0 (light) or 1 (heavy) |
+
+- **A classification:** `heavy` (true where the line starts a heavy command outside the testbed),
+  `language?` (the language that claims it), `command?` (its words) and `instead?` (the line that runs
+  it in the testbed).
+- A job's shell hook refuses a heavy command started outside the testbed, naming `instead`.
+
+#### Unit links into a checkout
+
+An installed unit may be linked to a file in a checkout rather than in the deploy tree. As the checkout
+moves, the link follows its file by the rule bmo-testbed keeps the deploy tree's links by: a link the
+commit would leave dangling is pointed at the commit's one tracked file of the unit's own name.
+
+| Call | Words | Answer |
+|---|---|---|
+| Plan a move | `units plan --to <commit> [--hold] --json` | a plan, on exit code 0 (the move may go) or 1 (held) |
+| Relink after a move | `units relink --json` | the relinked links, on exit code 0 or 1 (something left dangling or unmatched) |
+
+- **A plan:** `relinks`, each with `name` and `file` (the path in the commit it is pointed at);
+  `running`, the units running in a folder the commit no longer has, read only with `--hold`; and
+  `unmatched`, the links with no single file of their name in the commit. A move is held where
+  `running` or `unmatched` holds anything.
+- **The relinked links:** `relinked`, `dangling` and `unmatched`, each a list of names. Every link the
+  checkout's present commit leaves dangling is relinked, and the user's units are read again where any
+  moved.
+
+#### Deploys
+
+| Call | Words | Answer |
+|---|---|---|
+| Record a pending deploy | `pending add --commit <sha> [--item <id>] [--worker <name>] [--job <id>] --reason <words> --json` | the pending deploy standing for the commit |
+| List pending deploys | `pending list [--job <id> \| --item <id>] --json` | `[pending deploys]` |
+| Read the live deploy | `deployed --json` | `commit` and `release`, or null where nothing is live |
+
+- **A pending deploy** is a commit of the checkout's repository landed on main and waiting to go live:
+  `repository` (its declared name), `commit`, `item?`, `worker?`, `job?`, `reason` (in English),
+  `urgent` (true where bmo-testbed reads the commit as one to put live ahead of the rest) and
+  `created_at`.
+- Recording a commit already recorded keeps the first record and answers it.
+- A list is every repository's on the machine, in the order they were recorded, or those of one job or
+  one item.
+- **The live deploy** is the checkout's repository's: the commit its deploy tree runs and the release
+  directory that holds it.
