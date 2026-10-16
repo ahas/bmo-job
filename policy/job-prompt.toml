@@ -1,0 +1,56 @@
+# What a job's prompt is made of beside the job's own text and its trailer (docs/policy.md), by whichever
+# process composes it: the block the bot opens a worker's job prompt with, and what a step of a
+# bot-managed work order is told after its own prompt. Each `{name}` is filled in with what it names; the
+# bot's own lines are English, as the trailer is, and the owner's preamble follows them in English,
+# translated on its way where it was written in another language.
+
+[preamble]
+heading = "[Worker preamble — set by the owner for this worker, ahead of every job it is given]"
+workbench = "This worker's workbench folder, which outlives every session and job, is {workbench} — keep check databases, logins and other things worth reusing there rather than in a session scratchpad."
+item = "What this item alone needs — a rehearsal's data root, an archive copy for its check, a check's build or download — goes in {scratch}/<this item's number>, and a PostgreSQL database made for it is named {database}<this item's number>_<anything>; the bot removes both once no job of the item is open."
+support = "This worker is support worker {slot} of {base}: the same repository in a worktree of its own at this job's working directory, on the branch {branch}, made from {main}. Other jobs work in {base}'s other checkouts at the same time, so write only here."
+support_commit = "Commit on {branch} and do not push it: the repository's close rebases it onto {main}, fast-forwards {main} to it and pushes {main}. Where the repository has no close that does, land it with `{land}` once its checks pass."
+own_worktree = "This job works on the branch {branch}, made from {main}, in this worker's own worktree. Other workers' jobs land on {main} while this job works, so {main} is not this job's to commit on."
+own_checkout = "This job works on the branch {branch}, made from {main}, in this worker's own checkout. This worker's support workers work in their own worktrees at the same time and land on {main} while this job works, so {main} is not this job's to commit on."
+branch_commit = "Commit on {branch} and do not push it: the repository's close rebases it onto {main}, moves {main} to it and pushes {main}. Where the repository has no close that does, land it with `{land}` once its checks pass. {after}"
+worktree_after = "When the job ends, the worktree stays on {branch}."
+checkout_after = "When the job ends, the runner puts this checkout back on {main}."
+not_checkout = "This worker's directory is not a git repository: there is nothing to commit, push or deploy, so skip those steps of the closing instructions and do not run git init; the work ends when the files are written and checked."
+# `{dev_tab}` is the tab's name, as the words below give it.
+dev_support = "This worker's dev server does not run until this job starts it: it then stands in the {dev_tab} tab of its herdr workspace, running {command} with BMO_WORKER_SLOT={slot} so it binds ports apart from {base}'s. The address it serves on is in its log, {log}."
+dev_support_named = "Wherever the owner's words below name {base}'s workbench, dev console or ports, they mean this worker's own."
+dev_own = "This worker's dev server does not run until this job starts it: it then stands in the {dev_tab} tab of its herdr workspace, running {command}."
+dev_own_log = "Do not start another one beside it; check it, and read its output in {log}."
+dev_use = "Start it with {start} just before you first look at what it serves — it takes about a minute to come up, and the command waits until it has; restart it with {restart} when it is down, failing, or serving stale code; stop it with {stop} once you are done looking. It also goes down by itself once it has stood unused for a while, sooner when the machine is short of memory, and when the job ends; start it again when you need it. A dev server you could start or restart is never left as unfinished."
+dev_up = "Where the owner's words below speak of the dev server or its console as up, it is up only once you have started it."
+
+[workbench]
+# The folder of a workbench that holds each item's scratch, one folder per item number, and the name every
+# database made for one item opens with, its number and an underscore after it.
+scratch = "items"
+database = "bmo_item_"
+# The dev server's output, as it is kept in the workbench for a job to read without herdr.
+dev_log = "dev-server.log"
+
+[work_step]
+# What a middle turn of a bot-managed work order is told after its own prompt, whatever its role, before
+# the worker's graph instructions. The prompt before it closes on a branch's rules or a builder turn's step
+# rules (work-turns.toml), which say that the turn does only its own task and launches no other agent.
+told = "This is one bot-managed co-work step. Do not push, deploy, run the whole test suite, close or hold the TODO, or send a chat report; check your own change with the static check and the tests it touched, since the final step runs the whole suite once. A branch commits nothing; a build-list task commits its own step once those checks pass. Return what this step asks for with the evidence behind it; the bot saves it as the result document and runs the next step. Any temporary command you start must finish before returning: a run re-invoked more than twelve times, or a stage in a throwaway copy still running forty-five minutes after it started with no result, is stopped and recorded as a failed stage."
+
+[impact]
+# The grounds the agent weighed the item's co-work setting on as it filed it, a block of their own ahead of
+# the job's own text where the item carries any: a line per node, by its {id} and the {contract} that
+# changes on it, a line where a new home must be decided, and the verdict they come to, with the
+# {contracts} nodes whose outward contract changes counted.
+heading = "[Impact grounds — what {agent} weighed this item's co-work setting on]"
+contract = "- {id}: its outward contract changes: {contract}"
+inside = "- {id}: only its inside changes"
+new_home = "- A new home must be decided before the work is written."
+single = "By these grounds the item is a single job: {contracts} node(s) change an outward contract."
+cowork = "By these grounds the item is a co-work: {contracts} node(s) change an outward contract, or a new home must be decided."
+
+# The words of the deployment's language this part writes (docs/policy.md, the words): the name of the
+# herdr tab a worker's dev server stands in.
+[words]
+dev_tab = "dev server"

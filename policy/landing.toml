@@ -1,0 +1,69 @@
+# What a landing says (docs/policy.md): the refusals the close and `bmo job land` give a job whose branch
+# did not land, and the lines `bmo job land` prints. A job reads them, so they are English. Each `{name}`
+# is filled in with what it names: {main} the branch landed on, {branch} the job's branch, {from} the
+# branch it was made from.
+
+[refusal]
+# The job's own uncommitted changes to tracked files, the first ten {paths} joined by commas.
+open = "this worktree has uncommitted changes to tracked files, so the branch would land without them — commit them first: {paths}"
+origin = "{branch} was made from {from}, not from {main}, and landing it on {main} would carry {from}'s commits across with it; nothing moved. Which branch the work belongs on is the owner's call: to land it on {main}, move only its own commits across (git rebase --onto {main} {from}) and close again; to land it on {from}, stand the base checkout on {from}"
+# The conflicting {files} joined by commas, or `no_file` where git named none.
+conflict = "rebasing onto {main} stopped on conflicts in {files}; the rebase was aborted. Resolve it yourself: git rebase {main}, fix those files, git add them, git rebase --continue, then close again"
+no_file = "(no file named)"
+# What git {said} as main would not move where it stands checked out, or come up to the remote's.
+base = "{main} could not be fast-forwarded in the checkout it is on: {said}. That checkout's own uncommitted changes stand in the way; close again once they are committed"
+# What the check again {said} of the rebased commit.
+check = "{main} moved while the close checked, and the rebased commit did not pass the check again: {said}. The branch stands rebased onto {main}; mend it, commit and close again"
+moving = "{main} kept moving under three rebases in a row; close again"
+locked = "another landing on {main} held the landing lock for ten minutes; close again"
+# The open {files} joined by commas, in the checkout {at} main stands in, which moving main there would
+# overwrite.
+overwrite = "{main} stands checked out in {at}, and moving it there would overwrite what is open there: {files}; nothing moved and nothing was pushed. Close again once that checkout's changes are committed or set aside"
+# What the remote {said} as it refused the push, on every round.
+push = "the remote would not take the commit as {main}: {said}; {main} here did not move and nothing was written down. Close again once the remote takes it"
+# A submodule at {path} pins a commit its own repository's {branch} lacks, which git {said} as it would not
+# take it there.
+submodule = "the submodule {path} pins a commit its own repository's {branch} does not hold, and it could not be pushed there: {said}; nothing moved. Rebase that commit onto {branch} inside {path}, commit the pin again and close again"
+# The commits on the branch past {main} whose subject or body holds Hangul outside the names of address the
+# close's policy sets aside, each named by `commit` with its short {hash} and {subject}, joined by `joiner`.
+language = "these commits hold Hangul, and what goes into git is English only: {commits}; nothing moved and nothing was pushed. The branch stands rebased onto {main}: reword each in English (git commit --amend for the last, git rebase -i {main} for an earlier one) and close again"
+commit = "{hash} {subject}"
+joiner = "; "
+# The installed {units} still running in a folder the landed commit takes away from the checkout {main}
+# stands in, joined by commas.
+running = "{units} still running in a folder the landed commit takes away from the checkout {main} stands in; nothing moved. Close again once they stand idle"
+# The installed unit links into the checkout {main} stands in that the landed commit would leave dangling with
+# no one file of their name to point at, each of the {faults} saying which, joined by semicolons.
+unlinked = "the landed commit would leave units linked into the checkout {main} stands in without their files: {faults}; nothing moved"
+
+[units]
+# The installed {units} relinked to the files of their names in the checkout {cwd}, joined by commas.
+relinked = "relinked {units} to the files of their names in {cwd} and reloaded the user units"
+# The installed {units} linked into {cwd} that still resolve nowhere once relinked.
+dangling = "{units} still link to nothing in {cwd}; relink each to its unit file and reload the user units"
+# The {units} that could not be relinked, for this {why}.
+failed = "{units} could not be relinked: {why}"
+# The installed links a base checkout put back on main left dangling with no one file of their name to point
+# at, each of the {faults} saying which, joined by semicolons.
+unmatched = "the checkout's move left units without their files: {faults}"
+
+[home]
+# A node's landing pushed, but the operations machine did not take in what it landed.
+not_taken_in = "the operations machine could not take in what was landed; its base checkout catches up at the next landing"
+# The record of what a checkout {cwd} landed could not be written, for this {why}.
+unrecorded = "the landing of {cwd} could not be written down: {why}"
+
+[verb]
+# Run in {here}, standing on {branch} or on `no_branch`.
+not_work_branch = "land: refused — {here} stands on {branch}, not on a job's work/ branch; a checkout on main commits and pushes there itself"
+no_branch = "no branch"
+# A refusal, its {why} one of the refusals above.
+refused = "land: refused — {why}"
+# A line the operations machine {said} of a node's landing.
+said = "land: {said}"
+# The {commit}'s first twelve characters on {main}, with what the landing put there: `nothing`, `one`,
+# or `many` with their {count}.
+landed = "land: {commit} is on {main} and pushed ({landed})"
+nothing = "nothing new to land"
+one = "1 commit landed"
+many = "{count} commits landed"

@@ -120,6 +120,21 @@ fn a_missing_unknown_or_empty_setting_is_refused() {
 }
 
 #[test]
+fn the_words_section_is_optional_and_read_as_it_stands() {
+  let without = Settings::read(&with_database("sqlite::memory:")).unwrap();
+  let with = Settings::read(&format!(
+    "{}\n[words.closing]\nshare = \"part\"\nimpact = [\"reach\"]\n",
+    with_database("sqlite::memory:")
+  ))
+  .unwrap();
+  let closing = with.words["closing"].as_table().expect("a part's words are a table");
+
+  assert!(without.words.is_empty());
+  assert_eq!(closing["share"].as_str(), Some("part"));
+  assert_eq!(closing["impact"].as_array().map(Vec::len), Some(1));
+}
+
+#[test]
 fn a_file_that_does_not_load_is_named() {
   let scratch = tempfile::tempdir().unwrap();
   let absent = scratch.path().join("absent.toml");

@@ -1,0 +1,16 @@
+# The commit messages a work order holding its checkout writes its change under (docs/policy.md). What
+# goes into git is English, as every commit is, and the close lands these like any job's. Each `{name}`
+# is filled in with what it names: {item} the order's TODO item, {worker} the worker whose checkout it
+# is.
+
+# A change that passed the check ({count} files).
+passed = "Work order #{item}'s change, open in the checkout until it stopped, stands as the item's own; {count} files passed the repository check (#{item})"
+# A change kept off main because the check {checked}: `unfinished` or `failed`.
+kept_off = "Work order #{item}'s change, open until it stopped, kept off main because the repository check {checked} (#{item})"
+unfinished = "did not finish"
+failed = "did not pass"
+# A change parked on the item's branch as the order lets its checkout go, and as it stops.
+released = "Work order #{item} parks its change on the item's branch as it lets the checkout go (#{item})"
+stopped = "Work order #{item} parks the change it opened until it stopped on the item's branch (#{item})"
+# The change a job before it left, parked as the order takes {worker}'s checkout.
+taken = "Work order #{item} takes {worker} and parks the change an earlier job left on its branch (#{item})"

@@ -13,8 +13,9 @@ code: the database it keeps its rows in and the names it says and records come f
 
 ## What the file holds
 
-The file holds two sections, both required. A key the service does not know is refused, so a misspelt
-setting fails at start rather than standing silently at a default.
+The file holds three sections: `[database]` and `[deployment]`, both required, and `[words]`, which
+may be left out. A key the service does not know is refused, so a misspelt setting fails at start
+rather than standing silently at a default.
 
 ### `[database]`
 
@@ -42,6 +43,14 @@ reads:
 | `receiver_unit` | The service unit the chat receiver runs as |
 
 Every key is required and none may be empty.
+
+### `[words]`
+
+The words of the deployment's own language that the service's policy reads and writes by, one table to
+a policy part: `[words.closing]`, for example, gives the closing part's words. Each part says which
+words it takes and what its English ones are (docs/policy.md); a key given here takes the place of the
+part's own. The settings file loads whatever this section holds, and the policy refuses at its own load
+what no part takes. Where the section is left out, every part reads by its English words.
 
 ## Why a load fails
 

@@ -1,7 +1,8 @@
-# The workspace: the service's own package at the root, the library base and the two queue crates under
-# `crates/` and the migration crate. The root package also holds the repository checks in `tests/`.
+# The workspace: the service's own package at the root, the library base, the policy loader and the two
+# queue crates under `crates/` and the migration crate. The root package also holds the repository checks
+# in `tests/`.
 [workspace]
-members = ["crates/base", "crates/queue-read", "crates/queue-rows", "migration"]
+members = ["crates/base", "crates/policy", "crates/queue-read", "crates/queue-rows", "migration"]
 resolver = "3"
 
 [workspace.package]
@@ -13,6 +14,8 @@ publish = false
 axum = { version = "0.8.9", default-features = false, features = ["json"] }
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
 job-base = { path = "crates/base" }
+job-policy = { path = "crates/policy" }
+regex = "1.13.1"
 sea-orm = { version = "1.1.20", default-features = false, features = ["runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite"] }
 sea-orm-migration = { version = "1.1.20", default-features = false, features = ["runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite"] }
 serde = { version = "1.0.219", features = ["derive"] }

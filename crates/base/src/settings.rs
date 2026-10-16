@@ -15,11 +15,15 @@ pub const PLACE_VARIABLE: &str = "BMO_JOB_SETTINGS";
 pub const DEFAULT_FILE: &str = "settings.toml";
 
 /// Everything the settings file holds.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
   pub database: DatabaseSettings,
   pub deployment: Deployment,
+  /// The `[words]` section: the deployment's own words, one table to a policy part, which the policy
+  /// reads and refuses at its own load where no part takes them; empty where the section is left out.
+  #[serde(default)]
+  pub words: toml::Table,
 }
 
 /// The `[database]` section.

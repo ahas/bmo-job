@@ -1,0 +1,21 @@
+# What a job worker may be (docs/policy.md), read by every process that adds or changes one.
+
+# What a worker may be called. The name stands in a URL, in a systemd unit's name and in a lock file's,
+# so it is the small alphabet all three take without quoting.
+name_pattern = "^[a-z0-9][a-z0-9._-]{1,31}$"
+
+# How long, in characters, the name a screen shows a worker under may be.
+label_most = 40
+
+# How much may be written in a worker's preamble, which stands at the front of every job prompt that
+# worker is handed, so it is bounded the way a note is rather than the way a document is.
+preamble_most = 8000
+
+# How long the one line a worker's dev server is started with may be.
+dev_command_most = 1000
+
+# How many support workers one base may have beside it.
+support_most = 8
+
+# The first support worker's number: the base is the first of its repository.
+first_support_slot = 2

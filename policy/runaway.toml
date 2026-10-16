@@ -1,0 +1,27 @@
+# When a stage of a work order that has not reported is a runaway, and the reason it is stopped or told
+# for (docs/policy.md), by whichever runner watches it. Each `{name}` is filled in with what it names.
+
+# How many times one run may be re-invoked before it is not working but circling. A stage that finishes
+# properly is invoked once; the plan and synthesis turns, asked a second time for their shape, and a
+# correction round after them are the only legitimate repeats, and none has ever passed three. Twelve is
+# the line drawn well above that and far below what circling looks like, which reaches the hundreds.
+max_starts = 12
+
+# When the clock alone is enough to end a run in a copy that is thrown away: getting on for twice the
+# longest run that ended in success, which is a little under twenty-four minutes. The clock never tells
+# anybody anything about a run in the worker's own checkout, whose longest legitimate turns are exactly
+# the ones that take longest.
+stop_after_minutes = 45
+
+# The label a reason opens with, by what fired, which a reader looks for to find the reason in a record.
+[labels]
+spin = "Circling run"
+stalled = "Stalled stage"
+
+# The reason's own words: what was read, then what was done about it.
+[lines]
+spin = "Re-invoked {starts} times, past the limit of {max}."
+spin_waited = " No result {minutes} minutes after it started."
+clock = "Running {minutes} minutes with no result, re-invoked {starts} times."
+stopped = "The stage was stopped, since its copy is thrown away. It can resume from the last completed step saved."
+told = "Whether to stop it is for {owner} to decide, so it is told and not stopped."
