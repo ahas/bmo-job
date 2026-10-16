@@ -33,6 +33,7 @@ PostgreSQL. The `migration` crate makes the tables, and nothing else writes the 
 | `job_spans` | Where a job's time and tokens went, by kind and name |
 | `job_questions` | A job's question to the owner: its options and recommendation, its deadline, and how it was settled |
 | `question_talk` | One thing said about a question while it was open |
+| `todo_talk` | One turn of the owner's talk about an item: the item, who said it, `owner` or `agent`, its words and when |
 | `checkout_leases` | The job that holds a worker's checkout |
 | `branch_agents` | A co-work branch agent standing in a pool slot on one road, and when it last answered |
 | `session_work_items` | The item a worker session was last served |

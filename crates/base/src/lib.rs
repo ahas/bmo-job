@@ -8,7 +8,9 @@ pub mod settings;
 
 pub use database::{all, one, run, statement};
 pub use refusal::{Refusal, RefusalBody};
-pub use settings::{Address, Deployment, Name, Settings, SettingsError};
+pub use settings::{
+  Address, Deployment, HttpAddress, Name, ServerSettings, Settings, SettingsError, Units,
+};
 
 /// Now, in the epoch milliseconds the service's own columns keep.
 pub fn now_ms() -> i64 {

@@ -78,6 +78,37 @@ fn the_checked_in_example_loads_with_neutral_names() {
     ],
     ["Owner", "Agent", "agent", "Agent", "receiver"]
   );
+
+  let server = settings.server.expect("the example stands a server");
+  let units = settings.units.expect("the example names the units");
+
+  assert_eq!(server.listen.to_string(), "127.0.0.1:7841");
+  assert_eq!(server.address.url().as_str(), "http://127.0.0.1:7841/");
+  assert_eq!(&*server.unit, "job");
+  assert_eq!(units.receiver.url().as_str(), "http://127.0.0.1:7844/");
+}
+
+#[test]
+fn the_server_and_its_units_are_left_out_by_the_libraries_and_read_where_given() {
+  let without = Settings::read(&with_database("sqlite::memory:")).unwrap();
+  let server = "[server]\nlisten = \"127.0.0.1:0\"\naddress = \"http://localhost:1/\"\nunit = \"job\"\n";
+  let units = "[units]\nagency = \"http://a\"\ngate = \"http://g\"\nreceiver = \"http://r\"\n";
+  let with = Settings::read(&format!("{}\n{server}{units}", with_database("sqlite::memory:"))).unwrap();
+  let https = Settings::read(&format!(
+    "{}\n{server}{}",
+    with_database("sqlite::memory:"),
+    units.replace("http://g", "https://g")
+  ));
+  let no_socket = Settings::read(&format!(
+    "{}\n{}",
+    with_database("sqlite::memory:"),
+    server.replace("127.0.0.1:0", "nowhere")
+  ));
+
+  assert!(without.server.is_none() && without.units.is_none());
+  assert_eq!(with.units.unwrap().gate.url().as_str(), "http://g/");
+  assert!(https.unwrap_err().to_string().contains("is not an http address"));
+  assert!(no_socket.is_err());
 }
 
 #[test]

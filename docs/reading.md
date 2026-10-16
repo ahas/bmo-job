@@ -161,3 +161,13 @@ stage's tasks by state, role and the name the plan gave them, the build steps th
 and the facts that decide whether it can be resumed. A task the plan named nothing is told by the first
 sixty characters of its instruction. The history and the earlier rounds are counted, never listed;
 their contents are the order's structure.
+
+### Where a task stands
+
+Every task of an order stands at one place: an earlier round of its history by its position there, a
+stage's task by the stage and its position in it, a build step by its position in the build list, or
+the control turn, which plans, synthesises and closes. A task is found by the name it carries, the
+first that carries it in that order.
+
+The tasks an order is at now are the present stage's tasks while it researches, the first build step
+not yet done or skipped while it builds, and the control turn otherwise, where the order has one.

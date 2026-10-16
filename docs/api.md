@@ -7,7 +7,9 @@ service through this API and nothing else.
 
 - **The status is a plain HTTP status code:** 400 for a request that is wrong as asked, 403 for one
   the asker may not make, 404 for something that does not exist, 409 for a request that conflicts
-  with the present state, and 500 for a failure on the service's side, such as its database.
+  with the present state, 413 for a file larger than the service takes, 500 for a failure on the
+  service's side, such as its database, 501 for a verb the running build does not carry, and 502 for a
+  call on another unit that failed.
 - **The body is a JSON object of exactly two keys:**
   - `error`: one English sentence for a person, naming why;
   - `code`: a stable snake_case code for a machine. A caller decides on the code and never on the
@@ -141,6 +143,11 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 |---|---|---|---|
 | `stop_target_wrong` | 400 | `target` | the target is not a kind and an id |
 | `reason_language` | 400 | | a stop or hold reason is not in the deployment's language, which the console shows it in as written |
+| `stop_target_missing` | 400 | | a stop names no target |
+| `stop_target_absent` | 404 | `target` | no run of the target is known |
+| `stop_target_ended` | 404 | `target` | the target's run has already ended or is not running |
+| `stop_coworker` | 409 | `parent?` | a co-worker is stopped on its own; the run that launched it is the one to stop |
+| `stop_item_number` | 400 | `id` | an item is named by anything but its number |
 
 #### TODO verbs: `TodoRefusal`
 
@@ -196,6 +203,8 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 | `question_takes_no_talk` | 409 | `id` | the question takes no talk |
 | `question_talk_say` | 400 | | a talk has no words of its own |
 | `question_banned_terms` | 400 | `[terms]` | the words use terms the owner has set aside |
+| `question_absent` | 404 | `id` | there is no such question |
+| `question_answer_wrong` | 400 | | an answer is neither one of the question's options by number nor words of the owner's own, or is both |
 
 #### A job's wait: `JobWaitRefusal`
 
@@ -209,6 +218,7 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 | Code | Status | Fields | Refused when |
 |---|---|---|---|
 | `talk_busy` | 409 | | a second word comes while the first is still being answered |
+| `talk_item_absent` | 404 | `id` | the item talked about does not exist |
 
 #### Control requests: `ControlRefusal`
 
@@ -216,6 +226,31 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 |---|---|---|---|
 | `body_not_json` | 400 | | the request's body is not JSON |
 | `action_wrong` | 400 | | the action asked is none the route takes |
+| `field_wrong` | 400 | `name`, `takes` (a field form) | a field of the body or the query is missing or not of the form it takes |
+| `route_absent` | 404 | | no route answers the method and path |
+| `not_built` | 501 | `verb` | the route's verb is not carried by the running build |
+| `takes_no_files` | 400 | | files come with a request that takes none |
+| `too_many_files` | 400 | `most` | more files come with a request than it takes |
+
+#### A call on another unit: `UnitRefusal`
+
+Each code is the unit's name, and the sentence names the call and how it failed.
+
+| Code | Status | Fields | Refused when |
+|---|---|---|---|
+| `agency` | 502 | | a call on bmo-agency failed |
+| `brain` | 502 | | a call on bmo-brain failed |
+| `gate` | 502 | | a call on bmo-gate failed |
+| `graph` | 502 | | a call on bmo-graph failed |
+| `receiver` | 502 | | a call on bmo-receiver failed |
+| `testbed` | 502 | | a call on bmo-testbed failed |
+| `web` | 502 | | a call on bmo-web failed |
+
+#### Launching a job: `TaskRefusal`
+
+| Code | Status | Fields | Refused when |
+|---|---|---|---|
+| `task_needs_room_and_work` | 400 | | a launch names no room or nothing to do |
 
 #### Branch records: `BranchSplitRefusal`
 
@@ -315,6 +350,25 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 | Code | Fields | Answered when |
 |---|---|---|
 | `owner_talked` | `id`, `[heard]` | the owner talked on the question instead of choosing, and the job is handed what was said |
+
+#### The owner's answer to a question: `QuestionAnswer`
+
+| Code | Fields | Answered when |
+|---|---|---|
+| `question_settled` | | the answer settled the question |
+| `question_settled_already` | `settled_by?`, `answer?` | the question was settled before this answer landed |
+| `question_paused` | `paused_left?`, `due_at?` | the question's clock was stopped |
+| `question_resumed` | `paused_left?`, `due_at?` | the question's clock was started again |
+| `question_paused_already` | `paused_left?`, `due_at?` | the clock was already stopped |
+| `question_not_paused` | `paused_left?`, `due_at?` | the clock was not stopped |
+
+#### Launching a job: `TaskAnswer`
+
+| Code | Fields | Answered when |
+|---|---|---|
+| `job_launched` | `job`, `unit`, `worker`, `cwd`, `chat`, `[notes]` (launch notes) | a job was launched |
+| `order_started` | `item`, `phase`, `[notes]` | the item's work order was started |
+| `order_already_active` | `item`, `[notes]` | the item's work order was already running |
 
 ### Facts
 
@@ -689,6 +743,343 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 | `unanswered` | | the agent reported it could not finish its answer |
 | `blocked` | | the run stopped waiting on something a person answers |
 
+#### A queue told: `QueueTold`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `told` | | BMO was told how the queue stands |
+| `nothing_waiting` | | nothing waits for any worker |
+| `all_busy` | | everything waiting stands behind a checkout at work or a turn that is not BMO's |
+| `paused` | | the owner's pause or a deployment's hold stands |
+| `unreadable` | | what is running could not be read |
+| `machine_short` | | the machine has no room for another job, and is told again once it has |
+| `unchanged` | | the standing already told has not moved |
+
+#### A launch note: `LaunchNote`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `cowork_off_checkout` | `worker`, `cwd` | co-work was asked of a worker whose path is no git checkout, so it runs as a plain job |
+
+#### A field form: `FieldForm`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `whole_number` | | a whole number |
+| `boolean` | | true or false |
+| `text` | | a string |
+| `words` | | a string with something in it besides spaces |
+| `numbers` | | a list of whole numbers |
+| `object` | | a JSON object |
+| `direction` | | `up` or `down` |
+| `stop_target` | | an object of a stop target's `kind` and `id` |
+
+## Routes
+
+What the service serves, on the address `[server] listen` binds and other units reach as
+`[server] address` (docs/settings.md). The binary `bmo-job` serves them.
+
+- **A body is JSON, both ways,** with snake_case keys. A time is epoch milliseconds, and a field written
+  with a question mark may be absent or null.
+- **An item, a job, a question and a note are named by their numbers;** a worker, a session and a task
+  by their names as they stand, percent-encoded in a path.
+- **An answer with no body is 204,** an answer with a body 200, and a turn taken to be answered later
+  202.
+- **A refusal** reads as "A refused request" above. Beside each area's own codes, every route may answer:
+  - `body_not_json` where the body is not JSON;
+  - `field_wrong` where a field of the body or the query is missing or not of the form it takes;
+  - `route_absent` where no route answers the method and path;
+  - `not_built` where the route's verb is not carried by the running build;
+  - a unit's code with 502 where a call on that unit failed: `agency`, `brain`, `gate`, `graph`,
+    `receiver`, `testbed` or `web`.
+- **The verbs and the routes stand apart.** A route reads its request into a typed request and answers
+  what its verb answers. The verbs of the TODO, the work orders, a job's launch and its end, the
+  questions, run stops, runners, workers, a worker's word and the co-worker pool board are the
+  service's own verb code, each behind a trait the server is built on; the build that carries none for
+  a verb answers its routes `not_built`. The queue's holds, the readings, the work a worker session
+  holds, a room's holdings, the talk about an item and the event stream are served by the server
+  itself.
+
+### Health
+
+| Route | Request | Answer |
+|---|---|---|
+| `GET /health` | | `version` (the service's version), `started_at` |
+
+### The queue's holds
+
+The queue stands still while either hold stands: the owner's pause, and a deployment's hold, which the
+deploy that takes it lets go, or the owner on purpose (docs/schema.md, "The keys of `settings`").
+
+| Route | Request | Answer |
+|---|---|---|
+| `GET /queue/holds` | | `paused`, `deploy_hold?`, `[deploy_waits_on]` (jobs) |
+| `POST /queue-pause` | `paused` | `paused`, `deploy_held`, `told?` (a queue told) |
+| `POST /deploy-hold-release` | | `released`, `told?` |
+| `PUT /queue/deploy-hold` | `hold` (an object), `[waits_on]` (jobs) | 204 |
+| `DELETE /queue/deploy-hold` | | `released`, `told?` |
+
+- **A deployment's hold** is the object its deploy wrote, kept as it stands: what it holds for is the
+  deploy's to read. A hold that does not read as an object is still a hold, read as an empty object.
+  Taking it again writes what it now holds for over the hold standing.
+- **Pausing** writes the pause and tells nothing. **Resuming,** and **letting a deployment's hold go,**
+  by the owner or by its deploy, tell BMO how the queue stands at once, and answer what came of it.
+  Letting go a hold that does not stand answers `released` false and tells nothing.
+- The owner's pause stands on when a deployment's hold is let go.
+- Every change to a hold is news on the event stream.
+- **A queue told** is a `QueueTold` kind: what came of telling BMO how the queue stands.
+
+### A job's end
+
+| Route | Request | Answer |
+|---|---|---|
+| `POST /handoff` | `outcome` (words), `job?` | `told` (a queue told) |
+| `POST /job-report` | `job` | 204 |
+| `POST /queue/tell` | `moment` (words), `repeat`, `rides_ms?` | `told` |
+
+- **A job that ended** says how, and BMO is told of it without waiting: the report the job left waiting
+  is delivered first, then the fact of its end.
+- **A report** a job wrote is delivered by the service running now.
+- **The queue's standing** is told at a moment a verb saw move it, such as a work order freeing its
+  worker; `repeat` tells it again where it stood the same, and `rides_ms` lets the fact ride the room's
+  next turn for that long rather than open one.
+
+### Runners
+
+| Route | Request | Answer |
+|---|---|---|
+| `POST /launch` | `agent`, `text` (words), `depth?` | 204 |
+
+- A runner is started on the owner's own words: `agent` names the runner, and `depth` how deep it goes
+  where it takes one. The body may come as a form with the same fields, as the console's box sends it;
+  a runner takes no file, so a form carrying one is refused `takes_no_files`.
+
+### The co-worker pool board
+
+| Route | Request | Answer |
+|---|---|---|
+| `GET /coworker-pool` | | `read_at`, `[buckets]`, `[workers]` |
+
+- **A bucket:** `provider`, `tier`, `capacity`, `[tiles]` and `[waiting]` (work): the places a tier has on
+  a provider that is on and lends co-workers.
+- **A worker's tile:** `name`, `label`, `tile` and `[waiting]` (work): the worker's own turn.
+- **A tile:** `state`, `idle`, `working` or `held`, and `work?`.
+- **Work:** `kind` (`turn`, `cowork`, `search`, `browse`, `native` or `other`), `role`, `tier`,
+  `provider`, `model`, `effort?`, `since?`, `item?`, `title?` (the item's title, a run's number or a
+  job's purpose, as it stands), `detail?` (the step, a depth or a worker, as it stands), `stop?` (a stop
+  target) and `log?` (`agent`, `run`).
+
+### Questions
+
+| Route | Request | Answer |
+|---|---|---|
+| `POST /question` | `id`, and `chosen` (an option's number) or `answer` (words) | a question answer |
+| `POST /question-pause` | `id`, `paused` | a question answer |
+
+- **An answer** settles the question with one of its options or with the owner's own words, never both.
+  The chat and the console settle the same row with the same conditional write, so whichever lands
+  first is what the job carries on with, and the one that lost is answered what it was settled on.
+- **Stopping a question's clock** keeps what was left of its wait; **starting it again** gives that back.
+- **A question answer** is a `QuestionAnswer`; a question that does not exist is refused
+  `question_absent`, and an option it does not have `question_answer_wrong`.
+
+### Stopping runs
+
+| Route | Request | Answer |
+|---|---|---|
+| `POST /run/stop` | `target` (a stop target) or `unit`, `why?`; or `all` true | a stop answer (`RunStopAnswer`) |
+
+- **A stop target:** `kind` and `id`: an `execution` by its record's id, a `unit` a run stands in, or an
+  `item` by its number. The kind decides the reach, and a reason is required of an item alone.
+- **One stop** answers `stop_confirmed` where the run is seen gone and `stop_asked` where it was asked
+  and ends in its own time, never more than that. **Stopping everything** answers `all_asked`, one
+  target that cannot be stopped keeping none of the rest running.
+- A co-worker is never stopped on its own: the refusal names the run that launched it.
+
+### The talk about an item
+
+| Route | Request | Answer |
+|---|---|---|
+| `GET /todo-talk?id=` | | `answering`, `failure?` (an unanswered kind) |
+| `POST /todo-talk` | `id`, `text` (words) | 202 |
+
+- **The owner's words** are kept the moment they arrive, and the turn is handed to bmo-receiver's
+  agent; the request is answered at once, and the answer kept as a line of the talk once it comes.
+- One turn goes at a time per item: a second word while the first is answered is refused `talk_busy`.
+- The talk's turns are kept in `todo_talk` (docs/schema.md). Where it stands is held by the running
+  service and is news on the event stream as it moves.
+
+### Jobs
+
+| Route | Request | Answer |
+|---|---|---|
+| `POST /task` | `chat`, `prompt` (words), `model?`, `item?`, `purpose?`, `worker?`, `cowork`, `started_by?` | a task answer |
+
+- A job is launched on a worker: the worker the launch names, or the one the item is assigned to, in a
+  free checkout of it; a co-work item starts its work order instead.
+- **A task answer** is a `TaskAnswer`, and a launch naming no room or nothing to do is refused
+  `task_needs_room_and_work`.
+
+### The TODO
+
+| Route | Request | Answer |
+|---|---|---|
+| `POST /todo` | `action`, `id`, and what the action takes | `moved`, `stopped?`, `raised?` |
+
+| Action | Takes | Does |
+|---|---|---|
+| `approve`, `unapprove` | `note?`, `by?` (the person signed in) | approves the item with the owner's word, or takes it back |
+| `move` | `direction`: `up` or `down` | swaps the item with its neighbour in the queue |
+| `top`, `bottom` | | puts the item at the head or the end of the queue |
+| `reorder` | `[order]` (every open item) | orders the queue; an order read before the queue moved is refused |
+| `drop` | | throws out a request that should never have been filed |
+| `done` | | closes the item as the owner judges it finished |
+| `resolve` | `why` (words) | resolves the item's unfinished note |
+| `raise` | `title`, `said` (words), `[sources?]` | raises a row out of the unfinished notes of the item and the sources |
+| `append`, `unappend` | `text` (words); `note` | adds the owner's words to the item, or takes them back |
+| `hold`, `release` | `why?` | sets the item aside, or lets it back |
+| `stop` | `why` (words) | holds the item as stopped and asks its runs to end |
+| `worker` | `worker?` | assigns the item a worker, or takes it off |
+| `cowork` | `cowork` | switches the item's co-work |
+
+- `moved` is false where the action moved nothing; `stopped` counts the runs a stop asked to end, and
+  `raised` is the row a raise filed. Only `drop` removes a row.
+
+### Work orders
+
+| Route | Request | Answer |
+|---|---|---|
+| `POST /work-order` | `id`, `action`, and what the action takes | the order as it now stands |
+
+| Action | Takes |
+|---|---|
+| `resume` | |
+| `save`, `reopen` | `intent?`, `instruction?`, `model?` |
+| `edit`, `rerun` | `task`, `instruction?`, `model?` |
+| `skip` | `task`, `why` |
+| `restore` | `task` |
+| `move` | `task`, and `before` or `after` |
+| `add` | `title`, `instruction`, `before?` or `after?` |
+| `checkout` | `cwd` |
+| `recover` | `from`, `to` (jobs) |
+| `close` | `why` |
+| `start` | `chat`, `cwd`, `worker`, `instruction?`, `model?` |
+
+- Every change is made under the order's lock beside its runner. A field that is not a string is refused
+  `field_not_text`, a missing one `field_missing`, and the order's own refusals are `WorkOrderRefusal`'s.
+- An order is the body docs/work-orders.md states, as its runner keeps it.
+
+### Workers
+
+| Route | Request | Answer |
+|---|---|---|
+| `POST /worker` | `action` (`add`, `update` or `remove`), `name`, and what the action takes | `add`: `name`, `label`, `cwd`; otherwise 204 |
+| `POST /worker/node` | `action` (`add_checkout`, `remove_checkout` or `place`), `name`, `node?`, `path?` | a checkout's `worker` and `cwd`; `place`: 204 |
+| `GET /workers` | | `[workers]` |
+| `GET /workers/{name}` | | a worker |
+
+- **Adding** takes `label?`, `path?`, `preamble?` and `dev_command?`; a worker given no path is given a
+  directory of its own.
+- **Updating** takes `label?`, `path?`, `preamble?`, `dev_command?` (an empty string clears either of
+  the last two), `downgrade_heal?`, `keepalive_stopped?`, `pinned_provider?` (`auto`, a provider or
+  `provider::model`), `support_count?` and `support_keepalive?`.
+- **A worker:** `name`, `label?`, `cwd?`, `icon?`, `builtin`, `preamble?`, `dev_command?`,
+  `support_count`, `support_keepalive`, `support_of?`, `support_slot?`, `node?`, `role?`,
+  `resting_since?` and `created_at`, as `workers` keeps it. A name no worker has is refused `no_worker`.
+
+### A worker's word
+
+| Route | Request | Answer |
+|---|---|---|
+| `POST /worker-word` | `text` (words, or empty with files), `worker?` | 204 |
+
+- A word the owner said to one worker rather than to the agent: it launches nothing, its files are
+  written under the worker's workbench and named at the end of the words, and the words are offered to
+  the worker's own session. It comes as JSON, or as a form whose files stand under `file`; more files
+  than `queue.word_files` (docs/policy.md) are refused `too_many_files`. A worker not given is the
+  built-in worker.
+
+### Branch agents
+
+| Route | Request | Answer |
+|---|---|---|
+| `GET /branch-agents?pool=` | | `[branch agents]` |
+
+- **A branch agent:** `pool`, `slot`, `mode`, `model`, `role`, `upstream`, `prefix_digest` and
+  `last_reply_at`, as `branch_agents` keeps them; every pool's where none is named.
+
+### The work a worker session holds
+
+What co-work results a worker session was sent in full and which item it last served, so the next turn
+sends only what changed and a fold forgets what it folded away.
+
+| Route | Request | Answer |
+|---|---|---|
+| `GET /sessions/{session}/work` | | `item?`, `[results]` |
+| `PUT /sessions/{session}/item` | `item` | 204 |
+| `PUT /sessions/{session}/results/{result}` | `version` | 204 |
+| `DELETE /sessions/{session}/results` | | 204 |
+
+- **A result:** `result` (its key), `version` and `loaded_at`.
+- **A fold** forgets every result the session was sent: the next turn sends them whole again.
+- An item served or a result sent more than seven days before the latest write is let go.
+
+### Readings
+
+| Route | Request | Answer |
+|---|---|---|
+| `GET /todos?all&pending&held&merged&chat=` | | `[items]` (a person's lines of the listing) |
+| `GET /todos/{item}` | | an item reading |
+| `GET /todos/worker-lines?all&pending&held&merged&chat=` | | `[lines]` |
+| `GET /todos/{item}/worker-lines` | | `[lines]` |
+| `GET /rooms/{chat}/jobs?limit=` | | `[jobs]` |
+| `GET /work-orders/{item}` | | `order` (the body), `[lines]` |
+| `GET /work-orders/{item}/current` | | `[tasks]` (placed tasks) |
+| `GET /work-orders/{item}/tasks/{task}` | | a placed task |
+
+- **The readings are docs/reading.md's:** a person's reading carries no sentence and a worker's is
+  English lines. An item is named by its number, or by the title of one not finished.
+- **A worker's lines** carry the kept English of what is written in another language, as bmo-gate keeps
+  it; what has none stands under the untranslated mark, and so does all of it where bmo-gate does not
+  answer.
+- **A placed task:** `place` and `task` (the task as the body holds it). A place is an object of `kind`:
+  `history`, `stage` or `build` with `at` (and `stage` for a stage's task), or `control`.
+- **The tasks an order is at now:** the present stage's tasks in research, the first build task not
+  settled in implementation, and the control turn otherwise.
+- **A work order** is the one the database holds, or the draft the item would start from where it holds
+  none (docs/reading.md, "A work order").
+- No such item is refused `item_absent`, and no such task `task_absent`.
+
+### A room's holdings
+
+| Route | Request | Answer |
+|---|---|---|
+| `GET /rooms/{chat}/holdings` | | `[holdings]` (`RoomHoldings`) |
+
+- What the service holds of a room bmo-receiver is about to remove: the open items filed from it and
+  the questions of its jobs that wait for an answer, each named only where it holds any. The items and
+  the questions filed from it stay and keep the room's chat.
+- When it starts, the service declares itself a holder to bmo-receiver (bmo-receiver, "Room holdings"):
+  `items` and `questions` as `kept`, `open_items` and `waiting_questions` as `warns`. It declares again
+  every minute until bmo-receiver takes it.
+
+### The event stream
+
+| Route | Request | Answer |
+|---|---|---|
+| `GET /events?after=&run=` | | a server-sent event stream |
+
+- **The stream opens** with an event `run` whose data names the run its ids count, then replays every
+  event after `after` where `run` is this run's, every event held where it is not, then goes on as
+  events come. A comment goes between them so the line never stands idle.
+- **An event** is `job` with the event's id, and data: `id`, `at`, `kind` and the fields of its kind:
+  - `queue_moved`, with `detail?` (who moved it);
+  - `order_changed`, with `item` and `order`: its `status`, `phase`, `stage`, `updated_at` and
+    `[tasks]`, each `id`, `state`, `attempt`, `job?`, `model?` and `error?`;
+  - `talk_moved`, with `item`, and `failure?` (an unanswered kind) once the turn ended.
+- Nothing of the stream is kept: the last five hundred events are held in memory, and the ids count the
+  running service's own run.
+
 ## Calls on other units
 
 ### bmo-agency
@@ -1020,7 +1411,7 @@ answers it.
 
 bmo-receiver asks every unit that holds rows naming a room what the room holds before it removes the
 room. A unit declares itself a holder, and bmo-receiver asks it through the unit's own API: for the
-service, its route for the rooms an item belongs to, which answers `RoomHoldings`.
+service, `GET /rooms/{chat}/holdings` ("A room's holdings" above), which answers `RoomHoldings`.
 
 | Call | Method and path | Request | Answer |
 |---|---|---|---|

@@ -12,22 +12,25 @@ use job_codes::chat_health::{FailureFact, RunDeath};
 use job_codes::checkout_holds::{
   CheckoutNote, CheckoutPlace, CheckoutStop, GitFailure, GitStep, LinePlace, ReleaseWait,
 };
-use job_codes::control_answers::ControlRefusal;
+use job_codes::control_answers::{ControlRefusal, FieldForm};
 use job_codes::job_ask::{JobAskAnswer, JobAskRefusal};
 use job_codes::job_ended::{JobEnding, JobFact};
-use job_codes::job_questions::{Lapse, PaneOption, PaneWindow, QuestionFact};
+use job_codes::job_questions::{Lapse, PaneOption, PaneWindow, QuestionAnswer, QuestionFact};
 use job_codes::job_wait::{JobWaitRefusal, WaitTarget};
 use job_codes::providers::ProviderRefusal;
+use job_codes::queue_told::QueueTold;
 use job_codes::room_removal::RoomHoldings;
 use job_codes::run_stop::{RunStopAnswer, RunStopRefusal, StopState, TargetStop};
 use job_codes::span_words::{SpanName, TokenKind};
 use job_codes::talk::{TalkRefusal, Unanswered};
+use job_codes::task::{LaunchNote, TaskAnswer, TaskRefusal};
 use job_codes::todo_blocks::BlockHead;
 use job_codes::todo_reading::{HeldWord, LineMark, ModelMark, QuestionState, RowState};
 use job_codes::todo_verbs::{
   AfterWrong, ClosingPart, EditedPart, FilingPart, ImpactDifference, ResumeCondition, TodoAnswer, TodoFact,
   TodoRefusal, Verdict, WrittenRecord,
 };
+use job_codes::units::UnitRefusal;
 use job_codes::work_lines::{JobLabel, WorkStep};
 use job_codes::work_order_edits::{PlanPart, WorkOrderRefusal};
 use job_codes::work_order_lines::{QueueHold, WorkOrderAnswer};
@@ -61,6 +64,10 @@ fn enums() -> Vec<(&'static str, Names, &'static [&'static str])> {
     ("ControlRefusal", Codes, ControlRefusal::VARIANTS),
     ("BranchSplitRefusal", Codes, BranchSplitRefusal::VARIANTS),
     ("AgentRefusal", Codes, AgentRefusal::VARIANTS),
+    ("UnitRefusal", Codes, UnitRefusal::VARIANTS),
+    ("TaskRefusal", Codes, TaskRefusal::VARIANTS),
+    ("QuestionAnswer", Codes, QuestionAnswer::VARIANTS),
+    ("TaskAnswer", Codes, TaskAnswer::VARIANTS),
     ("RunStopAnswer", Codes, RunStopAnswer::VARIANTS),
     ("TodoAnswer", Codes, TodoAnswer::VARIANTS),
     ("RoomHoldings", Codes, RoomHoldings::VARIANTS),
@@ -106,6 +113,9 @@ fn enums() -> Vec<(&'static str, Names, &'static [&'static str])> {
     ("BlockHead", Kinds, BlockHead::VARIANTS),
     ("WaitTarget", Kinds, WaitTarget::VARIANTS),
     ("JobEnding", Kinds, JobEnding::VARIANTS),
+    ("QueueTold", Kinds, QueueTold::VARIANTS),
+    ("LaunchNote", Kinds, LaunchNote::VARIANTS),
+    ("FieldForm", Kinds, FieldForm::VARIANTS),
   ]
 }
 

@@ -10,6 +10,7 @@
 
 use job_base::{now_ms, one};
 use sea_orm::ConnectionTrait;
+use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::queue::Read;
@@ -263,4 +264,65 @@ pub fn lines(order: &Value, owner: &str) -> Vec<String> {
   ));
 
   out
+}
+
+/// Where a task stands in its order (docs/reading.md, "Where a task stands").
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Place {
+  History { at: usize },
+  Stage { stage: usize, at: usize },
+  Build { at: usize },
+  Control,
+}
+
+/// Every task of the order with where it stands: its earlier rounds, its stages, its build steps and its
+/// control turn, in that order.
+pub fn places(order: &Value) -> Vec<(Place, &Value)> {
+  let history = list(order, "history")
+    .iter()
+    .enumerate()
+    .map(|(at, task)| (Place::History { at }, task));
+  let stages = list(order, "stages").iter().enumerate().flat_map(|(stage, one)| {
+    list(one, "tasks")
+      .iter()
+      .enumerate()
+      .map(move |(at, task)| (Place::Stage { stage, at }, task))
+  });
+  let builds = list(order, "tasks").iter().enumerate().map(|(at, task)| (Place::Build { at }, task));
+  let control = order
+    .get("control")
+    .filter(|control| control.is_object())
+    .map(|task| (Place::Control, task));
+
+  history.chain(stages).chain(builds).chain(control).collect()
+}
+
+/// The first task the order holds under this name, with where it stands.
+pub fn task_named<'a>(order: &'a Value, name: &str) -> Option<(Place, &'a Value)> {
+  places(order).into_iter().find(|(_, task)| text(task, "id") == name)
+}
+
+/// The tasks the order is at now: the present stage's while it researches, the first build step not yet
+/// done or skipped while it builds, and the control turn otherwise.
+pub fn current(order: &Value) -> Vec<(Place, &Value)> {
+  let settled = |task: &Value| matches!(text(task, "state"), "done" | "skipped");
+
+  places(order)
+    .into_iter()
+    .filter(|(place, _)| match text(order, "phase") {
+      "research" => {
+        let present =
+          order.get("stage").and_then(Value::as_u64).and_then(|stage| usize::try_from(stage).ok());
+
+        matches!(place, Place::Stage { stage, .. } if Some(*stage) == present)
+      }
+      "implementation" => {
+        let first = list(order, "tasks").iter().position(|task| !settled(task));
+
+        matches!(place, Place::Build { at } if Some(*at) == first)
+      }
+      _ => *place == Place::Control,
+    })
+    .collect()
 }

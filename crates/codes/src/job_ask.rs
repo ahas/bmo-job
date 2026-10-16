@@ -34,6 +34,10 @@ pub enum JobAskRefusal {
   QuestionTalkSay,
   #[error("the words use terms the owner has set aside: {}", listed(.terms))]
   QuestionBannedTerms { terms: Vec<String> },
+  #[error("there is no question {id}")]
+  QuestionAbsent { id: i64 },
+  #[error("answer with one of the question's options by its number, or with words of your own, not both")]
+  QuestionAnswerWrong,
 }
 
 coded!(JobAskRefusal);
@@ -42,6 +46,7 @@ impl Refused for JobAskRefusal {
   fn status(&self) -> StatusCode {
     match self {
       Self::QuestionTakesNoTalk { .. } => StatusCode::CONFLICT,
+      Self::QuestionAbsent { .. } => StatusCode::NOT_FOUND,
       _ => StatusCode::BAD_REQUEST,
     }
   }

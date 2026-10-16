@@ -1,7 +1,7 @@
 # The workspace: the service's own package at the root, the library base, the codes, the policy loader, the
 # two queue crates and the agency, brain, gate, graph, receiver, testbed and web ports under `crates/` and
-# the migration crate. The root package also holds the repository checks and the ports' contract tests in
-# `tests/`.
+# the migration crate. The root package holds the server and its binary, and in `tests/` the repository
+# checks, the ports' contract tests and the server's request tests.
 [workspace]
 members = [
   "crates/agency",
@@ -28,6 +28,7 @@ publish = false
 [workspace.dependencies]
 axum = { version = "0.8.9", default-features = false, features = ["json"] }
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
+futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 job-agency = { path = "crates/agency" }
 job-base = { path = "crates/base" }
 job-brain = { path = "crates/brain" }
@@ -52,6 +53,7 @@ strum = { version = "0.28.0", features = ["derive"] }
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 tokio = { version = "1.53.2", features = ["macros", "rt"] }
+tokio-stream = { version = "0.1.19", default-features = false, features = ["sync"] }
 toml = { version = "0.8.23", default-features = false, features = ["parse"] }
 url = "2.5.8"
 
@@ -62,23 +64,38 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "bmo-job"
+path = "src/bin/bmo-job.rs"
+
 [dependencies]
+axum = { workspace = true, features = ["http1", "multipart", "query", "tokio"] }
+futures-util.workspace = true
+job-agency.workspace = true
 job-base.workspace = true
+job-codes.workspace = true
+job-gate.workspace = true
+job-policy.workspace = true
+job-receiver.workspace = true
+migration.workspace = true
+queue-read.workspace = true
+sea-orm.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-stream.workspace = true
 
 [dev-dependencies]
 # The ports' contract tests run each against a stand-in: an in-process server on loopback for an HTTP
-# port, and a stand-in program in a scratch directory for the testbed's.
+# port, and a stand-in program in a scratch directory for the testbed's. The server's request tests run
+# it on loopback over a scratch database, beside the stand-ins of the units it calls.
 axum = { workspace = true, features = ["http1", "matched-path", "tokio"] }
-job-agency.workspace = true
 job-brain.workspace = true
-job-codes.workspace = true
-job-gate.workspace = true
 job-graph.workspace = true
-job-receiver.workspace = true
 job-testbed.workspace = true
 job-web.workspace = true
-serde_json.workspace = true
+reqwest = { workspace = true, features = ["multipart", "stream"] }
 tempfile.workspace = true
-tokio = { workspace = true, features = ["net"] }
 toml.workspace = true
 url.workspace = true

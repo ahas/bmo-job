@@ -32,13 +32,16 @@ pub mod job_ended;
 pub mod job_questions;
 pub mod job_wait;
 pub mod providers;
+pub mod queue_told;
 pub mod room_removal;
 pub mod run_stop;
 pub mod span_words;
 pub mod talk;
+pub mod task;
 pub mod todo_blocks;
 pub mod todo_reading;
 pub mod todo_verbs;
+pub mod units;
 pub mod work_lines;
 pub mod work_order_edits;
 pub mod work_order_lines;
@@ -48,16 +51,19 @@ pub use agents::AgentRefusal;
 pub use branch_split::BranchSplitRefusal;
 pub use chat_health::FailureFact;
 pub use checkout_holds::CheckoutStop;
-pub use control_answers::ControlRefusal;
+pub use control_answers::{ControlRefusal, FieldForm};
 pub use job_ask::{JobAskAnswer, JobAskRefusal};
 pub use job_ended::JobFact;
-pub use job_questions::QuestionFact;
+pub use job_questions::{QuestionAnswer, QuestionFact};
 pub use job_wait::JobWaitRefusal;
 pub use providers::ProviderRefusal;
+pub use queue_told::QueueTold;
 pub use room_removal::RoomHoldings;
 pub use run_stop::{RunStopAnswer, RunStopRefusal};
 pub use talk::TalkRefusal;
+pub use task::{LaunchNote, TaskAnswer, TaskRefusal};
 pub use todo_verbs::{TodoAnswer, TodoFact, TodoRefusal};
+pub use units::UnitRefusal;
 pub use work_order_edits::WorkOrderRefusal;
 pub use work_order_lines::WorkOrderAnswer;
 pub use work_order_stops::WorkOrderStop;
@@ -96,7 +102,11 @@ pub enum JobError {
   #[error(transparent)]
   Talk(#[from] TalkRefusal),
   #[error(transparent)]
+  Task(#[from] TaskRefusal),
+  #[error(transparent)]
   Todo(#[from] TodoRefusal),
+  #[error(transparent)]
+  Unit(#[from] UnitRefusal),
   #[error(transparent)]
   WorkOrder(#[from] WorkOrderRefusal),
 }
@@ -112,7 +122,9 @@ impl JobError {
       Self::Provider(refusal) => refusal,
       Self::RunStop(refusal) => refusal,
       Self::Talk(refusal) => refusal,
+      Self::Task(refusal) => refusal,
       Self::Todo(refusal) => refusal,
+      Self::Unit(refusal) => refusal,
       Self::WorkOrder(refusal) => refusal,
     }
   }

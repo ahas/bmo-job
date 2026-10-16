@@ -3,7 +3,7 @@
 //! carries the paragraph it was told. A caller asking about an order wants where it stands, so the lines are
 //! that answer and `--json` is the structure.
 
-use queue_read::work_order::{TASK_HEAD_CHARS, draft, is_order, lines};
+use queue_read::work_order::{Place, TASK_HEAD_CHARS, current, draft, is_order, lines, places, task_named};
 use serde_json::{Value, json};
 
 const INTENT: &str = "Why this work is done.";
@@ -235,4 +235,44 @@ fn an_order_handed_back_is_read_as_one_and_anything_short_of_one_is_not() {
   assert!(!is_order(&without("stages", Value::Null)));
   assert!(!is_order(&without("error", json!(7))));
   assert!(!is_order(&no_intent));
+}
+
+// Where a task stands is what a caller names it by, and the tasks an order is at now follow its phase.
+#[test]
+fn a_task_is_placed_and_the_order_is_at_its_phases_tasks() {
+  let stage = |tasks: Vec<Value>| json!({ "title": "Look", "tasks": tasks });
+  let researching = order(json!({
+    "phase": "research", "stage": 1,
+    "history": [done(task("old-1", "scout", "Earlier.", None))],
+    "stages": [stage(vec![done(task("s-0", "scout", "First.", None))]),
+      stage(vec![task("s-1", "scout", "Second.", None), task("s-2", "scout", "Third.", None)])],
+    "tasks": [done(task("build-0", "builder", "Made.", None)), task("build-1", "builder", "Make.", None)],
+    "control": task("plan", "builder", "Plan.", None),
+  }));
+  let building = order(json!({ "phase": "implementation", "tasks": researching["tasks"].clone() }));
+  let planning = order(json!({ "phase": "planning", "control": task("plan", "builder", "Plan.", None) }));
+  let placed = |order: &Value| current(order).into_iter().map(|(place, _)| place).collect::<Vec<_>>();
+
+  assert_eq!(places(&researching).len(), 7);
+  assert_eq!(
+    task_named(&researching, "old-1").map(|(place, _)| place),
+    Some(Place::History { at: 0 })
+  );
+  assert_eq!(
+    task_named(&researching, "s-2").map(|(place, _)| place),
+    Some(Place::Stage { stage: 1, at: 1 })
+  );
+  assert_eq!(task_named(&researching, "plan").map(|(place, _)| place), Some(Place::Control));
+  assert!(task_named(&researching, "build-9").is_none());
+  assert_eq!(
+    placed(&researching),
+    [Place::Stage { stage: 1, at: 0 }, Place::Stage { stage: 1, at: 1 }]
+  );
+  assert_eq!(placed(&building), [Place::Build { at: 1 }]);
+  assert_eq!(placed(&planning), [Place::Control]);
+  assert_eq!(placed(&draft(1, INTENT, INSTRUCTION)), []);
+  assert_eq!(
+    serde_json::to_value(Place::Stage { stage: 1, at: 0 }).unwrap(),
+    json!({ "kind": "stage", "stage": 1, "at": 0 })
+  );
 }

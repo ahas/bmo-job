@@ -11,13 +11,18 @@ use crate::Refused;
 pub enum TalkRefusal {
   #[error("the first word is still being answered")]
   TalkBusy,
+  #[error("there is no item {id} to talk about")]
+  TalkItemAbsent { id: i64 },
 }
 
 coded!(TalkRefusal);
 
 impl Refused for TalkRefusal {
   fn status(&self) -> StatusCode {
-    StatusCode::CONFLICT
+    match self {
+      Self::TalkBusy => StatusCode::CONFLICT,
+      Self::TalkItemAbsent { .. } => StatusCode::NOT_FOUND,
+    }
   }
 }
 

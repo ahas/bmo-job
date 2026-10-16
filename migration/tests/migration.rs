@@ -20,7 +20,7 @@ receiver_unit = "receiver"
 "#;
 
 /// The tables the migrations make.
-const TABLES: [&str; 19] = [
+const TABLES: [&str; 20] = [
   "branch_agents",
   "checkout_leases",
   "clock_holds",
@@ -36,6 +36,7 @@ const TABLES: [&str; 19] = [
   "todo_approvals",
   "todo_notes",
   "todo_sources",
+  "todo_talk",
   "todos",
   "work_order_locks",
   "work_orders",
@@ -46,7 +47,7 @@ const TABLES: [&str; 19] = [
 const RECORD: &str = "seaql_migrations";
 
 /// The indexes the migrations make, besides those of the keys.
-const INDEXES: [&str; 19] = [
+const INDEXES: [&str; 20] = [
   "job_questions_open",
   "job_spans_job",
   "job_spans_todo",
@@ -62,6 +63,7 @@ const INDEXES: [&str; 19] = [
   "todo_approvals_item",
   "todo_notes_item",
   "todo_sources_source",
+  "todo_talk_item",
   "todos_merged_into",
   "todos_queue",
   "todos_repairs_todo_id",

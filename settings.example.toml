@@ -1,5 +1,5 @@
 # The service's settings (docs/settings.md). A deployment copies this file to `settings.toml`, which
-# git ignores, and gives its own database and names.
+# git ignores, and gives its own database, names and addresses.
 
 [database]
 url = "sqlite://job.db?mode=rwc"
@@ -10,3 +10,13 @@ agent_name = "Agent"
 agent_key = "agent"
 sender_name = "Agent"
 receiver_unit = "receiver"
+
+[server]
+listen = "127.0.0.1:7841"
+address = "http://127.0.0.1:7841"
+unit = "job"
+
+[units]
+agency = "http://127.0.0.1:7842"
+gate = "http://127.0.0.1:7843"
+receiver = "http://127.0.0.1:7844"

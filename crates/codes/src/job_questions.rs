@@ -98,3 +98,28 @@ pub enum PaneOption {
   Close,
   Leave,
 }
+
+/// What the owner's answer to a question, or a stop or start of its clock, came to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, IntoStaticStr, VariantNames)]
+#[serde(tag = "code", rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum QuestionAnswer {
+  QuestionSettled,
+  QuestionSettledAlready {
+    settled_by: Option<String>,
+    answer: Option<String>,
+  },
+  QuestionPaused(QuestionClock),
+  QuestionResumed(QuestionClock),
+  QuestionPausedAlready(QuestionClock),
+  QuestionNotPaused(QuestionClock),
+}
+
+coded!(QuestionAnswer);
+
+/// Where a question's clock stands: what was left of its wait while it is stopped, and when it is due.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuestionClock {
+  pub paused_left: Option<i64>,
+  pub due_at: Option<i64>,
+}

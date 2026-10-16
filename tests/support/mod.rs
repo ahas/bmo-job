@@ -10,6 +10,7 @@ pub mod brain;
 pub mod gate;
 pub mod graph;
 pub mod receiver;
+pub mod server;
 pub mod stub;
 pub mod testbed;
 pub mod web;

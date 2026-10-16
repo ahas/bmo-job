@@ -13,9 +13,10 @@ code: the database it keeps its rows in and the names it says and records come f
 
 ## What the file holds
 
-The file holds three sections: `[database]` and `[deployment]`, both required, and `[words]`, which
-may be left out. A key the service does not know is refused, so a misspelt setting fails at start
-rather than standing silently at a default.
+The file holds five sections: `[database]` and `[deployment]`, both required; `[server]` and `[units]`,
+which the server requires and the libraries read without; and `[words]`, which may be left out. A key
+the service does not know is refused, so a misspelt setting fails at start rather than standing
+silently at a default.
 
 ### `[database]`
 
@@ -44,6 +45,29 @@ reads:
 
 Every key is required and none may be empty.
 
+### `[server]`
+
+Where the server stands (docs/api.md, "Routes"):
+
+| Key | What it names |
+|---|---|
+| `listen` | The socket address the server binds, such as `127.0.0.1:7841` |
+| `address` | The `http:` address other units reach the server at, which it gives bmo-receiver as a holder's |
+| `unit` | The service unit the server runs as, which it declares itself a holder under |
+
+### `[units]`
+
+The `http:` address of each unit the server calls on (docs/api.md, "Calls on other units"):
+
+| Key | The unit |
+|---|---|
+| `agency` | bmo-agency, whose provider order a reading of an item's model is read against |
+| `gate` | bmo-gate, whose kept English a worker's reading carries |
+| `receiver` | bmo-receiver, which the server declares itself a holder to and hands an item's talk |
+
+Every key of both sections is required where the section stands. An address that is not `http:` is
+refused when the file is loaded.
+
 ### `[words]`
 
 The words of the deployment's own language that the service's policy reads and writes by, one table to
@@ -59,4 +83,7 @@ A load that fails names the file and one of these:
 - the file cannot be read;
 - the file is not TOML of this shape: a section or a key is missing, unknown or of the wrong type;
 - the database address is of a kind the service does not keep rows in;
-- a deployment name is empty.
+- a deployment name is empty;
+- a listening address is not a socket address, or a unit's address or the server's own is not `http:`.
+
+The server also refuses to start where `[server]` or `[units]` is left out.

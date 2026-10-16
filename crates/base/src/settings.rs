@@ -20,6 +20,10 @@ pub const DEFAULT_FILE: &str = "settings.toml";
 pub struct Settings {
   pub database: DatabaseSettings,
   pub deployment: Deployment,
+  /// The `[server]` section, which the server requires and the libraries read without.
+  pub server: Option<ServerSettings>,
+  /// The `[units]` section, which the server requires and the libraries read without.
+  pub units: Option<Units>,
   /// The `[words]` section: the deployment's own words, one table to a policy part, which the policy
   /// reads and refuses at its own load where no part takes them; empty where the section is left out.
   #[serde(default)]
@@ -47,6 +51,49 @@ pub struct Deployment {
   pub sender_name: Name,
   /// The service unit the chat receiver runs as.
   pub receiver_unit: Name,
+}
+
+/// The `[server]` section: where the server stands.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServerSettings {
+  /// The socket address the server binds.
+  pub listen: std::net::SocketAddr,
+  /// The address other units reach the server at.
+  pub address: HttpAddress,
+  /// The service unit the server runs as.
+  pub unit: Name,
+}
+
+/// The `[units]` section: the address of each unit the server calls on.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Units {
+  pub agency: HttpAddress,
+  pub gate: HttpAddress,
+  pub receiver: HttpAddress,
+}
+
+/// An `http:` address a path can be added to.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "String")]
+pub struct HttpAddress(url::Url);
+
+impl HttpAddress {
+  pub fn url(&self) -> &url::Url {
+    &self.0
+  }
+}
+
+impl TryFrom<String> for HttpAddress {
+  type Error = String;
+
+  fn try_from(text: String) -> Result<Self, String> {
+    match url::Url::parse(&text) {
+      Ok(read) if read.scheme() == "http" && !read.cannot_be_a_base() => Ok(Self(read)),
+      _ => Err(format!("`{text}` is not an http address")),
+    }
+  }
 }
 
 /// Why the settings file did not load.
