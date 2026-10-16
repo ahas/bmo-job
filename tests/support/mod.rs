@@ -1,7 +1,10 @@
-//! What the repository checks share: the root, and the walk over the files they read.
+//! What the root package's tests share: the root and the walk over the files the repository checks read,
+//! and the stand-in for bmo-agency the agency port's contract tests call.
 
 // Each test file is its own crate and uses only part of this module.
 #![allow(dead_code)]
+
+pub mod agency;
 
 use std::fs;
 use std::path::{Path, PathBuf};

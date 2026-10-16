@@ -688,3 +688,205 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 | `stopped` | | a person stopped it |
 | `unanswered` | | the agent reported it could not finish its answer |
 | `blocked` | | the run stopped waiting on something a person answers |
+
+## Calls on other units
+
+### bmo-agency
+
+Agent sessions, the executions and runs they make, the log they write, the workers' runtime, routes and
+the co-worker pool, the nodes, Claude accounts, the machine's room and the places work stands in are
+bmo-agency's. The service reaches all of them through the calls below and nothing else. The crate
+`job-agency` holds them: the trait `Agency` declares every call, and `AgencyClient` makes them over
+HTTP to the address it is given.
+
+- **The address** is the base of every path below, a plain `http:` address of bmo-agency on the
+  machine. An address of any other kind is refused when the client is made.
+- **A body is JSON, both ways,** with snake_case keys. A time is epoch milliseconds, a count and a
+  token count are whole numbers, and a field written with a question mark may be null.
+- **A path segment is an id as it stands,** percent-encoded where it needs to be.
+- **An answer with no body is 204.** An answer with a body is 200, or 201 where the call creates
+  something.
+- **A read of one thing by its id answers 404 where it does not exist,** and the client reads that as
+  nothing found, not as a failure.
+- **Any other refusal** carries the body of "A refused request": `error` and `code`. The client hands
+  both on as they stand, with the status, and decides nothing on the sentence.
+- **A call that does not reach bmo-agency,** or an answer that does not read as its shape, is a failure
+  of the call naming which call it was.
+
+#### Sessions
+
+A session is one agent's conversation on a provider, started for the agent itself, for a room or for a
+worker. bmo-agency keeps it; the service starts, feeds, reads and ends it.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Start a session | `POST /sessions` | `agent`, `scope` | 201, a session |
+| Send a turn | `POST /sessions/{id}/turns` | `prompt` | `delivery`: `taken`, or `blocked` where the session cannot take a turn now |
+| Read its state | `GET /sessions/{id}/state` | | a session's state |
+| Read its output | `GET /sessions/{id}/output` | | `session`, `generation`, `text`: what the session has written in its latest turn so far |
+| Interrupt it | `POST /sessions/{id}/interrupt` | | 204 |
+| Fold it | `POST /sessions/{id}/fold` | | 204 |
+| End it | `DELETE /sessions/{id}` | | 204 |
+| List the sessions | `GET /sessions` | | a list of sessions |
+
+- **A scope** is an object holding `kind`: `agent`, `worker`, or `room` with the field `room`.
+- **A session:** `id`, `agent`, `scope`.
+- **A session's state:** `session`, `provider`, `model`, `place`, `generation` (how many times it has
+  started over), and `context?`, which holds `carried` and `window`: the tokens it carries and the most
+  it may.
+- A turn, an interrupt, a fold or an end on a session that does not exist is refused with 404, and a
+  turn to a session busy with another is refused with 409.
+
+#### Executions
+
+An execution is one run of an agent's process that bmo-agency launched and records. The service reads
+them, and asks one cancelled where a job it carries is stopped.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| List the executions | `GET /executions?open={true or false}` | | a list of executions: only those not yet ended where `open` is true |
+| Read one | `GET /executions/{id}` | | an execution |
+| Ask it cancelled | `POST /executions/{id}/cancel` | | 204 |
+| Drop the cancels it covers | `DELETE /executions/{id}/cancel` | | `dropped`: the list of executions whose asked cancel was dropped |
+
+- **An execution:** `id`, `parent?`, `root?`, `line?`, `shared_pane` (true where it runs in a pane it
+  shares), `started_at?`, `ended_at?`, `outcome?` (the outcome it recorded as it ended, as an object),
+  and `details`: an object of every other field bmo-agency records of it, handed on as it stands.
+- **The executions one covers** are itself, every execution whose parent chain leads to it, and every
+  one whose `root` is it. A cancel stays asked until it is dropped.
+
+#### Runs
+
+A run is one entry of the run ledger: an agent's unit started, how deep it was, and how it ended.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Open a run | `POST /runs` | a run's opening | 201, `id` |
+| Close a run | `POST /runs/{id}/close` | `finished_at`, `outcome`, `context_tokens?` | 204 |
+| Read a run | `GET /runs/{id}` | | a run |
+
+- **A run's opening:** `agent`, `chat_id?`, `unit`, `depth`, `cap_ms?`, `started_at`, `started_by?`,
+  `search_id?`.
+- **A run:** `id`, `agent`, `chat_id?`, `unit`, `depth`, `started_at`, `finished_at?`, `outcome?`,
+  `context_tokens?`.
+- A run already closed keeps its closing, and is refused with 409.
+
+#### The agent log
+
+The log is every line an agent's run wrote: its starts, turns, tool calls and their results. The service
+reads it to count a run's starts and to tell what a job's run has done.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Count a run's starts | `GET /log/starts?agent={agent}&run={run}` | | `count` |
+| Read a job's last line | `GET /log/jobs/{job}/last` | | `id`, `at`, `kind`, `name?` |
+| Read a job's lines | `GET /log/jobs/{job}` | | a job's lines |
+
+- **A job's lines:**
+  - `calls`: each top-level tool call, as `id`, `agent`, `run?`, `reference?`, `name`, `source?`, `at`,
+    `command?` (the command it ran, where it ran one) and `args?` (its arguments, cut to 2000
+    characters);
+  - `results`: each tool result, as `id`, `agent`, `run?`, `reference?`, `complete` (false where the
+    result was cut), `length?` and `at`;
+  - `requests`: how many model requests the job's run made;
+  - `compactions`: how many times its context was compacted.
+- A job with no line answers 404 to its last line and empty lists to its lines.
+
+#### Workers' runtime
+
+A worker's runtime is what bmo-agency holds of it as it runs: the provider and model it is pinned to,
+whether its keepalive is paused, and the context it last carried.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Read a worker's runtime | `GET /workers/{worker}/runtime` | | `worker`, `pin?`, `keepalive_paused_at?`, `context_tokens?` |
+| Pin it | `PUT /workers/{worker}/pin` | a pin | 204 |
+| Unpin it | `DELETE /workers/{worker}/pin` | | 204 |
+| Pause its keepalive | `PUT /workers/{worker}/keepalive-pause` | `at` | 204 |
+| Resume its keepalive | `DELETE /workers/{worker}/keepalive-pause` | | 204 |
+| Record its context | `PUT /workers/{worker}/context-tokens` | `tokens` | 204 |
+
+- **A pin:** `provider` and `model?`; a pin with no model leaves the model to the route.
+- **The pin read is the one in force:** a support worker with no pin of its own is answered its base
+  worker's.
+
+#### Routes, tiers and pins
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| List the providers | `GET /providers` | | a list of `name`, `enabled`, `registered`, `lines` (the work lines it carries) |
+| List the tiers | `GET /tiers` | | a list of `name`, `coworker` (true where a co-worker may run at it) |
+| Resolve a route | `POST /routes/resolve` | `work_key`, `provider?`, `tier` | `provider`, `tier`, `model`, `effort?`, `answer_tokens?`; 404 where no route serves it |
+| Check a pin | `POST /pins/check` | `value` | a pin choice |
+
+- **A pin's value** is `auto`, a provider's name, or a provider and a model joined by `::`.
+- **A pin choice** is an object holding `kind`: `auto`, or `pinned` with the fields of a pin. A value
+  that names no provider that is on, or a model with no address, is refused with 400.
+
+#### The co-worker pool
+
+The pool holds every request for a co-worker's place and every reservation of seats, and leases places
+as the tiers' capacity allows.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Enqueue a request | `POST /pool/requests` | a pool request's asking | 201, a pool request |
+| Read a request | `GET /pool/requests/{token}` | | a pool request |
+| List open requests | `GET /pool/requests?owner={owner}` | | a list of pool requests waiting or active; the owner may be left out |
+| Lease its place | `POST /pool/requests/{token}/lease` | | a pool request, active where a place was leased |
+| Bind its child | `POST /pool/requests/{token}/bind` | `child` | a pool request |
+| Finish it | `POST /pool/requests/{token}/finish` | `outcome`, `cancel` | `finished`: false where it had already ended |
+| Reserve seats | `POST /pool/reservations` | a reservation's asking | 201, a reservation |
+| List held reservations | `GET /pool/reservations?owner={owner}` | | a list of reservations held; the owner may be left out |
+| Release a reservation | `POST /pool/reservations/{token}/release` | `reason` | `released`: false where it was no longer held |
+| Record a place's write | `PUT /pool/places/{place}/write` | `provider`, `model`, `effort?`, `upstream?` | 204 |
+
+- **A pool request's asking:** `request_key`, `owner`, `source`, `role`, `work_key`, `provider`,
+  `model`, `effort?`, `tier`, `yielding`, `place_key?`, `turn`, `reservation?`.
+- **A pool request:** the asking's fields, and `token`, `state` (`waiting`, `active` or `ended`),
+  `enqueued_at`, `leased_at?`, `child?`, `ended_at?` and `outcome?`.
+- **A reservation's asking:** `reservation_key`, `owner`, `source`, `role`, `provider`, `model`,
+  `effort?`, `tier`, `wanted` (how many seats).
+- **A reservation:** the asking's fields, and `token`, `state` (`held` or `released`) and
+  `created_at`.
+- **Cancel** finishes a request still waiting without its having run; a request that conflicts with
+  the pool's present state is refused with 409.
+
+#### Nodes
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| List the nodes | `GET /nodes` | | a list of `name`, `label`, `kind`, `role?`, `state`, `checked_at?` |
+| Read a node's SSH reach | `GET /nodes/{name}/reach` | | `host`, `port`, `user`, `key_path?`, `shell?` |
+| Place a heavy run | `POST /nodes/heavy-run` | | `machine?`: `name`, `label`, `node?`, the machine the next heavy run goes to, null where none has room |
+
+- Placing a heavy run moves the rotation on, so each call may answer the next machine.
+
+#### Claude accounts
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Check a requester's account | `GET /accounts/claude/held?user={user}` | | `held`: true where an enabled Claude account is held by the user |
+
+#### The machine's room
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Read the room on the machine | `GET /machine/room` | | the room |
+| Tell launches are held | `PUT /machine/launch-held` | `at`, `held` | 204 |
+
+- **The room:** `held` (why launches are held now, empty where there is room), `jobs`,
+  `browser_jobs`, `browsers`, and `details`: an object of every other reading of the machine,
+  handed on as it stands.
+- **Launches held:** the service records them under its own setting `machine_launch_held` and tells
+  bmo-agency the reasons. bmo-agency watches the machine, and once the room returns it forgets the
+  notice and tells the queue through the service's own API. A notice with an empty `held` withdraws it.
+
+#### Places
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Read a worker's workbench | `GET /places/workbench/{worker}` | | `root`, `scratches` (the item scratch directories under it) |
+| Read a pool's branch slots | `GET /places/branch-slots/{pool}` | | `root`, `slots`: a list of `slot` and `dir` |
+
+- A path answered is absolute on the machine the service runs on.

@@ -1,8 +1,16 @@
-# The workspace: the service's own package at the root, the library base, the codes, the policy loader and
-# the two queue crates under `crates/` and the migration crate. The root package also holds the repository checks
-# in `tests/`.
+# The workspace: the service's own package at the root, the library base, the codes, the policy loader, the
+# two queue crates and the agency port under `crates/` and the migration crate. The root package also holds
+# the repository checks and the agency port's contract tests in `tests/`.
 [workspace]
-members = ["crates/base", "crates/codes", "crates/policy", "crates/queue-read", "crates/queue-rows", "migration"]
+members = [
+  "crates/agency",
+  "crates/base",
+  "crates/codes",
+  "crates/policy",
+  "crates/queue-read",
+  "crates/queue-rows",
+  "migration",
+]
 resolver = "3"
 
 [workspace.package]
@@ -13,11 +21,13 @@ publish = false
 [workspace.dependencies]
 axum = { version = "0.8.9", default-features = false, features = ["json"] }
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
+job-agency = { path = "crates/agency" }
 job-base = { path = "crates/base" }
 job-codes = { path = "crates/codes" }
 job-policy = { path = "crates/policy" }
 pulldown-cmark = { version = "0.13.4", default-features = false }
 regex = "1.13.1"
+reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 sea-orm = { version = "1.1.20", default-features = false, features = ["runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite"] }
 sea-orm-migration = { version = "1.1.20", default-features = false, features = ["runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite"] }
 serde = { version = "1.0.219", features = ["derive"] }
@@ -41,4 +51,10 @@ publish.workspace = true
 job-base.workspace = true
 
 [dev-dependencies]
+# The agency port's contract tests run it against an in-process stand-in served over loopback.
+axum = { workspace = true, features = ["http1", "matched-path", "tokio"] }
+job-agency.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["net"] }
 toml.workspace = true
+url.workspace = true
