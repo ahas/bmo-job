@@ -29,6 +29,7 @@ At the root stand the Cargo workspace manifest, the version, `testbed.toml`, `ru
 | `docs/settings.md` | The settings file: the database, the deployment's names and its words |
 | `docs/policy.md` | The policy: the parts under `policy/`, their marks, patterns and words, and how they load |
 | `docs/schema.md` | The schema: the tables the service owns, the rules they keep, and the migrations |
+| `docs/rows.md` | Writing the queue: an item filed, added to, approved, weighed, merged and closed, the closing's readings of its unfinished note, and a work order's lock |
 | `docs/reading.md` | Reading the queue: an item as a person and as a worker reads it, the time it took, a room's jobs and a work order |
 | `docs/checks.md` | The repository checks: no Hangul in code or tests, the layout, the dependencies |
 

@@ -1,0 +1,72 @@
+{
+  "report": [
+    "Owner, job 758 is finished.",
+    "",
+    "Fixed",
+    "1. Built the fragment table.",
+    "",
+    "Left",
+    "1. Commit 57fbb71b waits to go live.",
+    "2. Re-measuring the real turns with reference-waste after the deploy would be better.",
+    "3. Changing the launch line is up to Owner to decide, so it stays as it is.",
+    "4. The brain hold stands for the job and lets go once it ends.",
+    "",
+    "Measured runs (kept by the live-Claude guard)",
+    "1. Data collection: 0 real Claude runs",
+    "",
+    "1 done · 591 tests passed"
+  ],
+  "left": [
+    "Commit 57fbb71b waits to go live.",
+    "Re-measuring the real turns with reference-waste after the deploy would be better.",
+    "Changing the launch line is up to Owner to decide, so it stays as it is.",
+    "The brain hold stands for the job and lets go once it ends."
+  ],
+  "no_section": "Fixed\n1. One line\n\n1 done",
+  "dressed": { "report": "**Left**\n1. One\n2. Two", "left": ["One", "Two"] },
+  "proposing": [
+    "Re-measuring the real turns with reference-waste after the deploy would be better.",
+    "Changing the launch line is up to Owner to decide.",
+    "The next job should change the index.",
+    "I propose splitting the cache in two.",
+    "The editor could also be given a search tool."
+  ],
+  "not_proposing": [
+    "Commit 57fbb71b waits to go live.",
+    "The brain hold stands for the job and lets go once it ends.",
+    "Cleaning up the index is beyond the item, so it was raised as #771.",
+    "Registering the Teams app takes Owner's account, so it is Owner's share.",
+    "The screen colour is Owner's own taste, so both options were asked."
+  ],
+  "refused": {
+    "unfinished": "1. Owner share: Decide whether to improve it in a later job.\n2. Agent share: Replace the pve disk.",
+    "named": ["would be better", "up to Owner to decide", "in a later job"],
+    "not_named": ["waits to go live", "Replace the pve disk"]
+  },
+  "unchecked": {
+    "left_undone": [
+      "1. RAM module details need root, so they were not read.",
+      "2. The ten-minute limit was checked only by a unit test.",
+      "Whether the engine supports RPC is unconfirmed.",
+      "The console screen was not checked.",
+      "Owner share: The H.264 frame rate in the session was not measured."
+    ],
+    "settled": [
+      "1. RAM read with dmidecode under sudo: 4 x 16 GB DDR4 at 2666 MT/s on each node.",
+      "The 10 GbE link was not measured: the NIC is not yet in the lab.",
+      "Teams app registration was not tested: only the owner holds the tenant's admin.",
+      "Owner share: The H.264 frame rate in the session was not measured: the remote login takes Owner's own password.",
+      "The closing now refuses a line saying `not checked`.",
+      "Ran the suite: 600 tests passed."
+    ]
+  },
+  "owner_strands": {
+    "unfinished": "1. Owner share: fs.inotify.max_user_instances was raised to 512 at run time with `sudo sysctl -w`; a sysctl.d entry keeps it past a reboot.\n2. Owner share: Install openssh-server on the node and enable it.\n3. Owner share: Write the mount into fstab so it stays after a reboot.\n4. Owner share: Pick the voice; the choice is a matter of taste.\n5. Owner share: The WSL machine needs sshd installed, and only Owner can reach that PC.\n6. Owner share: Type the router's admin password at its login page.\n7. Agent share: Restart the n2 mount.\n8. Owner share: Decide whether old finished items keep their record.",
+    "host": [
+      "fs.inotify.max_user_instances was raised to 512 at run time with `sudo sysctl -w`; a sysctl.d entry keeps it past a reboot.",
+      "Install openssh-server on the node and enable it.",
+      "Write the mount into fstab so it stays after a reboot."
+    ]
+  },
+  "facts": { "report": "Left\n1. Commit abc waits to go live.", "unfinished": "1. Agent share: Open the router's port forward." }
+}

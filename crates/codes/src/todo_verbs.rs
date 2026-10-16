@@ -77,6 +77,36 @@ pub enum TodoRefusal {
   BriefEmpty,
   #[error("a brief and its change are written in English")]
   BriefNotEnglish,
+  #[error("no item answers to {selector}")]
+  NoSuchItem { selector: String },
+  #[error("item {id} is merged into item {into}, so its work goes there")]
+  ItemMerged { id: i64, into: i64 },
+  #[error("item {id} is finished, so what is written on it reaches nobody")]
+  ItemClosedAlready { id: i64 },
+  #[error("words are taken back by the number of their note")]
+  NoteNeedsNumber,
+  #[error("item {id} has no standing words numbered {note}")]
+  NoSuchNote { id: i64, note: i64 },
+  #[error("a row raised on judgement takes no part of a conversation: {}", listed(.parts))]
+  JudgementWithConversation { parts: Vec<FilingPart> },
+  #[error("the judgement is the row's reason for being and cannot be empty")]
+  JudgementEmpty,
+  #[error("a row raised on judgement names the item whose work raised it")]
+  RaisedByNeeded,
+  #[error("{given} is not an item")]
+  RaisedByNotItem { given: String },
+  #[error("the strands a row came out of are written as item:strand, comma-separated")]
+  FromTodoUnread,
+  #[error("{id} is not an item")]
+  SourceNotItem { id: i64 },
+  #[error("item {id} left no unfinished note to raise a row out of")]
+  SourceLeftNothing { id: i64 },
+  #[error("item {id} left {strands} strands in its unfinished note; name the one the row takes up")]
+  StrandNotNamed { id: i64, strands: u32 },
+  #[error("item {id} has no strand {strand} in its unfinished note; it has {strands}")]
+  NoSuchStrand { id: i64, strand: u32, strands: u32 },
+  #[error("message {message} is not kept in room {chat}")]
+  MessageNotArchived { chat: i64, message: i64 },
 }
 
 coded!(TodoRefusal);
@@ -89,7 +119,16 @@ impl Refused for TodoRefusal {
       | Self::CommitNotOnMain { .. }
       | Self::CommitAlreadyLive { .. }
       | Self::NoDeployHold
-      | Self::StopHereClosed { .. } => StatusCode::CONFLICT,
+      | Self::StopHereClosed { .. }
+      | Self::ItemMerged { .. }
+      | Self::ItemClosedAlready { .. }
+      | Self::SourceLeftNothing { .. } => StatusCode::CONFLICT,
+      Self::NoSuchItem { .. }
+      | Self::NoSuchNote { .. }
+      | Self::RaisedByNotItem { .. }
+      | Self::SourceNotItem { .. }
+      | Self::NoSuchStrand { .. }
+      | Self::MessageNotArchived { .. } => StatusCode::NOT_FOUND,
       _ => StatusCode::BAD_REQUEST,
     }
   }
@@ -186,6 +225,9 @@ pub enum TodoAnswer {
     id: i64,
     noted: bool,
   },
+  ItemUnapproved {
+    id: i64,
+  },
   WorkerCleared {
     id: i64,
     title: String,
@@ -235,7 +277,8 @@ pub enum TodoAnswer {
     id: i64,
     title: String,
     cowork: bool,
-    clip: bool,
+    /// The first message the item was filed out of, on one line and cut where it runs long.
+    clip: String,
   },
   ItemRaised {
     id: i64,

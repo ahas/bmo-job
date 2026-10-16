@@ -1407,6 +1407,23 @@ dependencies = [
 [[package]]
 name = "queue-rows"
 version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "job-agency",
+ "job-base",
+ "job-brain",
+ "job-codes",
+ "job-policy",
+ "job-receiver",
+ "migration",
+ "queue-read",
+ "regex",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
 
 [[package]]
 name = "quote"

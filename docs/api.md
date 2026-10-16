@@ -186,6 +186,21 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 | `brief_needs_change` | 400 | | a brief comes without what changed |
 | `brief_empty` | 400 | | a brief is empty |
 | `brief_not_english` | 400 | | a brief or its change is not in English |
+| `no_such_item` | 404 | `selector` | no item answers to the number or the unfinished title named |
+| `item_merged` | 409 | `id`, `into` | the item is merged into another, so what is written goes there |
+| `item_closed_already` | 409 | `id` | the item is finished, so what is written on it reaches nobody |
+| `note_needs_number` | 400 | | words are taken back by anything but their note's number |
+| `no_such_note` | 404 | `id`, `note` | the item has no standing words of that number |
+| `judgement_with_conversation` | 400 | `[parts]` (filing parts) | a row raised on judgement names a part of a conversation |
+| `judgement_empty` | 400 | | the judgement is empty |
+| `raised_by_needed` | 400 | | a row raised on judgement names no item whose work raised it |
+| `raised_by_not_item` | 404 | `given` | the item named as raising the row is none |
+| `from_todo_unread` | 400 | | the strands a row came out of are not written as item and strand |
+| `source_not_item` | 404 | `id` | an item a row came out of is none |
+| `source_left_nothing` | 409 | `id` | an item a row came out of left no unfinished note |
+| `strand_not_named` | 400 | `id`, `strands` | a note of several strands is named without the strand |
+| `no_such_strand` | 404 | `id`, `strand`, `strands` | the note has no strand of that number |
+| `message_not_archived` | 404 | `chat`, `message` | a message a filing quotes is not kept in its room |
 
 #### A job's question: `JobAskRefusal`
 
@@ -317,6 +332,7 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | `resume_condition_met` | `id`, `title`, `after` | the item an item waited on finished and BMO was told |
 | `item_reopened` | `id`, `unmerged_from?`, `[merged_again]`, `[sources_reopened]` | an item was opened again |
 | `item_approved` | `id`, `noted` | an item was approved, with the owner's word or without |
+| `item_unapproved` | `id` | an item's approval was taken back |
 | `worker_cleared` | `id`, `title` | an item's worker was taken off, so the built-in worker takes it |
 | `worker_set` | `id`, `title`, `worker` | an item was given a worker |
 | `repairs_cleared` | `id`, `title` | an item's repair link was taken off |
@@ -326,7 +342,7 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | `impact_check_kept` | `id` | a job's own impact grounds agree with the co-work setting and were kept quietly |
 | `impact_check_told` | `id`, `difference` (an impact difference) | a job's own impact grounds were kept and told to BMO |
 | `model_set` | `id`, `model` | an item's job model was set |
-| `item_filed` | `id`, `title`, `cowork`, `clip` | a row was filed and waits for approval |
+| `item_filed` | `id`, `title`, `cowork`, `clip` (the first message it was filed out of, on one line and cut) | a row was filed and waits for approval |
 | `item_raised` | `id`, `title`, `item`, `[sources]` (each an item id and a strand), `cowork`, `[reopened]` | a row was raised on BMO's judgement out of an item's work |
 | `words_appended_told` | `id`, `title` | words were added to an item and BMO was told |
 | `words_appended_kept` | `id`, `title` | chat BMO's own words were added to an item as a record |
