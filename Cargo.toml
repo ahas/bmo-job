@@ -1,10 +1,12 @@
 # The workspace: the service's own package at the root, the library base, the codes, the policy loader, the
-# two queue crates and the agency, gate, receiver, testbed and web ports under `crates/` and the migration
-# crate. The root package also holds the repository checks and the ports' contract tests in `tests/`.
+# two queue crates and the agency, brain, gate, receiver, testbed and web ports under `crates/` and the
+# migration crate. The root package also holds the repository checks and the ports' contract tests in
+# `tests/`.
 [workspace]
 members = [
   "crates/agency",
   "crates/base",
+  "crates/brain",
   "crates/codes",
   "crates/gate",
   "crates/policy",
@@ -27,6 +29,7 @@ axum = { version = "0.8.9", default-features = false, features = ["json"] }
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
 job-agency = { path = "crates/agency" }
 job-base = { path = "crates/base" }
+job-brain = { path = "crates/brain" }
 job-codes = { path = "crates/codes" }
 job-gate = { path = "crates/gate" }
 job-policy = { path = "crates/policy" }
@@ -63,6 +66,7 @@ job-base.workspace = true
 # port, and a stand-in program in a scratch directory for the testbed's.
 axum = { workspace = true, features = ["http1", "matched-path", "tokio"] }
 job-agency.workspace = true
+job-brain.workspace = true
 job-codes.workspace = true
 job-gate.workspace = true
 job-receiver.workspace = true

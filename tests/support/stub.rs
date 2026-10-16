@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use axum::body::Bytes;
 use axum::extract::{MatchedPath, State};
-use axum::http::{Method, StatusCode, Uri};
+use axum::http::{HeaderMap, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router};
 use serde_json::{Value, json};
@@ -24,6 +24,8 @@ pub struct Call {
   pub target: String,
   /// Its body read as JSON; none where it had no body.
   pub body: Option<Value>,
+  /// Its `Authorization` header as it was sent; none where it had none.
+  pub authorization: Option<String>,
 }
 
 /// What a route answers: a status, and a JSON body where it has one.
@@ -55,11 +57,15 @@ pub async fn take(
   matched: MatchedPath,
   method: Method,
   uri: Uri,
+  headers: HeaderMap,
   body: Bytes,
 ) -> Response {
   let route = format!("{method} {}", matched.as_str());
   let target = uri.path_and_query().map_or_else(|| uri.path().to_owned(), ToString::to_string);
   let body = (!body.is_empty()).then(|| serde_json::from_slice(&body).expect("a call's body is JSON"));
+  let authorization = headers
+    .get(header::AUTHORIZATION)
+    .map(|value| value.to_str().expect("an authorization header is text").to_owned());
   let fixture = {
     let mut book = book.lock().expect("the book is not poisoned");
 
@@ -67,6 +73,7 @@ pub async fn take(
       route: route.clone(),
       target,
       body,
+      authorization,
     });
     book.fixtures.get(&route).cloned()
   };
@@ -136,13 +143,10 @@ impl Stub {
 
   /// Asserts the stand-in took exactly one call: on `route`, at `target`, with `body`.
   pub fn took(&self, route: &str, target: &str, body: Option<Value>) {
-    let expected = Call {
-      route: route.to_owned(),
-      target: target.to_owned(),
-      body,
-    };
+    let took: Vec<(String, String, Option<Value>)> =
+      self.calls().into_iter().map(|call| (call.route, call.target, call.body)).collect();
 
-    assert_eq!(self.calls(), [expected]);
+    assert_eq!(took, [(route.to_owned(), target.to_owned(), body)]);
   }
 }
 

@@ -168,6 +168,7 @@ dependencies = [
  "axum",
  "job-agency",
  "job-base",
+ "job-brain",
  "job-codes",
  "job-gate",
  "job-receiver",
@@ -929,6 +930,17 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml",
+ "url",
+]
+
+[[package]]
+name = "job-brain"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
  "url",
 ]
 

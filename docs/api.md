@@ -1058,7 +1058,8 @@ given.
 
 ### bmo-gate
 
-The gates are bmo-gate's: the translator, the sanitiser, and the translations they keep. The service
+The gates are bmo-gate's: the translator, the sanitiser, the translations they keep, and the
+selection of the brain's knowledge a piece of work is handed. The service
 reaches them through the calls below and nothing else. The crate `job-gate` holds them: the trait
 `Gate` declares every call, and `GateClient` makes them over HTTP to the address it is given.
 
@@ -1104,6 +1105,89 @@ reaches them through the calls below and nothing else. The crate `job-gate` hold
   defused. Words with nothing worth judging come back as they are. Where the sanitiser has no answer,
   bmo-gate blanks the words that made them worth judging, so they are never handed on raw.
 - **A run of the sanitiser that was stopped** is refused with status 409 and code `stopped`.
+
+#### Knowledge for a piece of work
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Select knowledge | `POST /knowledge/selected` | `agent`, `chat`, `[lines]` | `[pieces]`, each `path` and `text` |
+
+- **Selecting knowledge** picks, from the brain's libraries the agent may be offered in the room, the
+  pieces a piece of work's own lines call for: a job's item and task, or a search's query. The
+  narrowing, the pick and the count of what was attached are bmo-gate's; bmo-brain only serves the
+  material it picks from.
+- **`pieces`** holds each picked piece's path in the brain and its text, in the order picked, and is
+  empty where the work has no line or nothing was picked.
+- **The service** sets the pieces into the work's prompt under its own heading. A call that fails
+  leaves the work with no knowledge rather than holding it back.
+
+### bmo-brain
+
+The brain is bmo-brain's: the memories every agent keeps, the holds a job's run sets on the brain, and
+the editing locks the brain's editors take. The service reaches them through the calls below and
+nothing else. The crate `job-brain` holds them: the trait `Brain` declares every call, and
+`BrainClient` makes them over HTTP to the address and with the token it is given.
+
+bmo-brain states its own wire conventions in its boundary document, and the calls keep them:
+
+- **The address** is the base of every path below, a plain `http:` address of bmo-brain on the machine.
+  An address of any other kind is refused when the client is made.
+- **Every call carries bmo-brain's token** as a bearer token in its `Authorization` header. The token
+  is given with the address.
+- **A body is JSON, both ways, with camelCase keys.** A time is Unix seconds, and a room, an item and a
+  row are named by their numbers. An optional field with no value is left out; a field written with a
+  question mark may be null.
+- **An answer is 200 and says whether it was carried out:** `answered` true with the call's fields
+  beside it, or `answered` false with a `refusal` holding `code` and `message`, an English sentence.
+  The client hands a refusal on as it does any other, with status 200, its code and its sentence.
+- **A status that is no success** carries `code` and `error`, and the client hands both on with the
+  status as they stand.
+- **A call that does not reach bmo-brain,** or an answer that does not read as its shape, is a failure
+  of the call naming which call it was.
+- **The agent** a call is for is named by its key, which the deployment's settings give.
+
+#### Brain holds
+
+A job's run that writes into the brain holds the brain's editors off, so an editor and a job never
+write it at once. The hold is bmo-brain's: the service sets it and reads it, and bmo-brain lets it go
+once the run is no longer open.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Hold the brain | `POST /brain/hold` | `run` | `held`, `[taken]` |
+| Read the holds | `GET /brain/hold` | | `[holders]`, `[taken]` |
+| Wait for the editors | `POST /brain/wait` | | `free`, `[lines]` |
+
+- **Holding the brain** sets the hold of `run`, the run's name, where none stands yet. `held` says
+  whether the hold stands, and `taken` names each editing lock a brain editor holds now, looked at
+  after the hold was set and without waiting. The hold is set before the locks are looked at, so an
+  editor beginning after the look waits for the job, and an editor already writing is the only one the
+  job waits for: the service refuses a job's write into the brain while its hold stands and a lock is
+  taken.
+- **Reading the holds** names the runs holding the brain and the editing locks taken now. A hold whose
+  run is over is let go as it is read.
+- **Waiting for the editors** looks every five seconds, for nine minutes at most, until no editing lock
+  is taken. `free` says whether every lock came free, and `lines` is the outcome for a person, a line
+  each. The client sets no limit of its own on the call.
+
+#### Memories
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Read a room's memories | `GET /memories?agent={agent}&chat={chat}` | | `[memories]` |
+| File a memory | `POST /memory/add` | `turn`, `type`, `action`, `todo`, `chat`, `slug` | `[lines]` |
+
+- **Reading a room's memories** answers every row the agent keeps in the room, newest first. Of each
+  row the service reads `id`, `slug`, `type`, `chatId?`, `action`, `todoId?`, `active`, `setAt` and
+  `doneAt?`, and leaves the rest of the row unread.
+- **Filing a memory** is the memory tool's own call. `turn` names the turn it is filed in: its `agent`,
+  `chatId?` and `messageId?`, both null for a filing of no turn. The rest are the tool's arguments:
+  `type` and `action` always, and `todo`, the item the row is tied to, `chat`, the room it is filed
+  in, and `slug`, its name, where they have one. The answer is the tool's reading, a line each, for a
+  person; the number the row was given is read back by reading the room's memories.
+- **An item's closing** files a `followup` for each strand of its unfinished note left to the agent:
+  in the owner's room, tied to the item. It reads the room's memories first, so a strand an earlier
+  closing filed is not filed again.
 
 ### bmo-testbed
 

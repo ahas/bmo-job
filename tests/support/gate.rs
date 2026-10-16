@@ -19,6 +19,7 @@ fn routes() -> Router<Shared> {
     .route("/translations", post(take))
     .route("/translations/kept", put(take))
     .route("/sanitised", post(take))
+    .route("/knowledge/selected", post(take))
 }
 
 impl Stub {

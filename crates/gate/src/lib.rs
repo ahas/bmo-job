@@ -3,6 +3,7 @@
 //! area.
 
 pub mod client;
+pub mod knowledge;
 pub mod sanitiser;
 pub mod translations;
 
@@ -10,6 +11,7 @@ use std::collections::HashMap;
 use std::future::Future;
 
 pub use client::GateClient;
+pub use knowledge::{KnowledgeAsked, Piece};
 pub use sanitiser::{Sanitise, Sanitised};
 pub use translations::Reading;
 
@@ -65,4 +67,8 @@ pub trait Gate: Send + Sync {
 
   /// Words through the sanitiser, as they are to be handed on into a model's context.
   fn sanitise(&self, asked: &Sanitise) -> impl Future<Output = Answer<Sanitised>> + Send;
+
+  /// The pieces of the brain's knowledge a piece of work's lines call for, in the order picked; none
+  /// where nothing was picked.
+  fn knowledge(&self, asked: &KnowledgeAsked) -> impl Future<Output = Answer<Vec<Piece>>> + Send;
 }

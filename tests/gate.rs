@@ -5,7 +5,7 @@ mod support;
 
 use std::collections::HashMap;
 
-use job_gate::{Gate, GateClient, GateError, Reading, Sanitise, Sanitised};
+use job_gate::{Gate, GateClient, GateError, KnowledgeAsked, Piece, Reading, Sanitise, Sanitised};
 use serde_json::json;
 use support::gate::Stub;
 use url::Url;
@@ -152,6 +152,64 @@ async fn words_of_no_room_are_sanitised_with_no_chat() {
 
   assert!(!stub.client().sanitise(&asked).await.unwrap().changed);
   assert_eq!(stub.calls()[0].body.as_ref().unwrap()["chat"], json!(null));
+}
+
+// Knowledge for a piece of work.
+
+fn work() -> KnowledgeAsked {
+  KnowledgeAsked {
+    agent: "agent".into(),
+    chat: 7,
+    lines: vec!["Item 12: Fix the closing.".into(), "Task: read the notes.".into()],
+  }
+}
+
+#[tokio::test]
+async fn knowledge_posts_the_works_lines_and_reads_the_pieces_in_the_order_picked() {
+  let stub = Stub::start().await;
+
+  stub.answer(
+    "POST /knowledge/selected",
+    200,
+    json!({ "pieces": [
+      { "path": "library/closing.md", "text": "How a closing reads." },
+      { "path": "library/notes.md", "text": "What a note holds." },
+    ] }),
+  );
+
+  let pieces = stub.client().knowledge(&work()).await.unwrap();
+
+  assert_eq!(
+    pieces,
+    vec![
+      Piece {
+        path: "library/closing.md".into(),
+        text: "How a closing reads.".into(),
+      },
+      Piece {
+        path: "library/notes.md".into(),
+        text: "What a note holds.".into(),
+      },
+    ]
+  );
+  stub.took(
+    "POST /knowledge/selected",
+    "/knowledge/selected",
+    Some(json!({
+      "agent": "agent",
+      "chat": 7,
+      "lines": ["Item 12: Fix the closing.", "Task: read the notes."],
+    })),
+  );
+}
+
+#[tokio::test]
+async fn knowledge_where_nothing_was_picked_is_no_pieces() {
+  let stub = Stub::start().await;
+
+  stub.answer("POST /knowledge/selected", 200, json!({ "pieces": [] }));
+
+  assert!(stub.client().knowledge(&work()).await.unwrap().is_empty());
 }
 
 // Failures.

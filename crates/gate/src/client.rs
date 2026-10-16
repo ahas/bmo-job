@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::{Answer, Gate, GateError, Reading, Sanitise, Sanitised};
+use crate::{Answer, Gate, GateError, KnowledgeAsked, Piece, Reading, Sanitise, Sanitised};
 
 /// The calls on bmo-gate, made over HTTP to the address given.
 #[derive(Clone, Debug)]
@@ -51,6 +51,11 @@ struct Kept {
 #[derive(Deserialize)]
 struct Readings {
   readings: Vec<Reading>,
+}
+
+#[derive(Deserialize)]
+struct Pieces {
+  pieces: Vec<Piece>,
 }
 
 /// The failure a status that is no success stands for: bmo-gate's refusal where its body reads as one.
@@ -196,5 +201,12 @@ impl Gate for GateClient {
     let request = self.request(Method::POST, &["sanitised"]).json(asked);
 
     self.answer("sanitise", request).await
+  }
+
+  async fn knowledge(&self, asked: &KnowledgeAsked) -> Answer<Vec<Piece>> {
+    let request = self.request(Method::POST, &["knowledge", "selected"]).json(asked);
+    let selected: Pieces = self.answer("knowledge", request).await?;
+
+    Ok(selected.pieces)
   }
 }
