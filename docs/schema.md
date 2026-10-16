@@ -78,8 +78,9 @@ unit's API and is never a row here.
 
 Rows another unit owns are reached through that unit's API (docs/api.md), never kept as a copy:
 
-- **bmo-agency:** an agent's session and runtime state, the agent log, executions, runs, worker
-  sessions and their resets, the co-worker pool, nodes and Claude accounts.
+- **bmo-agency:** an agent's session and runtime state, the agent log, executions, runs, the turn
+  records a run wrote down, worker sessions and their resets, the co-worker pool, nodes and Claude
+  accounts.
 - **bmo-receiver:** instructions, messages and room answerers.
 - **bmo-brain:** memories.
 - **bmo-gate:** document translations.

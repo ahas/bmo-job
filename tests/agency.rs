@@ -9,8 +9,8 @@ use job_agency::{
   Agency, AgencyClient, AgencyError, BranchSlots, Context, Delivery, Execution, JobLines, LaunchHeld,
   LogLine, Mapping, Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, PoolState, Provider,
   Reservation, ReservationAsking, ReservationState, Room, RouteAsk, Run, RunClosing, RunOpening, Scope,
-  Session, SessionId, SessionState, Slot, SshReach, Start, Tier, ToolCall, ToolResult, WorkMachine,
-  Workbench, WorkerRuntime,
+  Session, SessionId, SessionState, Slot, SshReach, Start, Tier, ToolCall, ToolResult, TurnRecord,
+  TurnRecordKind, WorkMachine, Workbench, WorkerRuntime,
 };
 use serde_json::{Map, Value, json};
 use support::agency::Stub;
@@ -555,6 +555,97 @@ async fn job_lines_reads_the_calls_results_and_counts() {
     }
   );
   stub.took("GET /log/jobs/{job}", "/log/jobs/12", None);
+}
+
+// Turn records.
+
+#[tokio::test]
+async fn keep_turn_record_posts_the_record_under_the_runs_name() {
+  let stub = Stub::start().await;
+
+  stub.answer_empty("POST /turn-records", 204);
+
+  let record = TurnRecord {
+    run: "job:9".into(),
+    kind: TurnRecordKind::TodoAdd,
+    text: "Fix the launcher".into(),
+    record_id: Some(41),
+    wakes: false,
+    at: 9_000,
+  };
+
+  stub.client().keep_turn_record(&record).await.unwrap();
+  stub.took(
+    "POST /turn-records",
+    "/turn-records",
+    Some(json!({
+      "run": "job:9",
+      "kind": "todo_add",
+      "text": "Fix the launcher",
+      "record_id": 41,
+      "wakes": false,
+      "at": 9_000
+    })),
+  );
+}
+
+#[tokio::test]
+async fn words_appended_are_kept_as_their_own_kind() {
+  let stub = Stub::start().await;
+
+  stub.answer_empty("POST /turn-records", 204);
+
+  let record = TurnRecord {
+    run: "chat:-5:1:1".into(),
+    kind: TurnRecordKind::TodoAppend,
+    text: "Check the docs too.".into(),
+    record_id: None,
+    wakes: false,
+    at: 9_000,
+  };
+
+  stub.client().keep_turn_record(&record).await.unwrap();
+  stub.took(
+    "POST /turn-records",
+    "/turn-records",
+    Some(json!({
+      "run": "chat:-5:1:1",
+      "kind": "todo_append",
+      "text": "Check the docs too.",
+      "record_id": null,
+      "wakes": false,
+      "at": 9_000
+    })),
+  );
+}
+
+#[tokio::test]
+async fn a_refused_turn_record_is_handed_on() {
+  let stub = Stub::start().await;
+
+  stub.answer(
+    "POST /turn-records",
+    400,
+    json!({ "error": "A turn record needs the run's name.", "code": "run_missing" }),
+  );
+
+  let record = TurnRecord {
+    run: String::new(),
+    kind: TurnRecordKind::TodoAdd,
+    text: "Fix the launcher".into(),
+    record_id: Some(41),
+    wakes: false,
+    at: 9_000,
+  };
+
+  match stub.client().keep_turn_record(&record).await {
+    Err(AgencyError::Refused {
+      call, status, code, ..
+    }) => {
+      assert_eq!((call, status, code.as_str()), ("keep_turn_record", 400, "run_missing"));
+    }
+    other => panic!("not handed on as a refusal: {other:?}"),
+  }
 }
 
 // Workers' runtime.

@@ -11,7 +11,7 @@ use crate::{
   Agency, AgencyError, Answer, BranchSlots, Delivery, Execution, JobLines, LaunchHeld, LogLine, Mapping,
   Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, Provider, Reservation,
   ReservationAsking, Room, RouteAsk, Run, RunClosing, RunOpening, Session, SessionId, SessionState,
-  SshReach, Start, Tier, WorkMachine, Workbench, WorkerRuntime,
+  SshReach, Start, Tier, TurnRecord, WorkMachine, Workbench, WorkerRuntime,
 };
 
 /// The calls on bmo-agency, made over HTTP to the address given.
@@ -295,6 +295,12 @@ impl Agency for AgencyClient {
     let job = job.to_string();
 
     self.answer("job_lines", self.request(Method::GET, &["log", "jobs", &job], &[])).await
+  }
+
+  async fn keep_turn_record(&self, record: &TurnRecord) -> Answer<()> {
+    let request = self.request(Method::POST, &["turn-records"], &[]).json(record);
+
+    self.done("keep_turn_record", request).await
   }
 
   async fn worker_runtime(&self, worker: &str) -> Answer<Option<WorkerRuntime>> {

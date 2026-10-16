@@ -9,6 +9,7 @@ pub mod machine;
 pub mod nodes;
 pub mod places;
 pub mod pool;
+pub mod records;
 pub mod routes;
 pub mod runs;
 pub mod sessions;
@@ -25,6 +26,7 @@ pub use places::{BranchSlots, Slot, Workbench};
 pub use pool::{
   PlaceWrite, PoolAsking, PoolRequest, PoolState, Reservation, ReservationAsking, ReservationState,
 };
+pub use records::{TurnRecord, TurnRecordKind};
 pub use routes::{Mapping, PinChoice, Provider, RouteAsk, Tier};
 pub use runs::{Run, RunClosing, RunOpening};
 pub use sessions::{Context, Delivery, Output, Scope, Session, SessionId, SessionState, Start};
@@ -116,6 +118,9 @@ pub trait Agency: Send + Sync {
 
   /// Reads what a job's run logged.
   fn job_lines(&self, job: i64) -> impl Future<Output = Answer<JobLines>> + Send;
+
+  /// Keeps one thing a run wrote down under the run's name.
+  fn keep_turn_record(&self, record: &TurnRecord) -> impl Future<Output = Answer<()>> + Send;
 
   /// Reads a worker's runtime.
   fn worker_runtime(&self, worker: &str) -> impl Future<Output = Answer<Option<WorkerRuntime>>> + Send;

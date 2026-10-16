@@ -31,6 +31,7 @@ fn routes() -> Router<Shared> {
     .route("/log/starts", get(take))
     .route("/log/jobs/{job}", get(take))
     .route("/log/jobs/{job}/last", get(take))
+    .route("/turn-records", post(take))
     .route("/workers/{worker}/runtime", get(take))
     .route("/workers/{worker}/pin", put(take).delete(take))
     .route("/workers/{worker}/keepalive-pause", put(take).delete(take))

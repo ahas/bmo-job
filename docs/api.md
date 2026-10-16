@@ -792,6 +792,24 @@ reads it to count a run's starts and to tell what a job's run has done.
   - `compactions`: how many times its context was compacted.
 - A job with no line answers 404 to its last line and empty lists to its lines.
 
+#### Turn records
+
+A turn record is one thing a run wrote down, kept under the name the run worked under so the checks on
+that turn's answer can ask whether a promise in it stands on a record. bmo-agency keeps the records
+beside the agent log, which those checks read for a run that kept none; the service only writes them.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Keep a turn record | `POST /turn-records` | a turn record | 204 |
+
+- **A turn record:** `run` (the run's name, as the run was handed it), `kind`, `text` (what was written:
+  the row's title or the words appended), `record_id?` (the row it landed in), `wakes` (whether it set
+  something that wakes the agent) and `at`.
+- **The kinds the service writes:** `todo_add`, a row filed, and `todo_append`, words appended to a row.
+  Neither wakes the agent.
+- A verb working for no run, one a person ran in a shell, keeps nothing and makes no call, since no turn
+  will ever ask for it.
+
 #### Workers' runtime
 
 A worker's runtime is what bmo-agency holds of it as it runs: the provider and model it is pinned to,
