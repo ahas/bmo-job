@@ -1,0 +1,6 @@
+[package]
+name = "queue-read"
+description = "The queue as the database holds it, read: work orders, item blocks, worker lines and timing."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true

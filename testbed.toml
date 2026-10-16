@@ -1,0 +1,11 @@
+# How the testbed tests and checks this repository, in the testbed's declaration format. Provisional: no
+# deploy is declared until the service has a binary and a deploy root.
+testbed = 0
+name = "bmo-job"
+
+[test]
+languages = ["cargo"]
+
+[check]
+quick = ["layout", "dependencies"]
+base_libraries = ["bmo-chat", "bmo-chat-client", "bmo-ui"]
