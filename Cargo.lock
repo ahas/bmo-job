@@ -171,6 +171,7 @@ dependencies = [
  "job-brain",
  "job-codes",
  "job-gate",
+ "job-graph",
  "job-receiver",
  "job-testbed",
  "job-web",
@@ -959,6 +960,17 @@ dependencies = [
 
 [[package]]
 name = "job-gate"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "url",
+]
+
+[[package]]
+name = "job-graph"
 version = "0.1.0"
 dependencies = [
  "reqwest",

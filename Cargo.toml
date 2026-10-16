@@ -1,6 +1,6 @@
 # The workspace: the service's own package at the root, the library base, the codes, the policy loader, the
-# two queue crates and the agency, brain, gate, receiver, testbed and web ports under `crates/` and the
-# migration crate. The root package also holds the repository checks and the ports' contract tests in
+# two queue crates and the agency, brain, gate, graph, receiver, testbed and web ports under `crates/` and
+# the migration crate. The root package also holds the repository checks and the ports' contract tests in
 # `tests/`.
 [workspace]
 members = [
@@ -9,6 +9,7 @@ members = [
   "crates/brain",
   "crates/codes",
   "crates/gate",
+  "crates/graph",
   "crates/policy",
   "crates/queue-read",
   "crates/queue-rows",
@@ -32,6 +33,7 @@ job-base = { path = "crates/base" }
 job-brain = { path = "crates/brain" }
 job-codes = { path = "crates/codes" }
 job-gate = { path = "crates/gate" }
+job-graph = { path = "crates/graph" }
 job-policy = { path = "crates/policy" }
 job-receiver = { path = "crates/receiver" }
 job-testbed = { path = "crates/testbed" }
@@ -69,6 +71,7 @@ job-agency.workspace = true
 job-brain.workspace = true
 job-codes.workspace = true
 job-gate.workspace = true
+job-graph.workspace = true
 job-receiver.workspace = true
 job-testbed.workspace = true
 job-web.workspace = true

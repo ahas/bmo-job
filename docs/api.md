@@ -1189,6 +1189,38 @@ once the run is no longer open.
   in the owner's room, tied to the item. It reads the room's memories first, so a strand an earlier
   closing filed is not filed again.
 
+### bmo-graph
+
+The code graph is bmo-graph's: where a checkout keeps it, the format its nodes are written in, and the
+reading of them. The service reaches it through the call below and nothing else. The crate `job-graph`
+holds it: the trait `Graph` declares the call, and `GraphClient` makes it over HTTP to the address it
+is given.
+
+- **The address, the bodies, the statuses, the refusals and the failures** read as they do for
+  bmo-agency above, with bmo-graph in its place. No path carries a segment of the service's.
+- **A checkout** is named by its absolute path on the machine bmo-graph runs on. For a job run on a
+  node, that is the copy of the node's checkout kept on this machine.
+- **A file** is named by its path relative to the checkout, as git names it.
+
+#### What the graph names
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Read what a checkout's graph names | `GET /graph/named?checkout=` | | `directory`, `[files]` |
+
+- **`directory`** is where the graph stands inside a checkout, relative to it. The service takes it
+  from here rather than knowing it, and reads a commit that touched a file under it as one that
+  brought the graph up to date.
+- **`files`** holds every file any node of the graph names, each once. A checkout that keeps no graph
+  answers none.
+- **A job's ending** reads it to judge what the job's own commits reached: a commit that changed a
+  file the graph names while leaving the graph alone is a change left open, and a report of a change
+  that reaches a named file answers for it node by node. A graph that cannot be read, or a call that
+  fails, leaves the job judged on nothing named, since its work is done and its report is worth more
+  than the questions this answers.
+- A path that is not absolute, or names no directory, is refused, and so is a graph that does not
+  read in bmo-graph's format.
+
 ### bmo-testbed
 
 Checks, suites, heavy commands, a repository's close line, the unit links into a checkout and the
