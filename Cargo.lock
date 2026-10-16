@@ -1311,6 +1311,21 @@ dependencies = [
 [[package]]
 name = "queue-read"
 version = "0.1.0"
+dependencies = [
+ "chrono",
+ "job-agency",
+ "job-base",
+ "job-codes",
+ "job-policy",
+ "migration",
+ "regex",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "strum 0.28.0",
+ "tempfile",
+ "tokio",
+]
 
 [[package]]
 name = "queue-rows"

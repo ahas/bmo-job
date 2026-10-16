@@ -38,7 +38,9 @@ job-policy = { path = "crates/policy" }
 job-receiver = { path = "crates/receiver" }
 job-testbed = { path = "crates/testbed" }
 job-web = { path = "crates/web" }
+migration = { path = "migration" }
 pulldown-cmark = { version = "0.13.4", default-features = false }
+queue-read = { path = "crates/queue-read" }
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 sea-orm = { version = "1.1.20", default-features = false, features = ["runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite"] }

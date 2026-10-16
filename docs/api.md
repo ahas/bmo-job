@@ -819,6 +819,8 @@ whether its keepalive is paused, and the context it last carried.
 | Resolve a route | `POST /routes/resolve` | `work_key`, `provider?`, `tier` | `provider`, `tier`, `model`, `effort?`, `answer_tokens?`; 404 where no route serves it |
 | Check a pin | `POST /pins/check` | `value` | a pin choice |
 
+- **The providers are listed in the provider order:** a request naming no provider walks them from the
+  first that is on.
 - **A pin's value** is `auto`, a provider's name, or a provider and a model joined by `::`.
 - **A pin choice** is an object holding `kind`: `auto`, or `pinned` with the fields of a pin. A value
   that names no provider that is on, or a model with no address, is refused with 400.
