@@ -1,6 +1,6 @@
 # The workspace: the service's own package at the root, the library base, the codes, the policy loader, the
-# two queue crates and the agency, receiver and testbed ports under `crates/` and the migration crate. The root
-# package also holds the repository checks and the ports' contract tests in `tests/`.
+# two queue crates and the agency, receiver, testbed and web ports under `crates/` and the migration crate. The
+# root package also holds the repository checks and the ports' contract tests in `tests/`.
 [workspace]
 members = [
   "crates/agency",
@@ -11,6 +11,7 @@ members = [
   "crates/queue-rows",
   "crates/receiver",
   "crates/testbed",
+  "crates/web",
   "migration",
 ]
 resolver = "3"
@@ -29,6 +30,7 @@ job-codes = { path = "crates/codes" }
 job-policy = { path = "crates/policy" }
 job-receiver = { path = "crates/receiver" }
 job-testbed = { path = "crates/testbed" }
+job-web = { path = "crates/web" }
 pulldown-cmark = { version = "0.13.4", default-features = false }
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
@@ -62,6 +64,7 @@ job-agency.workspace = true
 job-codes.workspace = true
 job-receiver.workspace = true
 job-testbed.workspace = true
+job-web.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["net"] }

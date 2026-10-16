@@ -1,5 +1,5 @@
 //! What the root package's tests share: the root and the walk over the files the repository checks read,
-//! and the stand-ins for bmo-agency, bmo-receiver and bmo-testbed the ports' contract tests call.
+//! and the stand-ins for bmo-agency, bmo-receiver, bmo-testbed and bmo-web the ports' contract tests call.
 
 // Each test file is its own crate and uses only part of this module.
 #![allow(dead_code)]
@@ -8,6 +8,7 @@ pub mod agency;
 pub mod receiver;
 pub mod stub;
 pub mod testbed;
+pub mod web;
 
 use std::fs;
 use std::path::{Path, PathBuf};

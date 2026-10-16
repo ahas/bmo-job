@@ -1012,6 +1012,50 @@ service, its route for the rooms an item belongs to, which answers `RoomHoldings
   removed, `warns` where bmo-receiver shows what the unit answers before it removes the room.
 - Declaring again replaces the unit's declaration.
 
+### bmo-web
+
+Users, the senders linked to them, the grants they hold and the account model they stand in are
+bmo-web's. The service reaches them through the calls below and nothing else. The crate `job-web` holds
+them: the trait `Web` declares every call, and `WebClient` makes them over HTTP to the address it is
+given.
+
+- **The address, the bodies, the path segments, the statuses, the refusals and the failures** read as
+  they do for bmo-agency above, with bmo-web in its place.
+- **A user is named by its id as bmo-web gives it,** a string the service hands on as it stands, to
+  bmo-agency's Claude account check too.
+- **A sender** is a whole number, as bmo-receiver names a message's sender.
+
+#### The account model
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Read whether the model is in force | `GET /accounts/model` | | `in_force`: true where the account model is in force |
+
+- **The model is in force** once bmo-web has moved the deployment's accounts into it. Until then no
+  sender is linked to a user and no grant stands, so the service asks neither.
+
+#### Users
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Read a sender's user | `GET /senders/{sender}/user` | | `user`: the user the sender is linked to |
+
+- A sender linked to no user reads as nothing found.
+
+#### Checks
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Check a user's grant on an object | `POST /checks/object` | `kind`, `object`, `relation`, `user` | `allowed`, `grant` |
+
+- **`kind`** is `bmo_worker` for a worker or `bmo_repository` for a repository, and **`object`** names
+  the one asked about. **`relation`** is one its kind declares: `run` on a worker, `change` on a
+  repository.
+- **`allowed`** is true where the user holds the relation; the platform administrator holds every one.
+  **`grant`** is what was asked for, `kind:object#relation`, as the service names it when it says what
+  a user lacks.
+- A kind or a relation bmo-web's rules do not declare is refused.
+
 ### bmo-testbed
 
 Checks, suites, heavy commands, a repository's close line, the unit links into a checkout and the

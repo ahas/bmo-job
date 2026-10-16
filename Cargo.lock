@@ -171,6 +171,7 @@ dependencies = [
  "job-codes",
  "job-receiver",
  "job-testbed",
+ "job-web",
  "serde_json",
  "tempfile",
  "tokio",
@@ -974,6 +975,17 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "job-web"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "url",
 ]
 
 [[package]]
