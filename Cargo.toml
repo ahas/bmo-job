@@ -14,6 +14,7 @@ axum = { version = "0.8.9", default-features = false, features = ["json"] }
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
 job-base = { path = "crates/base" }
 sea-orm = { version = "1.1.20", default-features = false, features = ["runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite"] }
+sea-orm-migration = { version = "1.1.20", default-features = false, features = ["runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.138"
 sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "sqlite", "runtime-tokio"] }

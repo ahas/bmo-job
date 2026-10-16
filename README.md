@@ -25,6 +25,7 @@ At the root stand the Cargo workspace manifest, the version, `testbed.toml`, `ru
 |---|---|
 | `docs/api.md` | The API: how a refused request is answered |
 | `docs/settings.md` | The settings file: the database and the deployment's names |
+| `docs/schema.md` | The schema: the tables the service owns, the rules they keep, and the migrations |
 | `docs/checks.md` | The repository checks: no Hangul in code or tests, the layout, the dependencies |
 
 ## Version
