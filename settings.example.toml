@@ -1,0 +1,12 @@
+# The service's settings (docs/settings.md). A deployment copies this file to `settings.toml`, which
+# git ignores, and gives its own database and names.
+
+[database]
+url = "sqlite://job.db?mode=rwc"
+
+[deployment]
+owner_name = "Owner"
+agent_name = "Agent"
+agent_key = "agent"
+sender_name = "Agent"
+receiver_unit = "receiver"

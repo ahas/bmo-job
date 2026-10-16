@@ -10,19 +10,21 @@ through bmo-agency, rooms through bmo-receiver, suites and deploys through bmo-t
 | Folder | Holds |
 |---|---|
 | `src/` | The service's own package: the library and, under `src/bin/`, the server and the unit's command line |
-| `crates/` | `queue-read`, which reads the queue as the database holds it, and `queue-rows`, which writes the TODO's rows and work orders |
+| `crates/` | `base`, the library base every crate stands on: refusals, the database, settings and the clock; `queue-read`, which reads the queue as the database holds it; and `queue-rows`, which writes the TODO's rows and work orders |
 | `migration/` | The schema of the tables the service owns, as migrations that run up and down |
 | `policy/` | The service's fixed numbers and words, as TOML files read by its policy loader |
 | `tests/` | The root package's tests, the repository checks among them |
 | `docs/` | The canonical statements of what the service does |
 
-At the root stand the Cargo workspace manifest, the version, `testbed.toml`, `rustfmt.toml` and
-`CLAUDE.md`.
+At the root stand the Cargo workspace manifest, the version, `testbed.toml`, `rustfmt.toml`,
+`CLAUDE.md` and `settings.example.toml`, the example of the settings file a deployment gives.
 
 ## Documents
 
 | Document | States |
 |---|---|
+| `docs/api.md` | The API: how a refused request is answered |
+| `docs/settings.md` | The settings file: the database and the deployment's names |
 | `docs/checks.md` | The repository checks: no Hangul in code or tests, the layout, the dependencies |
 
 ## Version

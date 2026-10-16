@@ -1,7 +1,7 @@
-# The workspace: the service's own package at the root, the two queue crates under `crates/` and the
-# migration crate. The root package also holds the repository checks in `tests/`.
+# The workspace: the service's own package at the root, the library base and the two queue crates under
+# `crates/` and the migration crate. The root package also holds the repository checks in `tests/`.
 [workspace]
-members = ["crates/queue-read", "crates/queue-rows", "migration"]
+members = ["crates/base", "crates/queue-read", "crates/queue-rows", "migration"]
 resolver = "3"
 
 [workspace.package]
@@ -10,7 +10,18 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
+axum = { version = "0.8.9", default-features = false, features = ["json"] }
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
+job-base = { path = "crates/base" }
+sea-orm = { version = "1.1.20", default-features = false, features = ["runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.138"
+sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "sqlite", "runtime-tokio"] }
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+tokio = { version = "1.53.2", features = ["macros", "rt"] }
 toml = { version = "0.8.23", default-features = false, features = ["parse"] }
+url = "2.5.8"
 
 [package]
 name = "bmo-job"
@@ -18,6 +29,9 @@ description = "The TODO, work orders and the job queue as one service with its o
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+
+[dependencies]
+job-base.workspace = true
 
 [dev-dependencies]
 toml.workspace = true
