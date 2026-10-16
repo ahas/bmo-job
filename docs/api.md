@@ -1056,6 +1056,55 @@ given.
   a user lacks.
 - A kind or a relation bmo-web's rules do not declare is refused.
 
+### bmo-gate
+
+The gates are bmo-gate's: the translator, the sanitiser, and the translations they keep. The service
+reaches them through the calls below and nothing else. The crate `job-gate` holds them: the trait
+`Gate` declares every call, and `GateClient` makes them over HTTP to the address it is given.
+
+- **The address, the bodies, the statuses, the refusals and the failures** read as they do for
+  bmo-agency above, with bmo-gate in its place. No path carries a segment of the service's.
+- **A language** is a language tag, such as `en`. The language a worker reads and the language the
+  owner reads come from the deployment's settings.
+- **An original** is a text exactly as it was written. A translation is kept under its original and
+  its language, so the same original is never translated twice into one language.
+- **A read of many originals is a post,** since originals are too long for a path.
+
+#### Translations
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Read kept translations | `POST /translations/kept/read` | `language`, `[originals]` | `[kept]`, each `original` and `text` |
+| Translate | `POST /translations` | `language`, `[originals]` | `[readings]`, each `text` and `whole` |
+| Keep a translation | `PUT /translations/kept` | `language`, `original`, `text` | |
+
+- **Reading kept translations** never asks the translator. `kept` holds one entry for each original
+  that has a translation kept in the language and none for the rest.
+- **Translating** answers one reading for each original, in the order given:
+  - an original with no part in another language stands as it is;
+  - any other has its parts in another language translated, each part standing beside the rest as it
+    did in the original, and is kept;
+  - a part the translator could not render stays in its original, the reading has `whole` false, and
+    nothing is kept for it, so the next call asks again.
+- **Keeping a translation** keeps `text` as the reading of `original` in the language, in place of any
+  kept before. The service keeps a worker's own English this way as the reading of the rendering
+  written on the row, so a worker reading the item later is handed the English that was written.
+
+#### The sanitiser
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Sanitise words | `POST /sanitised` | `text`, `label`, `chat?` | `text`, `changed` |
+
+- **The sanitiser** reads words on their way into a model's context for security-intrusion material
+  and defuses the smallest spans that carry it, leaving the rest as it was. `label` names what the
+  words are, for the sanitiser's instructions, and `chat` the room whose run the words belong to,
+  where there is one.
+- **The answer** is the words as they are to be handed on, and `changed` is true where anything was
+  defused. Words with nothing worth judging come back as they are. Where the sanitiser has no answer,
+  bmo-gate blanks the words that made them worth judging, so they are never handed on raw.
+- **A run of the sanitiser that was stopped** is refused with status 409 and code `stopped`.
+
 ### bmo-testbed
 
 Checks, suites, heavy commands, a repository's close line, the unit links into a checkout and the

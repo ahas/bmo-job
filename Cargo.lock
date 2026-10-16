@@ -169,6 +169,7 @@ dependencies = [
  "job-agency",
  "job-base",
  "job-codes",
+ "job-gate",
  "job-receiver",
  "job-testbed",
  "job-web",
@@ -942,6 +943,17 @@ dependencies = [
  "serde_json",
  "strum 0.28.0",
  "thiserror",
+]
+
+[[package]]
+name = "job-gate"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "url",
 ]
 
 [[package]]

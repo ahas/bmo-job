@@ -1,11 +1,12 @@
 # The workspace: the service's own package at the root, the library base, the codes, the policy loader, the
-# two queue crates and the agency, receiver, testbed and web ports under `crates/` and the migration crate. The
-# root package also holds the repository checks and the ports' contract tests in `tests/`.
+# two queue crates and the agency, gate, receiver, testbed and web ports under `crates/` and the migration
+# crate. The root package also holds the repository checks and the ports' contract tests in `tests/`.
 [workspace]
 members = [
   "crates/agency",
   "crates/base",
   "crates/codes",
+  "crates/gate",
   "crates/policy",
   "crates/queue-read",
   "crates/queue-rows",
@@ -27,6 +28,7 @@ chrono = { version = "0.4.45", default-features = false, features = ["std", "clo
 job-agency = { path = "crates/agency" }
 job-base = { path = "crates/base" }
 job-codes = { path = "crates/codes" }
+job-gate = { path = "crates/gate" }
 job-policy = { path = "crates/policy" }
 job-receiver = { path = "crates/receiver" }
 job-testbed = { path = "crates/testbed" }
@@ -62,6 +64,7 @@ job-base.workspace = true
 axum = { workspace = true, features = ["http1", "matched-path", "tokio"] }
 job-agency.workspace = true
 job-codes.workspace = true
+job-gate.workspace = true
 job-receiver.workspace = true
 job-testbed.workspace = true
 job-web.workspace = true
