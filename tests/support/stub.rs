@@ -1,0 +1,153 @@
+//! An in-process stand-in for another unit. It serves the routes it is given on a loopback port, records
+//! each call it takes, and answers each from the fixture set for its route. A route with no fixture
+//! answers 500 with the code `no_fixture`.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, MutexGuard};
+
+use axum::body::Bytes;
+use axum::extract::{MatchedPath, State};
+use axum::http::{Method, StatusCode, Uri};
+use axum::response::{IntoResponse, Response};
+use axum::{Json, Router};
+use serde_json::{Value, json};
+use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
+use url::Url;
+
+/// One call the stand-in took.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Call {
+  /// The route it matched, as its method and path pattern, such as `POST /sessions/{id}/turns`.
+  pub route: String,
+  /// The path and query it was made on, as they were sent.
+  pub target: String,
+  /// Its body read as JSON; none where it had no body.
+  pub body: Option<Value>,
+}
+
+/// What a route answers: a status, and a JSON body where it has one.
+#[derive(Clone)]
+struct Fixture {
+  status: StatusCode,
+  body: Option<Value>,
+}
+
+#[derive(Default)]
+pub struct Book {
+  calls: Vec<Call>,
+  fixtures: HashMap<String, Fixture>,
+}
+
+/// What every route of a stand-in shares.
+pub type Shared = Arc<Mutex<Book>>;
+
+/// The stand-in, serving until it is dropped.
+pub struct Stub {
+  book: Shared,
+  address: Url,
+  server: JoinHandle<()>,
+}
+
+/// Records a call and answers it from its route's fixture. Every route of a stand-in is taken by it.
+pub async fn take(
+  State(book): State<Shared>,
+  matched: MatchedPath,
+  method: Method,
+  uri: Uri,
+  body: Bytes,
+) -> Response {
+  let route = format!("{method} {}", matched.as_str());
+  let target = uri.path_and_query().map_or_else(|| uri.path().to_owned(), ToString::to_string);
+  let body = (!body.is_empty()).then(|| serde_json::from_slice(&body).expect("a call's body is JSON"));
+  let fixture = {
+    let mut book = book.lock().expect("the book is not poisoned");
+
+    book.calls.push(Call {
+      route: route.clone(),
+      target,
+      body,
+    });
+    book.fixtures.get(&route).cloned()
+  };
+
+  match fixture {
+    Some(Fixture {
+      status,
+      body: Some(body),
+    }) => (status, Json(body)).into_response(),
+    Some(Fixture { status, body: None }) => status.into_response(),
+    None => {
+      let said = json!({ "error": format!("No fixture is set for {route}."), "code": "no_fixture" });
+
+      (StatusCode::INTERNAL_SERVER_ERROR, Json(said)).into_response()
+    }
+  }
+}
+
+impl Stub {
+  /// Starts the stand-in serving `routes` on a free loopback port.
+  pub async fn start(routes: Router<Shared>) -> Self {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a loopback port is free");
+    let bound = listener.local_addr().expect("the port is bound");
+    let address = Url::parse(&format!("http://{bound}/")).expect("the address reads");
+    let book = Shared::default();
+    let app = routes.with_state(book.clone());
+    let server = tokio::spawn(async move {
+      axum::serve(listener, app).await.expect("the stand-in serves");
+    });
+
+    Self {
+      book,
+      address,
+      server,
+    }
+  }
+
+  /// The address the stand-in serves at.
+  pub fn address(&self) -> Url {
+    self.address.clone()
+  }
+
+  fn book(&self) -> MutexGuard<'_, Book> {
+    self.book.lock().expect("the book is not poisoned")
+  }
+
+  /// Sets `route` to answer `status` with `body`.
+  pub fn answer(&self, route: &str, status: u16, body: Value) {
+    self.set(route, status, Some(body));
+  }
+
+  /// Sets `route` to answer `status` with no body.
+  pub fn answer_empty(&self, route: &str, status: u16) {
+    self.set(route, status, None);
+  }
+
+  fn set(&self, route: &str, status: u16, body: Option<Value>) {
+    let status = StatusCode::from_u16(status).expect("a fixture's status is a status");
+
+    self.book().fixtures.insert(route.to_owned(), Fixture { status, body });
+  }
+
+  /// Every call taken so far, in order.
+  pub fn calls(&self) -> Vec<Call> {
+    self.book().calls.clone()
+  }
+
+  /// Asserts the stand-in took exactly one call: on `route`, at `target`, with `body`.
+  pub fn took(&self, route: &str, target: &str, body: Option<Value>) {
+    let expected = Call {
+      route: route.to_owned(),
+      target: target.to_owned(),
+      body,
+    };
+
+    assert_eq!(self.calls(), [expected]);
+  }
+}
+
+impl Drop for Stub {
+  fn drop(&mut self) {
+    self.server.abort();
+  }
+}

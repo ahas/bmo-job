@@ -10,10 +10,10 @@ through bmo-agency, rooms through bmo-receiver, suites and deploys through bmo-t
 | Folder | Holds |
 |---|---|
 | `src/` | The service's own package: the library and, under `src/bin/`, the server and the unit's command line |
-| `crates/` | `agency`, the port to bmo-agency: every call the service makes there, as a trait and an HTTP client; `base`, the library base every crate stands on: refusals, the database, settings and the clock; `codes`, every refusal, answer and fact the service gives as codes with structured fields; `policy`, which reads the files of `policy/`; `queue-read`, which reads the queue as the database holds it; and `queue-rows`, which writes the TODO's rows and work orders |
+| `crates/` | `agency`, the port to bmo-agency: every call the service makes there, as a trait and an HTTP client; `base`, the library base every crate stands on: refusals, the database, settings and the clock; `codes`, every refusal, answer and fact the service gives as codes with structured fields; `policy`, which reads the files of `policy/`; `queue-read`, which reads the queue as the database holds it; `queue-rows`, which writes the TODO's rows and work orders; and `receiver`, the port to bmo-receiver: every call the service makes there, as a trait and an HTTP client |
 | `migration/` | The schema of the tables the service owns, as migrations that run up and down |
 | `policy/` | The service's fixed numbers and words, as TOML files read by its policy loader |
-| `tests/` | The root package's tests: the repository checks, and the agency port's contract tests against an in-process stand-in for bmo-agency |
+| `tests/` | The root package's tests: the repository checks, and the agency and receiver ports' contract tests, each against an in-process stand-in for its unit |
 | `docs/` | The canonical statements of what the service does |
 
 At the root stand the Cargo workspace manifest, the version, `testbed.toml`, `rustfmt.toml`,

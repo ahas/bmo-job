@@ -890,3 +890,124 @@ as the tiers' capacity allows.
 | Read a pool's branch slots | `GET /places/branch-slots/{pool}` | | `root`, `slots`: a list of `slot` and `dir` |
 
 - A path answered is absolute on the machine the service runs on.
+
+### bmo-receiver
+
+Rooms are bmo-receiver's: the chats it receives, their owner, the messages said in them, the agents who
+answer in them, the instructions it hands an agent's session there, and the owner's talks about an item
+or a document. The service reaches all of them through the calls below and nothing else. The crate
+`job-receiver` holds them: the trait `Receiver` declares every call, and `ReceiverClient` makes them
+over HTTP to the address it is given.
+
+- **The address, the bodies, the path segments, the statuses, the refusals and the failures** read as
+  they do for bmo-agency above, with bmo-receiver in its place.
+- **A room is named by its chat,** a whole number that may be negative.
+- **No sentence a person reads goes from the service:** what a room is told goes as a fact, and
+  bmo-receiver's agent says it in the room's language.
+
+#### Instructions
+
+An instruction is what an agent's session in a room is handed to act on: a fact to tell the room, or an
+order in English for the agent itself, which no person reads. bmo-receiver keeps it, frames it and hands
+it over as the session takes it up. The service queues one, reads how far it has gone, and withdraws one
+not yet taken.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Queue an instruction | `POST /instructions` | an instruction | 201, `id` |
+| Read its state | `GET /instructions/{id}` | | `state`: `pending`, `handed` or `delivered` |
+| Withdraw it | `DELETE /instructions/{id}` | | `withdrawn`: false where it was handed already or is gone |
+
+- **An instruction:** `agent?`, `chat?`, `said`, `kind?`, `sort`, `summary?`, `expires_at?`, `[events]`,
+  `rides_until?`, `via?`, `run?`.
+  - `agent` is the agent whose session takes it, the deployment's agent where null; `chat` is the room,
+    the owner's private chat where null.
+  - `said` is an object of one key: `fact`, holding a fact as "Facts" above gives it, or `order`, holding
+    the words of an order.
+  - `kind` names what it is about: queueing one replaces the pending instruction of the same kind in the
+    room.
+  - `sort` names its family, such as `job`, `notice`, `overtime` or `run_failure`; `summary` is the line
+    it is listed under, made from the fact where null.
+  - `expires_at` is when it lapses; `events` are the events its delivery carries; `rides_until` makes it
+    ride the next turn rather than open one, until that time; `via` is the road the session was read on,
+    which it is delivered on; `run` is the run whose result it is.
+- **A failed run's last action** travels inside its fact, `run_failed`, as `last_tool` and
+  `tool_detail`, and bmo-receiver says it.
+- An instruction withdrawn, replaced or lapsed reads as nothing found.
+
+#### Voiced notices
+
+A voiced notice is a fact a room is told by the agent that speaks for it, its voice, whoever that is.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Voice a notice | `POST /rooms/{chat}/notices` | a notice | 201, `id`: the instruction it was queued as |
+
+- **A notice:** `fact` (a fact), `intent` (what the line is for, in English for the agent), `follow_up?`
+  (what follows it), `optional` (true where the voice may leave it unsaid when the fact leaves the room
+  nothing to hear), `kind?`, `expires_at?`, `[events]` and `rides_until?`, the last four read as an
+  instruction's.
+
+#### Rooms
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Read the owner | `GET /owner` | | `sender` (the owner as a sender), `chat` (the owner's private chat) |
+| Read a room | `GET /rooms/{chat}` | | a room |
+| Read a room's answerers | `GET /rooms/{chat}/answerers` | | the answerers |
+
+- **A room:** `chat`, `owner_room` (true where it is the owner's private chat with the deployment's
+  agent), `registered` (true where its registration stands), and `work_chat`: where the news, questions
+  and answers of work filed from it are told, the room itself while its registration stands and the
+  owner's private chat once it is gone. Any chat reads as a room; one never registered reads as one
+  whose registration is gone.
+- **The answerers:** `default` (the agent that answers where a room names none), `voice` (the agent
+  that speaks for the room), and `answerers`: a list of `agent` and `companion` (true where it answers
+  beside the voice rather than as it), every agent named to answer in the room that is not resting.
+
+#### Messages
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Read a message | `GET /rooms/{chat}/messages/{message}` | | a message |
+
+- **A message:** `sender?` (null where no sender is known), `sender_name?`, `sent_at`, `text`. A
+  message bmo-receiver does not keep reads as nothing found.
+- An item is filed with the sender of the first message it quotes as its requester.
+
+#### Talks
+
+A talk is the owner's conversation with the deployment's agent about an item or a document. The service
+hands bmo-receiver the topic, the turns said so far and what the owner says now, and bmo-receiver's agent
+answers it.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Talk | `POST /talks` | `topic`, `[turns]`, `said` | `answer?`: null where the agent said nothing |
+
+- **A topic** is an object holding `kind`:
+  - `item`, with `id`, `title`, `done`, `merged_into?`, `held` (true where it is held), `hold?` (why:
+    `stop`, `pause`, `failure` or any other hold), `stopping` (true where a run of it still ends),
+    `approved` and `status`;
+  - `document`, with `document`, `label`, `writer`, `file`, `version`, `heading?`, `passage?` (the part
+    the owner selected) and `translated`.
+- **A turn:** `owner` (true where the owner said it) and `text`.
+- **A talk that comes back with nothing** is refused: `resting` with 409 where the agent rests or the
+  owner's chat has fallen silent, `limit` with 429 where its provider's limit is reached, `outage` with
+  503 where its provider is out, and any other code for any other failure.
+
+#### Room holdings
+
+bmo-receiver asks every unit that holds rows naming a room what the room holds before it removes the
+room. A unit declares itself a holder, and bmo-receiver asks it through the unit's own API: for the
+service, its route for the rooms an item belongs to, which answers `RoomHoldings`.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Declare the service a holder | `PUT /room-holders/{unit}` | `address`, `[holdings]` | 204 |
+
+- **`unit`** is the service's unit name and **`address`** the base of its own API, both from the
+  deployment.
+- **A holding:** `name` and `effect`: `kept` where the rows stay and keep the room's chat after it is
+  removed, `warns` where bmo-receiver shows what the unit answers before it removes the room.
+- Declaring again replaces the unit's declaration.

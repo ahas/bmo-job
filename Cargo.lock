@@ -168,6 +168,8 @@ dependencies = [
  "axum",
  "job-agency",
  "job-base",
+ "job-codes",
+ "job-receiver",
  "serde_json",
  "tokio",
  "toml",
@@ -948,6 +950,18 @@ dependencies = [
  "serde",
  "thiserror",
  "toml",
+]
+
+[[package]]
+name = "job-receiver"
+version = "0.1.0"
+dependencies = [
+ "job-codes",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "url",
 ]
 
 [[package]]
