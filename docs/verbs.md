@@ -39,7 +39,7 @@ command line reads its words into these verbs and prints what they answer.
 
 ## The server's verbs
 
-The binary `bmo-job` serves its routes on one type that carries every trait the server is built on
+The binary, run as `bmo-job serve` (docs/cli.md), serves its routes on one type that carries every trait the server is built on
 (docs/api.md, "Routes"), and starts the work-order runner beside it (docs/queue.md, "The work-order
 runner").
 

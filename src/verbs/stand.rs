@@ -144,32 +144,39 @@ impl Stand {
   /// with, or why it was refused or never answered.
   pub async fn ask_server(&self, path: &str, body: &Value, wait: Duration) -> Result<Value, ServerRefused> {
     let url = self.server.join(path).map_err(|why| ServerRefused::unreached(why.to_string()))?;
-    let answer = reqwest::Client::new()
-      .post(url)
-      .json(body)
-      .timeout(wait)
-      .send()
-      .await
-      .map_err(|why| ServerRefused::unreached(why.to_string()))?;
-    let status = answer.status();
-    let read: Value = if status == reqwest::StatusCode::NO_CONTENT {
-      Value::Null
-    } else {
-      answer.json().await.unwrap_or(Value::Null)
-    };
 
-    if status.is_success() {
-      return Ok(read);
-    }
-
-    let text = |key: &str| read.get(key).and_then(Value::as_str).map(str::to_owned);
-
-    Err(ServerRefused {
-      status: Some(status.as_u16()),
-      code: text("code"),
-      error: text("error").unwrap_or_else(|| format!("the server answered {status}")),
-    })
+    answered(reqwest::Client::new().post(url).json(body).timeout(wait)).await
   }
+
+  /// A reading of one of the server's own routes, waited for no longer than `wait`.
+  pub async fn read_server(&self, path: &str, wait: Duration) -> Result<Value, ServerRefused> {
+    let url = self.server.join(path).map_err(|why| ServerRefused::unreached(why.to_string()))?;
+
+    answered(reqwest::Client::new().get(url).timeout(wait)).await
+  }
+}
+
+// A request to the server sent: the body it answered with, or why it was refused or never answered.
+async fn answered(request: reqwest::RequestBuilder) -> Result<Value, ServerRefused> {
+  let answer = request.send().await.map_err(|why| ServerRefused::unreached(why.to_string()))?;
+  let status = answer.status();
+  let read: Value = if status == reqwest::StatusCode::NO_CONTENT {
+    Value::Null
+  } else {
+    answer.json().await.unwrap_or(Value::Null)
+  };
+
+  if status.is_success() {
+    return Ok(read);
+  }
+
+  let text = |key: &str| read.get(key).and_then(Value::as_str).map(str::to_owned);
+
+  Err(ServerRefused {
+    status: Some(status.as_u16()),
+    code: text("code"),
+    error: text("error").unwrap_or_else(|| format!("the server answered {status}")),
+  })
 }
 
 /// A request the server refused or never answered.

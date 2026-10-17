@@ -33,6 +33,7 @@ At the root stand the Cargo workspace manifest, the version, `testbed.toml`, `ru
 | `docs/queue.md` | Running the queue: workers, routes and turns, a launch judged and started, what is running, how a job ends, its questions and clocks, a work order's verbs, what the agent and the rooms are told, and the work-order runner |
 | `docs/runs.md` | Running a job: its locks, its checkout before and after, its prompt and turns, the judgement of its last answer, its ending, landing on main, and the commands it allows itself |
 | `docs/reading.md` | Reading the queue: an item as a person and as a worker reads it, the time it took, a room's jobs and a work order |
+| `docs/cli.md` | The command line: the binary `bmo-job` as `bmo` finds it, its nouns, what each stands on, and what it prints |
 | `docs/checks.md` | The repository checks: no Hangul in code or tests, the layout, the dependencies |
 
 ## Version
@@ -51,8 +52,10 @@ cargo test --workspace
 ```
 
 The server reads the settings file `BMO_JOB_SETTINGS` names, `settings.toml` otherwise
-(docs/settings.md), migrates its database up and serves:
+(docs/settings.md), migrates its database up and serves; every other noun of the command line is in
+docs/cli.md:
 
 ```sh
-cargo run --bin bmo-job
+cargo run --bin bmo-job -- serve
+cargo run --bin bmo-job -- nouns
 ```

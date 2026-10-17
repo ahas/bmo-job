@@ -38,6 +38,7 @@ async fn the_binary_migrates_declares_itself_a_holder_and_serves() {
   std::fs::write(&place, settings).unwrap();
 
   let mut child = Command::new(env!("CARGO_BIN_EXE_bmo-job"))
+    .arg("serve")
     .env("BMO_JOB_SETTINGS", &place)
     .stdin(Stdio::null())
     .stdout(Stdio::null())
@@ -117,6 +118,7 @@ fn the_binary_refuses_to_start_without_its_server_section() {
   .unwrap();
 
   let ran = Command::new(env!("CARGO_BIN_EXE_bmo-job"))
+    .arg("serve")
     .env("BMO_JOB_SETTINGS", &place)
     .output()
     .unwrap();

@@ -1016,7 +1016,7 @@ launch.
 ## Routes
 
 What the service serves, on the address `[server] listen` binds and other units reach as
-`[server] address` (docs/settings.md). The binary `bmo-job` serves them.
+`[server] address` (docs/settings.md). The binary serves them as `bmo-job serve` (docs/cli.md).
 
 - **A body is JSON, both ways,** with snake_case keys. A time is epoch milliseconds, and a field written
   with a question mark may be absent or null.
@@ -1374,6 +1374,8 @@ worker. bmo-agency keeps it; the service starts, feeds, reads and ends it.
 
 - **A scope** is an object holding `kind`: `agent`, `worker`, or `room` with the field `room`.
 - **A session:** `id`, `agent`, `scope`.
+- **The program a session runs** carries `BMO_TURN_AGENT`, the agent the session is, so what the verbs
+  it runs file stands under that agent (docs/cli.md, "`todo`").
 - **A session's state:** `session`, `provider`, `model`, `place`, `generation` (how many times it has
   started over), and `context?`, which holds `carried` and `window`: the tokens it carries and the most
   it may.
