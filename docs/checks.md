@@ -5,7 +5,7 @@ test run carries them and a change that breaks a rule fails like any other test.
 
 ## No Hangul in code or tests
 
-- **What it reads:** every file under `src/`, `crates/`, `migration/`, `policy/` and `tests/`, skipping
+- **What it reads:** every file under `src/`, `crates/`, `migration/`, `policy/`, `tools/` and `tests/`, skipping
   build output.
 - **What fails:** any character of the Hangul syllables block, U+AC00 to U+D7A3. A failure names each
   file and line.

@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "by": {
+      "description": "Whose words, where not the owner's.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "item": {
+      "description": "The item's number or title.",
+      "type": "string"
+    },
+    "message": {
+      "description": "The message this call acts on: the id of the person's message in this turn that asked for it. Omitted only in a turn whose every new message is the owner's, or that no person's message opened.",
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "text": {
+      "description": "The words to add.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "item",
+    "text"
+  ],
+  "type": "object"
+}

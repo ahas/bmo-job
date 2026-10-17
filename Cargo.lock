@@ -1298,6 +1298,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "job-tool-call"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "job-base",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
+ "url",
+]
+
+[[package]]
 name = "job-web"
 version = "0.1.0"
 dependencies = [
@@ -1317,6 +1332,19 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "launch-tool"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "futures-util",
+ "job-tool-call",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -2440,6 +2468,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "state-tool"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "futures-util",
+ "job-tool-call",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2594,6 +2635,19 @@ name = "tinyvec"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
+
+[[package]]
+name = "todo-tool"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "futures-util",
+ "job-tool-call",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
 
 [[package]]
 name = "tokio"

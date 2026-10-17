@@ -1,0 +1,23 @@
+[package]
+name = "state-tool"
+description = "The service's state readings: a room's jobs and an item's work order, through the service's own API."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "state-tool"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+futures-util.workspace = true
+job-tool-call.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+axum = { workspace = true, features = ["http1", "tokio"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt-multi-thread"] }

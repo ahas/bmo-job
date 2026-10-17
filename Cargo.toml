@@ -1,7 +1,7 @@
 # The workspace: the service's own package at the root, the library base, the codes, the policy loader, the
-# two queue crates and the agency, brain, gate, graph, receiver, testbed and web ports under `crates/` and
-# the migration crate. The root package holds the server and its binary, and in `tests/` the repository
-# checks, the ports' contract tests and the server's request tests.
+# two queue crates, the agency, brain, gate, graph, receiver, testbed and web ports and the tools' call under
+# `crates/`, the service's tools under `tools/`, and the migration crate. The root package holds the server and
+# its binary, and in `tests/` the repository checks, the ports' contract tests and the server's request tests.
 [workspace]
 members = [
   "crates/agency",
@@ -15,8 +15,12 @@ members = [
   "crates/queue-rows",
   "crates/receiver",
   "crates/testbed",
+  "crates/tool-call",
   "crates/web",
   "migration",
+  "tools/launch",
+  "tools/state",
+  "tools/todo",
 ]
 resolver = "3"
 
@@ -41,6 +45,7 @@ job-graph = { path = "crates/graph" }
 job-policy = { path = "crates/policy" }
 job-receiver = { path = "crates/receiver" }
 job-testbed = { path = "crates/testbed" }
+job-tool-call = { path = "crates/tool-call" }
 job-web = { path = "crates/web" }
 libc = "0.2.190"
 migration = { path = "migration" }

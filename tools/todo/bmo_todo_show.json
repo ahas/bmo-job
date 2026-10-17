@@ -1,0 +1,13 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "item": {
+      "description": "The item's number, or the title of one that is not finished.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "item"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,15 @@
+{
+  "properties": {
+    "lines": {
+      "description": "The reading, one line each.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "lines"
+  ],
+  "type": "object"
+}

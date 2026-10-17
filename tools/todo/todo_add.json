@@ -1,0 +1,182 @@
+{
+  "$defs": {
+    "ImpactGrounds": {
+      "additionalProperties": false,
+      "description": "The grounds an item's co-work setting is judged on, as the item keeps them.",
+      "properties": {
+        "new_home": {
+          "default": false,
+          "description": "Whether a new module, table or other home must be decided before the work is written.",
+          "type": "boolean"
+        },
+        "nodes": {
+          "description": "Every graph node the change reaches, the node to change first, then what graph_impact reached.",
+          "items": {
+            "$ref": "#/$defs/ImpactNode"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "nodes"
+      ],
+      "type": "object"
+    },
+    "ImpactNode": {
+      "additionalProperties": false,
+      "description": "One node the change reaches.",
+      "properties": {
+        "contract": {
+          "default": null,
+          "description": "The outward contract that changes on it — API, schema, wire format, policy file or documented\nbehaviour — or null where only its inside changes.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "The node's graph id.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "chat": {
+      "description": "The room, by chat id, where it is not this turn's own.",
+      "format": "int64",
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "conclusion": {
+      "description": "What was concluded.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cowork": {
+      "description": "Run it as a co-work.",
+      "type": "boolean"
+    },
+    "do": {
+      "description": "What has to be done.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "from_todo": {
+      "description": "<id>:<strand>[,<id>:<strand>] of the unfinished notes a judgement row came out of.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "impact": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ImpactGrounds"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The grounds the co-work setting was weighed on, for a change to code: the graph nodes it reaches and\nthe outward contract that changes on each, in English."
+    },
+    "instruction": {
+      "description": "The archived messages that asked for it.",
+      "items": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "judgement": {
+      "description": "The agent's own reason for a row nobody asked for; takes none of the conversation's parts.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "message": {
+      "description": "The message this call acts on: the id of the person's message in this turn that asked for it. Omitted only in a turn whose every new message is the owner's, or that no person's message opened.",
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "model": {
+      "description": "The job model, or auto.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "raised_by": {
+      "description": "The item whose work raised a judgement row.",
+      "format": "int64",
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "reply": {
+      "description": "The agent's archived replies to copy.",
+      "items": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "reply_text": {
+      "description": "The agent's reply, where none is archived.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "requester": {
+      "description": "Who asked, where the archive names nobody.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "description": "The row's status line.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "title": {
+      "description": "The row's title.",
+      "type": "string"
+    },
+    "what": {
+      "description": "What the work is.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "title"
+  ],
+  "type": "object"
+}

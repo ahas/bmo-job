@@ -1,0 +1,20 @@
+# The service's launching tool (docs/tools.md): a job launched on a worker, asked of the service's own API as
+# the command line's `job start` asks it. The crate's own test holds every entry here to the tool answering it.
+
+[tool]
+name = "launch"
+protocol = 1
+language = "rust"
+build = 'cargo build --release -p launch-tool && cp "$BMO_CARGO_TARGET/release/launch-tool" "$BMO_TOOL_OUT/"'
+check = 'cargo test -p launch-tool'
+run = ["launch-tool"]
+timeout = 180
+
+[[entry]]
+namespace = "bmo"
+name = "task"
+description = "Launch a job on a worker; it reports to the room when done."
+input = "task.json"
+hints = { open_world = true }
+capabilities = ["room.tools"]
+grant = "launch"
