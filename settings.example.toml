@@ -21,6 +21,8 @@ agency = "http://127.0.0.1:7842"
 gate = "http://127.0.0.1:7843"
 receiver = "http://127.0.0.1:7844"
 web = "http://127.0.0.1:7845"
+graph = "http://127.0.0.1:7846"
+siren = "http://127.0.0.1:7847"
 
 [host]
 source = "/srv/job/source"
@@ -38,3 +40,4 @@ launcher = "/srv/job/bin/launcher"
 launcher_directory = "/srv/job"
 documents = "/srv/job/work-orders"
 tree = "/srv/platform"
+testbed_logs = "/srv/job/testbed-logs"

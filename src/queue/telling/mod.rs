@@ -15,6 +15,9 @@ mod runner;
 mod standing;
 mod words;
 
+pub use dead::WAITING_ENDING;
+pub use report::WAITING_REPORT;
+
 use std::path::PathBuf;
 
 use job_codes::Fact;

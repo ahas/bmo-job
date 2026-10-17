@@ -87,12 +87,15 @@ fn the_checked_in_example_loads_with_neutral_names() {
   assert_eq!(&*server.unit, "job");
   assert_eq!(units.receiver.url().as_str(), "http://127.0.0.1:7844/");
   assert_eq!(units.web.url().as_str(), "http://127.0.0.1:7845/");
+  assert_eq!(units.graph.url().as_str(), "http://127.0.0.1:7846/");
+  assert_eq!(units.siren.as_ref().map(|siren| siren.url().as_str()), Some("http://127.0.0.1:7847/"));
 
   let host = settings.host.expect("the example names the host");
 
   assert_eq!(&*host.systemctl, Path::new("/usr/bin/systemctl"));
   assert_eq!(host.lock_wait_seconds.duration(), std::time::Duration::from_secs(20));
   assert_eq!(host.runner_environment.as_deref(), Some(Path::new("/srv/job/job.env")));
+  assert_eq!(host.testbed_logs.as_deref(), Some(Path::new("/srv/job/testbed-logs")));
 }
 
 const HOST: &str = r#"[host]
@@ -119,6 +122,7 @@ fn the_host_is_read_where_given_with_absolute_paths_and_a_wait_above_nothing() {
 
   assert_eq!(&*host.locks, Path::new("/l"));
   assert_eq!(host.runner_environment, None, "the environment file may be left out");
+  assert_eq!(host.testbed_logs, None, "the testbed's log folder may be left out");
   assert_eq!(host.lock_wait_seconds.duration(), std::time::Duration::from_secs(5));
   assert!(
     read(&HOST.replace("\"/l\"", "\"locks\""))
@@ -135,8 +139,7 @@ fn the_host_is_read_where_given_with_absolute_paths_and_a_wait_above_nothing() {
 fn the_server_and_its_units_are_left_out_by_the_libraries_and_read_where_given() {
   let without = Settings::read(&with_database("sqlite::memory:")).unwrap();
   let server = "[server]\nlisten = \"127.0.0.1:0\"\naddress = \"http://localhost:1/\"\nunit = \"job\"\n";
-  let units =
-    "[units]\nagency = \"http://a\"\ngate = \"http://g\"\nreceiver = \"http://r\"\nweb = \"http://w\"\n";
+  let units = "[units]\nagency = \"http://a\"\ngate = \"http://g\"\nreceiver = \"http://r\"\nweb = \"http://w\"\ngraph = \"http://h\"\n";
   let with = Settings::read(&format!("{}\n{server}{units}", with_database("sqlite::memory:"))).unwrap();
   let https = Settings::read(&format!(
     "{}\n{server}{}",
@@ -155,6 +158,8 @@ fn the_server_and_its_units_are_left_out_by_the_libraries_and_read_where_given()
 
   assert_eq!(units.gate.url().as_str(), "http://g/");
   assert_eq!(units.web.url().as_str(), "http://w/");
+  assert_eq!(units.graph.url().as_str(), "http://h/");
+  assert_eq!(units.siren, None, "the siren may be left out");
   assert!(https.unwrap_err().to_string().contains("is not an http address"));
   assert!(no_socket.is_err());
 }

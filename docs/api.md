@@ -438,6 +438,17 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | `job_ended` | `reason` (a job ending), `job_id`, `checkout` | a job ended |
 | `job_gone` | `job_id`, `label?` (a job label), `purpose?`, `removed_room?` | a job the room asked for ended without reporting: its run was killed or crashed |
 | `work_reported` | `item?`, `done`, `summary?` | the room that asked for a piece of work hears what it came to; `summary` holds only the sentences of the report that say nothing of the system |
+| `job_stopped` | `job_id`, `item?`, `worker`, `outcome` (a job ending), `requested`, `actual?` (`provider`, `model`) | a run ended on a usage limit, waiting on a person, or stopped, with no work to report |
+| `work_output_refused` | `job_id`, `worker`, `output` (a work output), `reason`, `correction` | a work order's middle turn answered its structure in a shape the runner refused, and is asked again or stops |
+
+#### A job's road: `RoadFact`
+
+| Code | Fields | Told when |
+|---|---|---|
+| `road_switching` | `job_id`, `item?`, `worker`, `requested`, `from`, `to`, `cause` (a switch cause) | a run goes out on another road than the one it asked for |
+| `road_answered` | `job_id`, `item?`, `worker`, `requested`, `from`, `to` | a run that switched roads answered on the road it switched to |
+| `road_unavailable` | `job_id`, `item?`, `worker`, `requested`, `selection`, `failure` (a road failure) | a road did not answer a run and is closed for its while |
+| `roads_exhausted` | `job_id`, `item?`, `worker`, `requested`, `[attempted]` | every road a run could take was tried or is shut, and the run stops |
 
 #### A job's question: `QuestionFact`
 
@@ -901,6 +912,28 @@ launch.
 | `unanswered` | | the agent reported it could not finish its answer |
 | `blocked` | | the run stopped waiting on something a person answers |
 
+#### A switch cause: `SwitchCause`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `first_unavailable` | | the road asked for rests, is off, or is not set up |
+| `previous_failed` | | the road tried before did not carry the run |
+
+#### A road failure: `RoadFailure`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `quota` | | a usage window or a rate limit is full |
+| `outage` | | the service did not answer |
+| `access` | | the road refused the run's access or does not have its model |
+
+#### A work output: `WorkOutput`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `plan` | | a work order's plan |
+| `synthesis` | | the tasks a work order's synthesis builds |
+
 #### A queue told: `QueueTold`
 
 | Kind | Fields | Names |
@@ -1227,6 +1260,7 @@ sends only what changed and a fold forgets what it folded away.
 | Route | Request | Answer |
 |---|---|---|
 | `GET /events?after=&run=` | | a server-sent event stream |
+| `POST /queue/moved` | `detail?` | 204: `queue_moved` put into the stream, for a process of the service's own, such as a job's runner, that changed the queue |
 
 - **The stream opens** with an event `run` whose data names the run its ids count, then replays every
   event after `after` where `run` is this run's, every event held where it is not, then goes on as
@@ -1287,6 +1321,59 @@ worker. bmo-agency keeps it; the service starts, feeds, reads and ends it.
 - A turn, an interrupt, a fold or an end on a session that does not exist is refused with 404, and a
   turn to a session busy with another is refused with 409.
 
+#### Work turns
+
+A work turn is one turn of a job's work, carried by bmo-agency end to end: the worker's session settled,
+the logins of the work key walked, the line laid on the mapping asked, the turn put through the
+resident program, words said to the worker meanwhile pushed in, and its record read. What the turn says
+— the prompt, the results it carries, the notes pushed into it — and what is made of its answer are the
+service's.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Prepare a work turn | `POST /work-turns` | a work turn's asking | 201, `turn`, `session?`: the session the turn will continue, none where it opens a fresh one |
+| Send its prompt | `POST /work-turns/{turn}/prompt` | `prompt` | 204 |
+| Read it | `GET /work-turns/{turn}` | | a work turn |
+| Push words into it | `POST /work-turns/{turn}/asides` | `text` | `outcome`: `delivered`, `waiting` (the run waits on a person and took nothing) or `refused` |
+| Answer its question | `PUT /work-turns/{turn}/questions/{question}` | an answer | 204 |
+
+- **A work turn's asking:** `agent` (the name the turn runs under), `seat` (an object holding `kind`:
+  `worker`, or `branch` with `todo?` and `role?`), `provider`, `model` (the model the worker's session
+  record is kept under), `mapping` (`model`, `effort?`, `tier?`, `answer_tokens?`), `resume` (an object
+  holding `kind`: `auto`, `fresh`, or `session` with `id`), `cwd`, `name` (the run's name), `title`
+  (what a person watching reads over the turn), `thread?`, `job`, `chat`, `unit?`, `user?`,
+  `work_key`, and `hears_words` (whether words said to the worker are pushed into the turn).
+- **Preparing** claims the worker's standby, chooses the kept session where `resume` is `auto`, and
+  judges the session the agent holds, answering the session the turn will continue. A branch's turn
+  goes on a session thrown away: in a standing branch place of its repository, or in a pane of its own.
+- **Sending** puts the turn through on the logins of the work key in order. Where the walk moves to a
+  login whose session differs from the one prepared, the turn stands `reprepared` with that session
+  and waits for its prompt again.
+- **A work turn:** `turn`, `state`, `spans` (where the turn's time went so far: each `kind`, `name`,
+  `seconds`, `times`, `tokens?`, `input_tokens?`, `output_tokens?`, `cache_read_tokens?`,
+  `cache_write_tokens?`), `compacted` (whether the session's context was compacted during the turn),
+  `session?` (the session it went on), `went_out?` (`provider`, `model`, `effort?`, `tier?`: what it
+  went out on, once known), and by its state:
+  - `running`, with `question?`: a question the program stopped on, waiting for an answer, as `id` and
+    `kind`, `permission` with `text` and `amendable`, or `unknown`;
+  - `reprepared`;
+  - `answered`, with `reply`;
+  - `failed`, with `failure?` (a failure) or `evidence?` (what a turn that did not answer left, for the
+    service to read).
+- **A reply:** `mode`, `model?`, `effort?`, `text`, `session_id?`, `account?`, `context_ratio?`,
+  `context_tokens?`, `session_usage?` (as the run reported it, handed on as it stands), `[spend]` (each
+  `mode?`, `model`, `tokens`, `input_tokens`, `output_tokens`, `cache_read_tokens`,
+  `cache_write_tokens`), `[live_tasks]` (each `id`, `description`), `[workflows]` (each `call`, `name`,
+  `status?`), `upstream?`, and `request_usages?` (each `input_tokens`, `output_tokens`,
+  `cache_read_tokens`, `cache_write_tokens`).
+- **A failure** is an object holding `kind`: `limit` (`resets_at?`, `account?`, `silenced`), `account`
+  (`failure`: `limit`, `login`, `outage` or `node_token`; `detail`), `died` (`ending`, `said?`,
+  `message`), `person`, `untrusted` (`folder`, `config`), `stopped`, `transport` (`message`),
+  `refused` (`message`), `unavailable` (`scope`, `mode`, `reason`) or `error` (`name`, `message`).
+- **An answer** is an object holding `kind`: `allow`, `leave`, or `refuse` with `words?`.
+- A call on a turn that does not exist is refused with 404; sending a turn that is not waiting for its
+  prompt, or answering a question it does not stand on, with 409.
+
 #### Executions
 
 An execution is one run of an agent's process that bmo-agency launched and records. The service reads
@@ -1334,6 +1421,7 @@ reads it to count a run's starts and to tell what a job's run has done.
 | Count a run's starts | `GET /log/starts?agent={agent}&run={run}` | | `count` |
 | Read a job's last line | `GET /log/jobs/{job}/last` | | `id`, `at`, `kind`, `name?` |
 | Read a job's lines | `GET /log/jobs/{job}` | | a job's lines |
+| Write a note in a run's log | `POST /log/notes` | `agent`, `run`, `chat?`, `job?`, `text`, `source?`, `state?` | 204 |
 
 - **A job's lines:**
   - `calls`: each top-level tool call, as `id`, `agent`, `run?`, `reference?`, `name`, `source?`, `at`,
@@ -1381,6 +1469,33 @@ whether its keepalive is paused, and the context it last carried.
 - **The pin read is the one in force:** a support worker with no pin of its own is answered its base
   worker's.
 
+A worker's sessions, its records and its bench are kept by bmo-agency too; a job's run asks for what
+its turns leave behind.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Carry out a waiting reset | `POST /workers/{worker}/sessions/reset` | | `carried`: true where a reset the owner asked of the worker's sessions waited and is now carried out |
+| Record the session a job answered on | `POST /workers/{worker}/sessions/record` | `answered`, `cwd`, `job` | `kept`: `recorded`, `full` (recorded, and past the fold's line), `dropped` (it answered on a lesser model) or `none` |
+| Hand a session over | `POST /workers/{worker}/sessions/handover` | `model`, `cwd`, `thread?`, `session?`, `note?` | 204 |
+| Note a run | `POST /workers/{worker}/runs` | | 204 |
+| Record a job's usage | `POST /workers/{worker}/usage` | `reply`, `run?` | 204 |
+| Make its bench ready | `POST /workers/{worker}/bench` | | 204 |
+| Sweep the servers its jobs left | `POST /workers/{worker}/servers/sweep` | | `[lines]`: what was swept |
+| Read its job documents | `GET /workers/{worker}/job-documents` | | `graph`, `trailer`, `handoff?` |
+| Read what of a change touches its prefix | `POST /workers/{worker}/prefix-touched` | `[files]` | `[touched]` |
+
+- **The session answered:** `mode`, `session_id?`, `account?`, `[spend]`, `context_ratio?`,
+  `context_tokens?` and `model`, as a reply names them, `model` being the one the job's last attempt
+  went out on.
+- **A handover** closes the session with the note the next run on the worker and model opens with,
+  the worker's own where `note` holds it and a summary of the session otherwise. With no `session`
+  the kept session on the model is handed over and its record dropped, so the next turn opens fresh.
+- **A worker's bench** is its workbench with what a job before asked of its dev server taken back, and
+  its dev pane brought up where it has a dev command.
+- **The job documents** are the worker's agent definition's: `graph` (what a job is told of the code
+  graph), `trailer` (the trailer every job is held to, its paths filled in) and `handoff?` (the
+  instruction the worker writes its own handoff note by, where its folder holds one).
+
 #### Routes, tiers and pins
 
 | Call | Method and path | Request | Answer |
@@ -1390,6 +1505,7 @@ whether its keepalive is paused, and the context it last carried.
 | List the tiers | `GET /tiers` | | a list of `name`, `coworker` (true where a co-worker may run at it) |
 | Resolve a route | `POST /routes/resolve` | `work_key`, `provider?`, `tier` | `provider`, `tier`, `model`, `effort?`, `answer_tokens?`; 404 where no route serves it |
 | Check a pin | `POST /pins/check` | `value` | a pin choice |
+| Read a model's health | `GET /providers/{provider}/models/{model}/health` | | `answers`: true where the engine behind a registered model answers its health and stands aside for nothing |
 
 - **The providers are listed in the provider order:** a request naming no provider walks them from the
   first that is on.
@@ -1438,6 +1554,7 @@ as the tiers' capacity allows.
 | List the nodes | `GET /nodes` | | a list of `name`, `label`, `kind`, `role?`, `state`, `checked_at?` |
 | Read a node's SSH reach | `GET /nodes/{name}/reach` | | `host`, `port`, `user`, `key_path?`, `shell?` |
 | Place a heavy run | `POST /nodes/heavy-run` | | `machine?`: `name`, `label`, `node?`, the machine the next heavy run goes to, null where none has room |
+| Read a node checkout's copy | `GET /nodes/{name}/copy?checkout={path}` | | `path`: where the copy of the node's checkout is kept on this machine |
 
 - Placing a heavy run moves the rotation on, so each call may answer the next machine.
 
@@ -1446,6 +1563,12 @@ as the tiers' capacity allows.
 | Call | Method and path | Request | Answer |
 |---|---|---|---|
 | Check a requester's account | `GET /accounts/claude/held?user={user}` | | `held`: true where an enabled Claude account is held by the user |
+| Rest a login | `PUT /accounts/claude/{account}/rest` | `until` | 204 |
+| Rest after a job's usage | `POST /accounts/claude/{account}/usage-rest` | `usage` | 204 |
+
+- **A rest** keeps every run off the login until the moment given: its window went full.
+- **The rest a job's usage calls for** is judged by bmo-agency from the session usage a done job's
+  reply reported, handed on as it stands.
 
 #### An agent's rest
 
@@ -1812,6 +1935,25 @@ is given.
   than the questions this answers.
 - A path that is not absolute, or names no directory, is refused, and so is a graph that does not
   read in bmo-graph's format.
+
+### The cache siren
+
+The cache siren watches what the roads a run goes out on hit of their prompt caches. The service tells
+it what a co-work branch's answer on Codex or OpenRouter reported, at the address `[units] siren`, and
+waits on nothing it answers.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Tell one event | `POST /events` | an event | any 2xx |
+
+- **An event:** `mode`, `model`, `key` (the work key), `agent`, `project` and `cwd` (the last part of
+  the run's directory), `session`, `input_tokens`, `cache_write_input_tokens`,
+  `cache_read_input_tokens`, `output_tokens` and `usage_known`. It never carries a prompt, an answer or
+  a credential.
+- **A Codex answer** is told as one event to each model request it counted, since the siren judges a
+  request against the one before it; an answer that counted none, and every other road's, as one
+  event, its usage unknown where the run reported none.
+- The first event the siren does not take ends the telling; a refusal is written to the service's log.
 
 ### bmo-testbed
 

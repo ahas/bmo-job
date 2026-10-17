@@ -13,13 +13,14 @@ pub mod records;
 pub mod routes;
 pub mod runs;
 pub mod sessions;
+pub mod turns;
 pub mod workers;
 
 use std::future::Future;
 
 pub use client::AgencyClient;
 pub use executions::Execution;
-pub use log::{JobLines, LogLine, ToolCall, ToolResult};
+pub use log::{JobLines, LogLine, LogNote, ToolCall, ToolResult};
 pub use machine::{LaunchHeld, Room};
 pub use nodes::{Node, SshReach, WorkMachine};
 pub use places::{BranchSlots, Slot, Workbench};
@@ -31,6 +32,11 @@ pub use records::{TurnRecord, TurnRecordKind};
 pub use routes::{Mapping, PinChoice, Provider, RouteAsk, Tier};
 pub use runs::{Run, RunClosing, RunOpening};
 pub use sessions::{Context, Delivery, Output, Scope, Session, SessionId, SessionState, Start};
+pub use turns::{
+  AccountFailure, AsideOutcome, ConfirmAnswer, Confirmation, Handover, JobDocuments, LiveTask, ModelSpend,
+  Prepared, Question, Reply, RequestUsage, Resume, RunEnding, RunWorkflow, SessionAnswered, SessionKept,
+  TurnAsking, TurnFailure, TurnMapping, TurnSeat, TurnSpan, TurnState, WentOut, WorkTurn,
+};
 pub use workers::{Pin, WorkerRuntime};
 
 /// Why a call on bmo-agency failed. Each names the call it was.
@@ -238,4 +244,83 @@ pub trait Agency: Send + Sync {
 
   /// Reads a pool's branch slots.
   fn branch_slots(&self, pool: &str) -> impl Future<Output = Answer<BranchSlots>> + Send;
+
+  /// Prepares a work turn, answering it and the session it will continue.
+  fn prepare_turn(&self, asking: &TurnAsking) -> impl Future<Output = Answer<Prepared>> + Send;
+
+  /// Sends a prepared work turn its prompt.
+  fn send_turn_prompt(&self, turn: &str, prompt: &str) -> impl Future<Output = Answer<()>> + Send;
+
+  /// Reads a work turn as it stands.
+  fn work_turn(&self, turn: &str) -> impl Future<Output = Answer<Option<WorkTurn>>> + Send;
+
+  /// Pushes words into a running work turn.
+  fn push_aside(&self, turn: &str, text: &str) -> impl Future<Output = Answer<AsideOutcome>> + Send;
+
+  /// Answers the question a work turn stands on.
+  fn answer_question(
+    &self,
+    turn: &str,
+    question: &str,
+    answer: &ConfirmAnswer,
+  ) -> impl Future<Output = Answer<()>> + Send;
+
+  /// Carries out a reset the owner asked of a worker's sessions, answering whether one waited.
+  fn carry_out_reset(&self, worker: &str) -> impl Future<Output = Answer<bool>> + Send;
+
+  /// Records the session a job's last answer came back on.
+  fn record_session(
+    &self,
+    worker: &str,
+    answered: &SessionAnswered,
+    cwd: &str,
+    job: i64,
+  ) -> impl Future<Output = Answer<SessionKept>> + Send;
+
+  /// Hands a worker's session over.
+  fn hand_over_session(&self, worker: &str, handover: &Handover)
+  -> impl Future<Output = Answer<()>> + Send;
+
+  /// Notes a run of a worker's.
+  fn note_run(&self, worker: &str) -> impl Future<Output = Answer<()>> + Send;
+
+  /// Records what a job's answer spent.
+  fn record_usage(
+    &self,
+    worker: &str,
+    reply: &Reply,
+    run: Option<&str>,
+  ) -> impl Future<Output = Answer<()>> + Send;
+
+  /// Makes a worker's bench ready for a job.
+  fn make_bench(&self, worker: &str) -> impl Future<Output = Answer<()>> + Send;
+
+  /// Sweeps the servers a worker's jobs left listening, answering what was swept.
+  fn sweep_servers(&self, worker: &str) -> impl Future<Output = Answer<Vec<String>>> + Send;
+
+  /// Reads what a worker's agent definition gives a job.
+  fn job_documents(&self, worker: &str) -> impl Future<Output = Answer<JobDocuments>> + Send;
+
+  /// Which of the files touch the prefix a worker's session is opened on.
+  fn prefix_touched(
+    &self,
+    worker: &str,
+    files: &[String],
+  ) -> impl Future<Output = Answer<Vec<String>>> + Send;
+
+  /// Whether the engine behind a registered model answers its health and stands aside for nothing.
+  fn model_health(&self, provider: &str, model: &str) -> impl Future<Output = Answer<bool>> + Send;
+
+  /// Rests a Claude login until the moment given.
+  fn rest_login(&self, account: &str, until: i64) -> impl Future<Output = Answer<()>> + Send;
+
+  /// Begins the rest a done job's session usage calls for.
+  fn usage_rest(&self, account: &str, usage: &serde_json::Value)
+  -> impl Future<Output = Answer<()>> + Send;
+
+  /// Writes a note into a run's log.
+  fn write_note(&self, note: &LogNote) -> impl Future<Output = Answer<()>> + Send;
+
+  /// Where the copy of a node's checkout is kept on this machine.
+  fn node_copy(&self, node: &str, checkout: &str) -> impl Future<Output = Answer<String>> + Send;
 }

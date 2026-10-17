@@ -72,6 +72,9 @@ pub struct Words {
   pub left_headings: Vec<String>,
   /// The words a report's impact part is headed by.
   pub impact: Vec<String>,
+  /// The names a report says it swept a changed screen against the design rules by, read lower-case with
+  /// every space taken out.
+  pub swept: Vec<String>,
   pub host_work: String,
   pub owner_only: String,
   pub raised_row: String,

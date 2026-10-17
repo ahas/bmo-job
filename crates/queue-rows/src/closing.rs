@@ -393,22 +393,9 @@ impl Reader {
     )
   }
 
-  /// Whether a text is a worker's English: code and links read past, the closing's set-aside words read
-  /// past, and the Hangul syllables left read against the Latin letters left.
+  /// Whether a text is a worker's English, by the closing's own reading of English.
   pub fn written_in_english(&self, text: &str) -> bool {
-    let prose = without_fences(text);
-    let prose = INLINE_CODE.replace_all(&prose, "");
-    let prose = LINK.replace_all(&prose, "");
-    let prose = self.set_aside.replace_all(&prose, "");
-    let hangul = prose.chars().filter(|character| ('\u{AC00}'..='\u{D7A3}').contains(character)).count();
-
-    if self.latin_per_hangul == 0 {
-      return hangul == 0;
-    }
-
-    let latin = prose.chars().filter(char::is_ascii_alphabetic).count();
-
-    latin > 0 && hangul * self.latin_per_hangul < latin
+    reads_as_english(&self.set_aside, self.latin_per_hangul, text)
   }
 
   /// The resolution an unfinished note is settled with once every row it was broken into is finished.
@@ -471,6 +458,25 @@ static CONTINUES: LazyLock<Regex> =
   LazyLock::new(|| Regex::new(r"^\s+\S|^\s*(\d+[.)]|[-*•])\s+").expect("a line that carries a list on"));
 static INLINE_CODE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`[^`\n]*`").expect("inline code"));
 static LINK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"https?://\S+").expect("a link"));
+
+/// Whether a text reads as English by a part's reading of English (docs/policy.md): code and links read
+/// past, the words `set_aside` matches read past, and the Hangul syllables left read against the Latin
+/// letters left, `latin_per_hangul` to each, or none at all where it is 0.
+pub fn reads_as_english(set_aside: &Regex, latin_per_hangul: usize, text: &str) -> bool {
+  let prose = without_fences(text);
+  let prose = INLINE_CODE.replace_all(&prose, "");
+  let prose = LINK.replace_all(&prose, "");
+  let prose = set_aside.replace_all(&prose, "");
+  let hangul = prose.chars().filter(|character| ('\u{AC00}'..='\u{D7A3}').contains(character)).count();
+
+  if latin_per_hangul == 0 {
+    return hangul == 0;
+  }
+
+  let latin = prose.chars().filter(char::is_ascii_alphabetic).count();
+
+  latin > 0 && hangul * latin_per_hangul < latin
+}
 
 fn bare(line: &str) -> String {
   let unmarked = BARE_MARKS.replace_all(line, "");

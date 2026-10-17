@@ -30,6 +30,7 @@ pub mod control_answers;
 pub mod job_ask;
 pub mod job_ended;
 pub mod job_questions;
+pub mod job_roads;
 pub mod job_wait;
 pub mod providers;
 pub mod queue_facts;
@@ -56,6 +57,7 @@ pub use control_answers::{ControlRefusal, FieldForm};
 pub use job_ask::{JobAskAnswer, JobAskRefusal};
 pub use job_ended::JobFact;
 pub use job_questions::{QuestionAnswer, QuestionFact};
+pub use job_roads::RoadFact;
 pub use job_wait::JobWaitRefusal;
 pub use providers::ProviderRefusal;
 pub use queue_facts::QueueFact;
@@ -159,6 +161,7 @@ pub enum Fact {
   Job(JobFact),
   Question(QuestionFact),
   Queue(QueueFact),
+  Road(RoadFact),
   Todo(TodoFact),
   WorkOrder(WorkOrderStop),
 }
@@ -171,6 +174,7 @@ impl Fact {
       Self::Job(fact) => fact,
       Self::Question(fact) => fact,
       Self::Queue(fact) => fact,
+      Self::Road(fact) => fact,
       Self::Todo(fact) => fact,
       Self::WorkOrder(fact) => fact,
     }

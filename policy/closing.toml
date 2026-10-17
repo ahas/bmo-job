@@ -62,6 +62,9 @@ unfinished = "Unfinished"
 left_headings = ["Left"]
 # The words a report's impact part is headed by.
 impact = ["impact"]
+# The names a report says it swept a changed screen against the design rules by, read lower-case with
+# every space taken out.
+swept = ["ui-design-rules", "designrules"]
 # What a strand reads as host work by, which is never the owner's.
 host_work = '\b(sudo|sysctl|systemctl|apt|apt-get|dpkg|fstab|mounts?|umount|reboot|firewall|ufw|iptables|cron|crontab|udev|modprobe|grub|kernel|router|backups?|packages?|install|installed|installs|installing|nfs|samba|smb|dns)\b|\bunit (file|link)s?\b|proxy host|port forward'
 # What only the owner can give, and a row already raised.

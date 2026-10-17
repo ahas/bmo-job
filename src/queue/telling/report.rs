@@ -16,8 +16,8 @@ use crate::queue::settings;
 use crate::queue::voiced::{self, VoicedNotice};
 use crate::{Refusal, one};
 
-// The marks a runner leaves for the service running now.
-const WAITING_REPORT: &str = "job_report_waiting:";
+/// The setting a report a job left for the telling to deliver waits under, before the job's number.
+pub const WAITING_REPORT: &str = "job_report_waiting:";
 const REPORT_ROADS: &str = "job_report_roads:";
 
 // What a sentence of a report says about the system rather than about the result: a commit, a test or a

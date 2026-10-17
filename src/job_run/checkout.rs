@@ -2,7 +2,11 @@
 //! or made from main with what the last job left open parked on its own branch, a support worker's worktree
 //! made where it is not there yet, a base checkout put back on main as the job ends, and what the job's own
 //! commits are. A checkout on a work node answers on its node, every git question going there over one
-//! shared login.
+//! shared login. Its branch landed on main and the unit links that follow its files stand in modules of
+//! their own.
+
+pub mod landing;
+pub mod units;
 
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};

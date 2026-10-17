@@ -9,11 +9,13 @@ use std::time::Duration;
 use job_agency::{AgencyClient, AgencyError};
 use job_base::Settings;
 use job_gate::{GateClient, GateError};
+use job_graph::{GraphClient, GraphError};
 use job_policy::Policy;
 use job_receiver::{ReceiverClient, ReceiverError};
 use job_testbed::{TestbedClient, TestbedError};
 use job_web::{WebClient, WebError};
 use sea_orm::DatabaseConnection;
+use url::Url;
 
 use super::job_start::{Host, bus_environment};
 use super::running::Running;
@@ -21,6 +23,7 @@ use super::stops::Stops;
 use super::telling::Teller;
 use super::units::{Ports, Units};
 use crate::events::Events;
+use crate::job_run::calls::RunPorts;
 
 /// The clients the queue's calls go over.
 pub type QueuePorts<'a> = Ports<'a, AgencyClient, ReceiverClient, WebClient, TestbedClient, GateClient>;
@@ -44,7 +47,12 @@ pub enum GroundError {
   Testbed(#[from] TestbedError),
   #[error(transparent)]
   Gate(#[from] GateError),
+  #[error(transparent)]
+  Graph(#[from] GraphError),
 }
+
+/// The clients a job's run makes its own calls over.
+pub type RunCalls<'a> = RunPorts<'a, AgencyClient, GateClient, GraphClient, TestbedClient>;
 
 /// Everything the queue stands on that the settings name.
 pub struct QueueGround {
@@ -53,6 +61,11 @@ pub struct QueueGround {
   pub web: WebClient,
   pub testbed: TestbedClient,
   pub gate: GateClient,
+  pub graph: GraphClient,
+  /// The cache siren a co-work branch's answer is told to, where one is named.
+  pub siren: Option<Url>,
+  /// The server's own address, which a job's run tells the screens the queue moved at.
+  pub server: Url,
   /// The deployment's agent, as the records name it.
   pub agent_key: String,
   /// The service's own unit, whose journal a broken run is read in.
@@ -70,6 +83,8 @@ pub struct QueueGround {
   pub documents: PathBuf,
   /// The directory whose `bin/` holds the platform's command line.
   pub tree: PathBuf,
+  /// The directory bmo-testbed writes its runs' logs in, where one is named.
+  pub testbed_logs: Option<PathBuf>,
 }
 
 impl QueueGround {
@@ -86,6 +101,9 @@ impl QueueGround {
       web: WebClient::new(units.web.url().clone())?,
       testbed: TestbedClient::new(host.testbed.to_path_buf())?,
       gate: GateClient::new(units.gate.url().clone())?,
+      graph: GraphClient::new(units.graph.url().clone())?,
+      siren: units.siren.as_ref().map(|siren| siren.url().clone()),
+      server: server.address.url().clone(),
       agent_key: settings.deployment.agent_key.to_string(),
       service_unit: server.unit.to_string(),
       source: host.source.to_path_buf(),
@@ -105,6 +123,7 @@ impl QueueGround {
       launcher_directory: host.launcher_directory.to_path_buf(),
       documents: host.documents.to_path_buf(),
       tree: host.tree.to_path_buf(),
+      testbed_logs: host.testbed_logs.as_deref().map(PathBuf::from),
     })
   }
 
@@ -122,6 +141,17 @@ impl QueueGround {
       testbed: &self.testbed,
       gate: &self.gate,
       agent_key: &self.agent_key,
+    }
+  }
+
+  /// A job's run's own calls on other units, over the clients, its server reached at its own address.
+  pub fn run_calls(&self) -> RunCalls<'_> {
+    RunPorts {
+      agency: &self.agency,
+      gate: &self.gate,
+      graph: &self.graph,
+      testbed: &self.testbed,
+      server: Some(self.server.clone()),
     }
   }
 

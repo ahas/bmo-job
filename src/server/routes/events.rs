@@ -1,6 +1,6 @@
 //! The event stream (docs/api.md, "The event stream"): the run, the events after the screen's cursor, and
 //! everything as it comes, as server-sent events with a comment between them so the line never stands
-//! idle.
+//! idle; and the queue told moved by a process of the service's own that changed it.
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -10,17 +10,25 @@ use axum::Router;
 use axum::extract::Query;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use futures_util::stream::{self, Stream, StreamExt};
 use serde_json::{Value, json};
 use tokio_stream::wrappers::BroadcastStream;
 
-use super::State;
+use super::{Answered, State, nothing};
 use crate::server::Server;
+use crate::server::request::{Body, Fields};
 use crate::verbs::Verbs;
 
 pub fn routes<V: Verbs>() -> Router<Arc<Server<V>>> {
-  Router::new().route("/events", get(listen::<V>))
+  Router::new().route("/events", get(listen::<V>)).route("/queue/moved", post(moved::<V>))
+}
+
+async fn moved<V: Verbs>(state: State<V>, Body(asked): Body) -> Answered {
+  let detail = Fields(&asked).words_or_none("detail")?;
+
+  state.events.queue_moved(detail.as_deref());
+  nothing()
 }
 
 // One event of the stream as it goes out: its id, its name and its data.

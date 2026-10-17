@@ -13,6 +13,10 @@ use crate::{
   ReservationAsking, Room, RouteAsk, Run, RunClosing, RunOpening, Session, SessionId, SessionState,
   SshReach, Start, Tier, TurnRecord, WorkMachine, Workbench, WorkerRuntime,
 };
+use crate::{
+  AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LogNote, Prepared, Reply, SessionAnswered,
+  SessionKept, TurnAsking, WorkTurn,
+};
 
 /// The calls on bmo-agency, made over HTTP to the address given.
 #[derive(Clone, Debug)]
@@ -81,6 +85,41 @@ struct Rest {
 #[derive(Deserialize)]
 struct Placed {
   machine: Option<WorkMachine>,
+}
+
+#[derive(Deserialize)]
+struct Pushed {
+  outcome: AsideOutcome,
+}
+
+#[derive(Deserialize)]
+struct Carried {
+  carried: bool,
+}
+
+#[derive(Deserialize)]
+struct Kept {
+  kept: SessionKept,
+}
+
+#[derive(Deserialize)]
+struct Swept {
+  lines: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct Touched {
+  touched: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct Health {
+  answers: bool,
+}
+
+#[derive(Deserialize)]
+struct Copy {
+  path: String,
 }
 
 /// The failure a status that is no success stands for: bmo-agency's refusal where its body reads as one.
@@ -527,5 +566,148 @@ impl Agency for AgencyClient {
     let digest: Digest = self.answer("prefix_digest", request).await?;
 
     Ok(digest.digest)
+  }
+
+  async fn prepare_turn(&self, asking: &TurnAsking) -> Answer<Prepared> {
+    let request = self.request(Method::POST, &["work-turns"], &[]).json(asking);
+
+    self.answer("prepare_turn", request).await
+  }
+
+  async fn send_turn_prompt(&self, turn: &str, prompt: &str) -> Answer<()> {
+    let request = self
+      .request(Method::POST, &["work-turns", turn, "prompt"], &[])
+      .json(&json!({ "prompt": prompt }));
+
+    self.done("send_turn_prompt", request).await
+  }
+
+  async fn work_turn(&self, turn: &str) -> Answer<Option<WorkTurn>> {
+    self.found("work_turn", self.request(Method::GET, &["work-turns", turn], &[])).await
+  }
+
+  async fn push_aside(&self, turn: &str, text: &str) -> Answer<AsideOutcome> {
+    let request = self
+      .request(Method::POST, &["work-turns", turn, "asides"], &[])
+      .json(&json!({ "text": text }));
+    let pushed: Pushed = self.answer("push_aside", request).await?;
+
+    Ok(pushed.outcome)
+  }
+
+  async fn answer_question(&self, turn: &str, question: &str, answer: &ConfirmAnswer) -> Answer<()> {
+    let request = self
+      .request(Method::PUT, &["work-turns", turn, "questions", question], &[])
+      .json(answer);
+
+    self.done("answer_question", request).await
+  }
+
+  async fn carry_out_reset(&self, worker: &str) -> Answer<bool> {
+    let request = self.request(Method::POST, &["workers", worker, "sessions", "reset"], &[]);
+    let carried: Carried = self.answer("carry_out_reset", request).await?;
+
+    Ok(carried.carried)
+  }
+
+  async fn record_session(
+    &self,
+    worker: &str,
+    answered: &SessionAnswered,
+    cwd: &str,
+    job: i64,
+  ) -> Answer<SessionKept> {
+    let request = self
+      .request(Method::POST, &["workers", worker, "sessions", "record"], &[])
+      .json(&json!({ "answered": answered, "cwd": cwd, "job": job }));
+    let kept: Kept = self.answer("record_session", request).await?;
+
+    Ok(kept.kept)
+  }
+
+  async fn hand_over_session(&self, worker: &str, handover: &Handover) -> Answer<()> {
+    let request = self
+      .request(Method::POST, &["workers", worker, "sessions", "handover"], &[])
+      .json(handover);
+
+    self.done("hand_over_session", request).await
+  }
+
+  async fn note_run(&self, worker: &str) -> Answer<()> {
+    self
+      .done("note_run", self.request(Method::POST, &["workers", worker, "runs"], &[]))
+      .await
+  }
+
+  async fn record_usage(&self, worker: &str, reply: &Reply, run: Option<&str>) -> Answer<()> {
+    let request = self
+      .request(Method::POST, &["workers", worker, "usage"], &[])
+      .json(&json!({ "reply": reply, "run": run }));
+
+    self.done("record_usage", request).await
+  }
+
+  async fn make_bench(&self, worker: &str) -> Answer<()> {
+    self
+      .done("make_bench", self.request(Method::POST, &["workers", worker, "bench"], &[]))
+      .await
+  }
+
+  async fn sweep_servers(&self, worker: &str) -> Answer<Vec<String>> {
+    let request = self.request(Method::POST, &["workers", worker, "servers", "sweep"], &[]);
+    let swept: Swept = self.answer("sweep_servers", request).await?;
+
+    Ok(swept.lines)
+  }
+
+  async fn job_documents(&self, worker: &str) -> Answer<JobDocuments> {
+    let request = self.request(Method::GET, &["workers", worker, "job-documents"], &[]);
+
+    self.answer("job_documents", request).await
+  }
+
+  async fn prefix_touched(&self, worker: &str, files: &[String]) -> Answer<Vec<String>> {
+    let request = self
+      .request(Method::POST, &["workers", worker, "prefix-touched"], &[])
+      .json(&json!({ "files": files }));
+    let touched: Touched = self.answer("prefix_touched", request).await?;
+
+    Ok(touched.touched)
+  }
+
+  async fn model_health(&self, provider: &str, model: &str) -> Answer<bool> {
+    let request = self.request(Method::GET, &["providers", provider, "models", model, "health"], &[]);
+    let health: Health = self.answer("model_health", request).await?;
+
+    Ok(health.answers)
+  }
+
+  async fn rest_login(&self, account: &str, until: i64) -> Answer<()> {
+    let request = self
+      .request(Method::PUT, &["accounts", "claude", account, "rest"], &[])
+      .json(&json!({ "until": until }));
+
+    self.done("rest_login", request).await
+  }
+
+  async fn usage_rest(&self, account: &str, usage: &serde_json::Value) -> Answer<()> {
+    let request = self
+      .request(Method::POST, &["accounts", "claude", account, "usage-rest"], &[])
+      .json(&json!({ "usage": usage }));
+
+    self.done("usage_rest", request).await
+  }
+
+  async fn write_note(&self, note: &LogNote) -> Answer<()> {
+    self
+      .done("write_note", self.request(Method::POST, &["log", "notes"], &[]).json(note))
+      .await
+  }
+
+  async fn node_copy(&self, node: &str, checkout: &str) -> Answer<String> {
+    let request = self.request(Method::GET, &["nodes", node, "copy"], &[("checkout", checkout)]);
+    let copy: Copy = self.answer("node_copy", request).await?;
+
+    Ok(copy.path)
   }
 }

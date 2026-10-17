@@ -66,6 +66,10 @@ fn the_ground_takes_the_host_and_the_server_unit_from_the_settings() {
   assert_eq!(ground.launcher, Path::new("/srv/bin/launcher"));
   assert_eq!(ground.launcher_directory, Path::new("/srv/launch"));
   assert_eq!(ground.units().agent_key, "agent");
+  assert_eq!(ground.documents, Path::new("/srv/work-orders"));
+  assert_eq!(ground.testbed_logs, None, "the testbed's log folder is left out");
+  assert_eq!(ground.siren, None, "the siren is left out");
+  assert_eq!(ground.run_calls().server.map(String::from).as_deref(), Some("http://127.0.0.1:1/"));
 
   let db = DatabaseConnection::Disconnected;
   let fake = Fake::default();

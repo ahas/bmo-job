@@ -71,6 +71,8 @@ The parts that take words:
   - `unfinished`: what the note listing a closed item's open strands is called;
   - `left_headings`: the headings of a report's own section of what it left;
   - `impact`: the words a report's impact part is headed by;
+  - `swept`: the names a report says it swept a changed screen against the design rules by, read
+    lower-case with every space taken out;
   - `host_work`, `owner_only`, `raised_row` and `beyond_reach`: the patterns of host work, of what
     only the owner can give, of a row already raised, and of what puts a check beyond a job's reach;
   - `proposing` and `unchecked`: the patterns, each with its flags, of a line proposing an improvement

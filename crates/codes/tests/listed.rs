@@ -16,6 +16,7 @@ use job_codes::control_answers::{ControlRefusal, FieldForm};
 use job_codes::job_ask::{JobAskAnswer, JobAskRefusal};
 use job_codes::job_ended::{JobEnding, JobFact};
 use job_codes::job_questions::{Lapse, PaneOption, PaneWindow, QuestionAnswer, QuestionFact};
+use job_codes::job_roads::{RoadFact, RoadFailure, SwitchCause, WorkOutput};
 use job_codes::job_wait::{JobWaitRefusal, WaitTarget};
 use job_codes::providers::ProviderRefusal;
 use job_codes::queue_facts::{HoldCause, QueueFact, WaitStanding};
@@ -80,6 +81,7 @@ fn enums() -> Vec<(&'static str, Names, &'static [&'static str])> {
     ("WorkOrderStop", Codes, WorkOrderStop::VARIANTS),
     ("CheckoutStop", Codes, CheckoutStop::VARIANTS),
     ("QueueFact", Codes, QueueFact::VARIANTS),
+    ("RoadFact", Codes, RoadFact::VARIANTS),
     ("TodoFact", Codes, TodoFact::VARIANTS),
     ("PlanPart", Kinds, PlanPart::VARIANTS),
     ("StopState", Kinds, StopState::VARIANTS),
@@ -126,6 +128,9 @@ fn enums() -> Vec<(&'static str, Names, &'static [&'static str])> {
     ("QueueTold", Kinds, QueueTold::VARIANTS),
     ("LaunchNote", Kinds, LaunchNote::VARIANTS),
     ("FieldForm", Kinds, FieldForm::VARIANTS),
+    ("SwitchCause", Kinds, SwitchCause::VARIANTS),
+    ("RoadFailure", Kinds, RoadFailure::VARIANTS),
+    ("WorkOutput", Kinds, WorkOutput::VARIANTS),
   ]
 }
 

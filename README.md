@@ -31,6 +31,7 @@ At the root stand the Cargo workspace manifest, the version, `testbed.toml`, `ru
 | `docs/schema.md` | The schema: the tables the service owns, the rules they keep, and the migrations |
 | `docs/rows.md` | Writing the queue: an item filed, added to, approved, weighed, merged and closed, the closing's readings of its unfinished note, and a work order's lock |
 | `docs/queue.md` | Running the queue: workers, routes and turns, a launch judged and started, what is running, how a job ends, its questions and clocks, a work order's verbs, what the agent and the rooms are told, and the work-order runner |
+| `docs/runs.md` | Running a job: its locks, its checkout before and after, its prompt and turns, the judgement of its last answer, its ending, landing on main, and the commands it allows itself |
 | `docs/reading.md` | Reading the queue: an item as a person and as a worker reads it, the time it took, a room's jobs and a work order |
 | `docs/checks.md` | The repository checks: no Hangul in code or tests, the layout, the dependencies |
 

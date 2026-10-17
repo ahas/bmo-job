@@ -2,6 +2,18 @@
 
 use serde::{Deserialize, Serialize};
 
+/// A note written into a run's log beside the lines the run wrote itself.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LogNote {
+  pub agent: String,
+  pub run: String,
+  pub chat: Option<i64>,
+  pub job: Option<i64>,
+  pub text: String,
+  pub source: Option<String>,
+  pub state: Option<String>,
+}
+
 /// A job's last line.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogLine {

@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use strum::{Display, IntoStaticStr, VariantNames};
 
+use crate::job_roads::WorkOutput;
 use crate::work_lines::JobLabel;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, IntoStaticStr, VariantNames)]
@@ -25,6 +26,28 @@ pub enum JobFact {
     done: bool,
     summary: Option<String>,
   },
+  JobStopped {
+    job_id: i64,
+    item: Option<i64>,
+    worker: String,
+    outcome: JobEnding,
+    requested: String,
+    actual: Option<Selection>,
+  },
+  WorkOutputRefused {
+    job_id: i64,
+    worker: String,
+    output: WorkOutput,
+    reason: String,
+    correction: u32,
+  },
+}
+
+/// A provider and the model on it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Selection {
+  pub provider: String,
+  pub model: String,
 }
 
 coded!(JobFact);

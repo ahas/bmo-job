@@ -75,6 +75,9 @@ pub struct Units {
   pub gate: HttpAddress,
   pub receiver: HttpAddress,
   pub web: HttpAddress,
+  pub graph: HttpAddress,
+  /// The cache siren a co-work branch's answer is told to, where one is given.
+  pub siren: Option<HttpAddress>,
 }
 
 /// The `[host]` section: what the queue stands on of the machine it runs on.
@@ -111,6 +114,8 @@ pub struct Host {
   pub documents: AbsolutePath,
   /// The directory whose `bin/` holds the platform's command line.
   pub tree: AbsolutePath,
+  /// The directory bmo-testbed writes its runs' logs in, where one is given.
+  pub testbed_logs: Option<AbsolutePath>,
 }
 
 /// An absolute path on the machine the service runs on.

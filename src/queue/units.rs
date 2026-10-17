@@ -146,6 +146,9 @@ pub trait Units: Sync {
   fn english<'a>(&'a self, texts: &'a [String]) -> BoxFuture<'a, Result<Vec<String>, Refusal>>;
 }
 
+/// The language a worker reads and writes, as bmo-gate names it.
+pub const WORKER_LANGUAGE: &str = "en";
+
 /// A failed call on bmo-gate, refused under its code.
 pub fn gate_failed(why: impl std::fmt::Display) -> Refusal {
   JobError::from(UnitRefusal::Gate {
@@ -421,7 +424,11 @@ impl<A: Agency, R: Receiver, W: Web, T: Testbed, G: Gate> Units for Ports<'_, A,
 
   fn english<'a>(&'a self, texts: &'a [String]) -> BoxFuture<'a, Result<Vec<String>, Refusal>> {
     Box::pin(async move {
-      let readings = self.gate.translate("en", texts).await.map_err(|why: GateError| gate_failed(why))?;
+      let readings = self
+        .gate
+        .translate(WORKER_LANGUAGE, texts)
+        .await
+        .map_err(|why: GateError| gate_failed(why))?;
 
       // A text not wholly put into English stands under the mark a worker reads it by.
       Ok(

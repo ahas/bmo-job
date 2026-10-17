@@ -198,6 +198,17 @@ pub fn lock_held(host: &Host, cwd: &str) -> bool {
   path.exists() && try_hold(&path).is_none()
 }
 
+/// The lock taken once whoever holds it lets go, waited for as long as that takes.
+pub async fn hold(path: &Path) -> Held {
+  loop {
+    if let Some(held) = try_hold(path) {
+      return held;
+    }
+
+    tokio::time::sleep(LOCK_LOOK).await;
+  }
+}
+
 /// The lock taken once whoever holds it lets go, waited for as long as given and no longer; none where it
 /// stayed held or its file could not be opened.
 pub async fn hold_within(path: &Path, wait: Duration) -> Option<Held> {

@@ -22,13 +22,11 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::{Answered, State, body};
+use crate::queue::units::WORKER_LANGUAGE;
 use crate::server::Server;
 use crate::server::request::refused;
 use crate::server::units;
 use crate::verbs::Verbs;
-
-/// The language a worker reads, which the kept translations are asked in.
-const WORKER_LANGUAGE: &str = "en";
 
 pub fn routes<V: Verbs>() -> Router<Arc<Server<V>>> {
   Router::new()

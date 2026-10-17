@@ -21,8 +21,8 @@ use crate::{Refusal, all, one};
 /// has not finished starting.
 const DEAD_JOB_GRACE_MS: i64 = 5 * 60_000;
 
-// The mark a runner leaves where no service took its ending.
-const WAITING_ENDING: &str = "job_ending_waiting:";
+/// The setting an ending no service took waits under, before the job's number.
+pub const WAITING_ENDING: &str = "job_ending_waiting:";
 
 /// One job not yet finished, as the sweep reads it.
 pub(super) struct OpenJob {
