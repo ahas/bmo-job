@@ -20,6 +20,8 @@ pub enum UnitRefusal {
   #[error("{failure}")]
   Receiver { failure: String },
   #[error("{failure}")]
+  Server { failure: String },
+  #[error("{failure}")]
   Testbed { failure: String },
   #[error("{failure}")]
   Web { failure: String },

@@ -89,6 +89,16 @@ pub struct PoolRole {
   pub tier: String,
 }
 
+/// The places one provider's tier holds in the pool: how many there are, and how many are leased,
+/// reserved and asked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PoolRoom {
+  pub capacity: i64,
+  pub active: i64,
+  pub reserved: i64,
+  pub waiting: i64,
+}
+
 /// The provider and model a place's settings were written for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlaceWrite {

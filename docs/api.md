@@ -203,6 +203,31 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 | `strand_not_named` | 400 | `id`, `strands` | a note of several strands is named without the strand |
 | `no_such_strand` | 404 | `id`, `strand`, `strands` | the note has no strand of that number |
 | `message_not_archived` | 404 | `chat`, `message` | a message a filing quotes is not kept in its room |
+| `edit_part_empty` | 400 | | an edit names a part with no words |
+| `edit_job_running` | 409 | `id`, `job` | a job is at work on the words an edit would rewrite |
+| `edit_no_part` | 400 | `id`, `part` (an edited part) | the item has no such part to write again |
+| `edit_order_started` | 409 | `id` | the item's work order has started, and only a draft is written again |
+| `merge_itself` | 400 | `id` | an item is merged into itself |
+| `merge_finished` | 409 | `id` | a finished item is merged, or merged into |
+| `merge_running` | 409 | `id` | an item with a job at work is merged |
+| `not_merged` | 409 | `id` | an item taken out of a merge is merged into nothing |
+| `merged_finished` | 409 | `id`, `into` | an item taken out of a merge was finished with the item it was merged into |
+| `no_unfinished` | 409 | `id` | the item has no unfinished note to resolve |
+| `unfinished_resolved_already` | 409 | `id`, `resolution` | the item's unfinished note is resolved already |
+| `done_while_held` | 409 | `id`, `held` (a held word) | an item wound down or stopped is closed as done |
+| `closing_refused` | 400 | `why` | a closing's report or unfinished note fails one of the closing's readings, which `why` says |
+| `no_such_worker` | 404 | `name`, `[workers]` | an item is given a worker no row names |
+| `repairs_itself` | 400 | `id` | an item is linked as its own repair |
+| `repairs_cycle` | 409 | `id`, `target` | an item is linked as the repair of an item that repairs it |
+| `repairs_chain_full` | 409 | `root`, `title`, `rounds` | the chain of repairs the item would join has run its rounds |
+| `hold_not_taken` | 409 | `id` | the item is finished, merged or set aside already |
+| `wind_down_not_taken` | 409 | `id` | the item is finished, merged or stopped by the owner |
+| `stop_here_held_takes_no_reason` | 400 | `id` | a stop-here on an item held already names a reason or a resume condition |
+| `stop_here_not_held` | 409 | `id` | a stop-here is left on an item neither held nor at work |
+| `stop_here_needs_reason` | 400 | `id` | a stop-here on an item at work that is not held gives no reason |
+| `order_step_holds` | 409 | `id`, `why` (an order hold) | a run of the item's work order holds its own item where it may not |
+| `not_held` | 409 | `id` | a hold is let go of an item that is not held |
+| `middle_step_closes` | 403 | | a middle step of a work order closes its item, which the order's final turn closes |
 
 #### A job's question: `JobAskRefusal`
 
@@ -220,6 +245,7 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 | `question_takes_no_talk` | 409 | `id` | the question takes no talk |
 | `question_talk_say` | 400 | | a talk has no words of its own |
 | `question_banned_terms` | 400 | `[terms]` | the words use terms the owner has set aside |
+| `question_outside_hosting` | 400 | `[addresses]` | the words hand the owner a page hosted outside the deployment's own archive |
 | `question_absent` | 404 | `id` | there is no such question |
 | `question_answer_wrong` | 400 | | an answer is neither one of the question's options by number nor words of the owner's own, or is both |
 
@@ -262,6 +288,7 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | `gate` | 502 | | a call on bmo-gate failed |
 | `graph` | 502 | | a call on bmo-graph failed |
 | `receiver` | 502 | | a call on bmo-receiver failed |
+| `server` | 502 | | a verb run at a shell called the service's own server, which refused or did not answer |
 | `testbed` | 502 | | a call on bmo-testbed failed |
 | `web` | 502 | | a call on bmo-web failed |
 
@@ -390,6 +417,11 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | `words_appended_told` | `id`, `title` | words were added to an item and BMO was told |
 | `words_appended_kept` | `id`, `title` | chat BMO's own words were added to an item as a record |
 | `brief_rewritten` | `id`, `title`, `job?` | an item's brief was rewritten, the running job handed the change |
+| `unfinished_resolved` | `id`, `title`, `why` | an item's unfinished note was resolved |
+| `source_resolved` | `id`, `resolution` | an unfinished note an item's rows now settle was resolved |
+| `status_set` | `id`, `title`, `status` | an item's state line was written |
+| `priority_set` | `id`, `title`, `priority` | an item's place in the queue was set |
+| `item_dropped` | `id`, `title` | a row that should never have been filed was thrown out |
 
 #### Rooms an item belongs to: `RoomHoldings`
 
@@ -684,6 +716,14 @@ launch.
 | `refuse` | | do not run it and tell the job to do it safely |
 | `close` | | close the window and tell the job |
 | `leave` | | leave it, to be answered in the pane |
+
+#### An order hold: `OrderHold`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `step` | | the run is a step of the order, which runs its steps through to the end with no wait between them |
+| `steps_ahead` | | steps stand ahead of the order's final turn, which runs them and a fresh final turn after them |
+| `held_once` | | the order has already waited once on its final turn's hold, and does not wait again |
 
 #### A queue hold: `QueueHold`
 
@@ -1341,8 +1381,13 @@ service's.
   `worker`, or `branch` with `todo?` and `role?`), `provider`, `model` (the model the worker's session
   record is kept under), `mapping` (`model`, `effort?`, `tier?`, `answer_tokens?`), `resume` (an object
   holding `kind`: `auto`, `fresh`, or `session` with `id`), `cwd`, `name` (the run's name), `title`
-  (what a person watching reads over the turn), `thread?`, `job`, `chat`, `unit?`, `user?`,
-  `work_key`, and `hears_words` (whether words said to the worker are pushed into the turn).
+  (what a person watching reads over the turn), `thread?`, `job?` (none for a research run's turn),
+  `chat`, `unit?`, `user?`, `work_key`, `hears_words` (whether words said to the worker are pushed
+  into the turn), and `variables` (an object of the variables the program the turn starts is started
+  with beside its own; empty where there are none).
+- **The program a turn starts** carries `BMO_RUN_NAME`, the turn's `name`, and `BMO_TASK_LOCKED=1`
+  where the turn has a job, so the verbs it runs know whose job they work for (docs/verbs.md, "Where a
+  verb stands").
 - **Preparing** claims the worker's standby, chooses the kept session where `resume` is `auto`, and
   judges the session the agent holds, answering the session the turn will continue. A branch's turn
   goes on a session thrown away: in a standing branch place of its repository, or in a pane of its own.
@@ -1531,6 +1576,7 @@ as the tiers' capacity allows.
 | Release a reservation | `POST /pool/reservations/{token}/release` | `reason` | `released`: false where it was no longer held |
 | Record a place's write | `PUT /pool/places/{place}/write` | `provider`, `model`, `effort?`, `upstream?` | 204 |
 | List the roles | `GET /pool/roles` | | a list of `name`, `description`, `enabled`, `pooled` (true where the pool lends it as a co-worker), `tier` (the tier it runs at by default) |
+| Read a tier's room | `GET /pool/room?provider={provider}&tier={tier}` | | `capacity`, `active`, `reserved`, `waiting`: the places one provider's tier holds, and how many are leased, reserved and asked for |
 
 - **A pool request's asking:** `request_key`, `owner`, `source`, `role`, `work_key`, `provider`,
   `model`, `effort?`, `tier`, `yielding`, `place_key?`, `turn`, `reservation?`.
@@ -1563,6 +1609,7 @@ as the tiers' capacity allows.
 | Call | Method and path | Request | Answer |
 |---|---|---|---|
 | Check a requester's account | `GET /accounts/claude/held?user={user}` | | `held`: true where an enabled Claude account is held by the user |
+| List the record homes | `GET /accounts/claude/homes` | | `homes`: the directory each login keeps its session records under, the machine's own first, each once |
 | Rest a login | `PUT /accounts/claude/{account}/rest` | `until` | 204 |
 | Rest after a job's usage | `POST /accounts/claude/{account}/usage-rest` | `usage` | 204 |
 

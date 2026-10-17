@@ -4,6 +4,8 @@
 
 mod support;
 
+use std::collections::BTreeMap;
+
 use job_agency::{
   AccountFailure, Agency, AsideOutcome, ConfirmAnswer, Confirmation, Handover, JobDocuments, LiveTask,
   LogNote, ModelSpend, Prepared, Question, Reply, Resume, RunEnding, RunWorkflow, SessionAnswered,
@@ -32,12 +34,13 @@ fn asking() -> TurnAsking {
     name: "bmo-work-7-plan-1".into(),
     title: "#7 Fix the gate".into(),
     thread: Some("todo:7".into()),
-    job: 41,
+    job: Some(41),
     chat: 100,
     unit: Some("bmo-work-7-plan-1".into()),
     user: None,
     work_key: "job-worker".into(),
     hears_words: false,
+    variables: BTreeMap::from([("BMO_RESEARCH_CHAT".to_owned(), "100".to_owned())]),
   }
 }
 
@@ -110,6 +113,7 @@ async fn prepare_turn_posts_the_asking_and_reads_the_session_it_continues() {
       "user": null,
       "work_key": "job-worker",
       "hears_words": false,
+      "variables": { "BMO_RESEARCH_CHAT": "100" },
     })),
   );
 }

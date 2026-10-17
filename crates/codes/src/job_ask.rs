@@ -34,6 +34,8 @@ pub enum JobAskRefusal {
   QuestionTalkSay,
   #[error("the words use terms the owner has set aside: {}", listed(.terms))]
   QuestionBannedTerms { terms: Vec<String> },
+  #[error("the words hand the owner pages hosted outside the deployment's own archive: {}", listed(.addresses))]
+  QuestionOutsideHosting { addresses: Vec<String> },
   #[error("there is no question {id}")]
   QuestionAbsent { id: i64 },
   #[error("answer with one of the question's options by its number, or with words of your own, not both")]

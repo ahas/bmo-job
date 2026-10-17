@@ -246,6 +246,8 @@ gate = "{gate}"
 receiver = "{receiver}"
 web = "http://127.0.0.1:1/"
 graph = "http://127.0.0.1:1/"
+brain = "http://127.0.0.1:1/"
+brain_token = "/dev/null"
 "#
   )
 }

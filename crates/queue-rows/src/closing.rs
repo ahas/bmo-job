@@ -496,7 +496,9 @@ static OUTSIDE: LazyLock<Vec<Regex>> = LazyLock::new(|| {
   .to_vec()
 });
 
-fn outside_addresses(text: &str) -> Vec<String> {
+/// Every address in a text that opens a page hosted outside the deployment's own archive, each once and in
+/// the order they stand.
+pub fn outside_addresses(text: &str) -> Vec<String> {
   let mut found: Vec<(usize, String)> = OUTSIDE
     .iter()
     .flat_map(|pattern| {

@@ -1,6 +1,8 @@
 //! Work turns: one turn of a job's work carried by bmo-agency end to end, what it answered or how it failed,
 //! and what a worker's sessions keep of it.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -49,13 +51,17 @@ pub struct TurnAsking {
   /// What a person watching reads over the turn.
   pub title: String,
   pub thread: Option<String>,
-  pub job: i64,
+  /// The job the turn is of; none for a research run's turn.
+  pub job: Option<i64>,
   pub chat: i64,
   pub unit: Option<String>,
   pub user: Option<String>,
   pub work_key: String,
   /// Whether words said to the worker are pushed into the turn.
   pub hears_words: bool,
+  /// The variables the program the turn starts is started with beside its own.
+  #[serde(default)]
+  pub variables: BTreeMap<String, String>,
 }
 
 /// A work turn prepared: its id, and the session it will continue, none where it opens a fresh one.

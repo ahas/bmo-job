@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use job_agency::{AgencyClient, AgencyError};
 use job_base::Settings;
+use job_brain::{BrainClient, BrainError};
 use job_gate::{GateClient, GateError};
 use job_graph::{GraphClient, GraphError};
 use job_policy::Policy;
@@ -38,6 +39,8 @@ pub enum GroundError {
   NoUnits,
   #[error("the settings have no [host] section, which the queue requires")]
   NoHost,
+  #[error("bmo-brain's token cannot be read from {path}: {error}")]
+  BrainToken { path: String, error: String },
   #[error(transparent)]
   Agency(#[from] AgencyError),
   #[error(transparent)]
@@ -50,6 +53,8 @@ pub enum GroundError {
   Gate(#[from] GateError),
   #[error(transparent)]
   Graph(#[from] GraphError),
+  #[error(transparent)]
+  Brain(#[from] BrainError),
 }
 
 /// The clients a job's run makes its own calls over.
@@ -63,6 +68,9 @@ pub struct QueueGround {
   pub testbed: TestbedClient,
   pub gate: GateClient,
   pub graph: GraphClient,
+  pub brain: BrainClient,
+  /// The directory the brain's documents stand in, where one is named.
+  pub brain_root: Option<PathBuf>,
   /// The cache siren a co-work branch's answer is told to, where one is named.
   pub siren: Option<Url>,
   /// The server's own address, which a job's run tells the screens the queue moved at.
@@ -97,6 +105,10 @@ impl QueueGround {
     let server = settings.server.as_ref().ok_or(GroundError::NoServer)?;
     let units = settings.units.as_ref().ok_or(GroundError::NoUnits)?;
     let host = settings.host.as_ref().ok_or(GroundError::NoHost)?;
+    let token = std::fs::read_to_string(&*units.brain_token).map_err(|error| GroundError::BrainToken {
+      path: units.brain_token.display().to_string(),
+      error: error.to_string(),
+    })?;
 
     Ok(Self {
       agency: AgencyClient::new(units.agency.url().clone())?,
@@ -105,6 +117,8 @@ impl QueueGround {
       testbed: TestbedClient::new(host.testbed.to_path_buf())?,
       gate: GateClient::new(units.gate.url().clone())?,
       graph: GraphClient::new(units.graph.url().clone())?,
+      brain: BrainClient::new(units.brain.url().clone(), token.trim())?,
+      brain_root: host.brain.as_deref().map(PathBuf::from),
       siren: units.siren.as_ref().map(|siren| siren.url().clone()),
       server: server.address.url().clone(),
       agent_key: settings.deployment.agent_key.to_string(),

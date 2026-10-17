@@ -85,10 +85,13 @@ The `http:` address of each unit the server calls on (docs/api.md, "Calls on oth
 | `receiver` | bmo-receiver, which the server declares itself a holder to and hands an item's talk |
 | `web` | bmo-web, which says whose work an item's job is and whether that user may have it run |
 | `graph` | bmo-graph, which says what a checkout's code graph names as a job's ending is judged |
+| `brain` | bmo-brain, which an item's closing files the strands left to the agent in, and which a job's write into the brain holds off |
+| `brain_token` | The file holding bmo-brain's token, by its absolute path, read once as the queue's ground is built |
 | `siren` | the cache siren, which a co-work branch's answer on a stand-in road is told to; it may be left out, and then nothing is told |
 
 Every key of both sections is required where the section stands, but for `siren`. An address that is
-not `http:` is refused when the file is loaded.
+not `http:`, and a token file's path that is not absolute, is refused when the file is loaded; a token
+file that cannot be read builds no ground.
 
 ### `[host]`
 
@@ -113,8 +116,9 @@ directories it writes in, and the checkout the built-in worker works in. Every p
 | `documents` | The directory a work order's prompts, result documents and check logs are written under, one folder to an item, with the records a job's run keeps of a checkout — its baseline and what it landed — under `worktree/` |
 | `tree` | The directory whose `bin/` holds the platform's command line, which a builder turn of a work order adds steps through |
 | `testbed_logs` | The directory bmo-testbed writes the logs of the runs it carries in, which a job's own commands may read and write unasked; it may be left out |
+| `brain` | The directory the brain's documents stand in, a write into which by a job holds the brain's editors off (docs/verbs.md, "The shell hook"); it may be left out, and then no write is read as the brain's |
 
-Every key but `runner_environment` and `testbed_logs` is required where the section stands. A path that is not absolute,
+Every key but `runner_environment`, `testbed_logs` and `brain` is required where the section stands. A path that is not absolute,
 and a wait that is not above 0, is refused when the file is loaded. The environment the user's systemd
 manager is reached on is the service's own process environment, not a setting.
 

@@ -1,6 +1,29 @@
 //! The service's verbs as the server is built on them (docs/api.md, "Routes"): one trait to an area, each
 //! taking the typed request its routes read and answering what its routes answer. The verb code carries
-//! them; `Unbuilt` stands for a build that carries none, answering every verb `not_built`.
+//! them; `Unbuilt` stands for a build that carries none, answering every verb `not_built`. Beside them stand
+//! the verbs a job runs from its own shell and a person runs at one (docs/verbs.md), each on the stand.
+
+pub mod ask;
+pub mod borrow;
+pub mod branch_split;
+pub mod checkout_setup;
+pub mod cowork_timing;
+pub mod job;
+pub mod job_close;
+pub mod job_figures;
+pub mod job_guard;
+pub mod land;
+pub mod live_claude;
+pub mod node_land;
+pub mod overtime;
+pub mod research;
+pub mod stand;
+pub mod task;
+pub mod todo;
+pub mod tool_calls;
+pub mod toolbook;
+pub mod waiting;
+pub mod work_order;
 
 pub mod jobs;
 pub mod pool;

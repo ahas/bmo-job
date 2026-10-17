@@ -107,6 +107,64 @@ pub enum TodoRefusal {
   NoSuchStrand { id: i64, strand: u32, strands: u32 },
   #[error("message {message} is not kept in room {chat}")]
   MessageNotArchived { chat: i64, message: i64 },
+  #[error("an edit writes a part again, so every part it names needs words")]
+  EditPartEmpty,
+  #[error("item {id} has job {job} at work on these words; add to it instead")]
+  EditJobRunning { id: i64, job: i64 },
+  #[error("item {id} has no {part} part to write again")]
+  EditNoPart { id: i64, part: EditedPart },
+  #[error("item {id}'s work order has started, and only a draft is written again")]
+  EditOrderStarted { id: i64 },
+  #[error("item {id} cannot be merged into itself")]
+  MergeItself { id: i64 },
+  #[error("item {id} is finished, and only unfinished items are merged, into an unfinished one")]
+  MergeFinished { id: i64 },
+  #[error("item {id} has a job at work; stop it or let it end before merging")]
+  MergeRunning { id: i64 },
+  #[error("item {id} is not merged")]
+  NotMerged { id: i64 },
+  #[error("item {id} was finished with item {into}; opening it again takes it out")]
+  MergedFinished { id: i64, into: i64 },
+  #[error("item {id} has no unfinished note to resolve")]
+  NoUnfinished { id: i64 },
+  #[error("item {id}'s unfinished note is resolved already: {resolution}")]
+  UnfinishedResolvedAlready { id: i64, resolution: String },
+  #[error(
+    "item {id} is held ({held}), so it is not closed as done; leave where the run stopped with a stop-here"
+  )]
+  DoneWhileHeld { id: i64, held: HeldWord },
+  #[error("the closing is refused: {why}")]
+  ClosingRefused { why: String },
+  #[error("no worker is called {name}; the workers are {}", listed(.workers))]
+  NoSuchWorker { name: String, workers: Vec<String> },
+  #[error("item {id} cannot repair itself")]
+  RepairsItself { id: i64 },
+  #[error("item {target} already repairs item {id}, so item {id} cannot repair it back")]
+  RepairsCycle { id: i64, target: i64 },
+  #[error(
+    "item {root} ({title}) has had {rounds} repair rounds, where its chain stops: it is the owner's to look at"
+  )]
+  RepairsChainFull {
+    root: i64,
+    title: String,
+    rounds: u32,
+  },
+  #[error("item {id} is finished, merged into another, or set aside already")]
+  HoldNotTaken { id: i64 },
+  #[error("item {id} is finished, merged into another, or stopped by the owner")]
+  WindDownNotTaken { id: i64 },
+  #[error("item {id} is held already, so a stop-here takes no reason and no resume condition")]
+  StopHereHeldTakesNoReason { id: i64 },
+  #[error("item {id} is neither held nor at work; where its work is finished, close it")]
+  StopHereNotHeld { id: i64 },
+  #[error("item {id} is not held; a run told in words to stop gives the reason it holds the item for")]
+  StopHereNeedsReason { id: i64 },
+  #[error("a run of item {id}'s work order does not hold its item here ({why})")]
+  OrderStepHolds { id: i64, why: OrderHold },
+  #[error("item {id} is not held")]
+  NotHeld { id: i64 },
+  #[error("a middle step of a work order does not close its item; the order's final turn closes it")]
+  MiddleStepCloses,
 }
 
 coded!(TodoRefusal);
@@ -114,7 +172,7 @@ coded!(TodoRefusal);
 impl Refused for TodoRefusal {
   fn status(&self) -> StatusCode {
     match self {
-      Self::JobCannotUnhold | Self::BriefAgentOnly => StatusCode::FORBIDDEN,
+      Self::JobCannotUnhold | Self::BriefAgentOnly | Self::MiddleStepCloses => StatusCode::FORBIDDEN,
       Self::NoWaitingCommits { .. }
       | Self::CommitNotOnMain { .. }
       | Self::CommitAlreadyLive { .. }
@@ -122,8 +180,25 @@ impl Refused for TodoRefusal {
       | Self::StopHereClosed { .. }
       | Self::ItemMerged { .. }
       | Self::ItemClosedAlready { .. }
-      | Self::SourceLeftNothing { .. } => StatusCode::CONFLICT,
+      | Self::SourceLeftNothing { .. }
+      | Self::EditJobRunning { .. }
+      | Self::EditOrderStarted { .. }
+      | Self::MergeFinished { .. }
+      | Self::MergeRunning { .. }
+      | Self::NotMerged { .. }
+      | Self::MergedFinished { .. }
+      | Self::NoUnfinished { .. }
+      | Self::UnfinishedResolvedAlready { .. }
+      | Self::DoneWhileHeld { .. }
+      | Self::RepairsCycle { .. }
+      | Self::RepairsChainFull { .. }
+      | Self::HoldNotTaken { .. }
+      | Self::WindDownNotTaken { .. }
+      | Self::StopHereNotHeld { .. }
+      | Self::OrderStepHolds { .. }
+      | Self::NotHeld { .. } => StatusCode::CONFLICT,
       Self::NoSuchItem { .. }
+      | Self::NoSuchWorker { .. }
       | Self::NoSuchNote { .. }
       | Self::RaisedByNotItem { .. }
       | Self::SourceNotItem { .. }
@@ -301,6 +376,29 @@ pub enum TodoAnswer {
     title: String,
     job: Option<i64>,
   },
+  UnfinishedResolved {
+    id: i64,
+    title: String,
+    why: String,
+  },
+  SourceResolved {
+    id: i64,
+    resolution: String,
+  },
+  StatusSet {
+    id: i64,
+    title: String,
+    status: String,
+  },
+  PrioritySet {
+    id: i64,
+    title: String,
+    priority: i64,
+  },
+  ItemDropped {
+    id: i64,
+    title: String,
+  },
 }
 
 coded!(TodoAnswer);
@@ -324,6 +422,21 @@ coded!(TodoFact);
 pub struct StrandSource {
   pub id: i64,
   pub strand: String,
+}
+
+/// Why a run of a work order may not hold its own item.
+#[derive(
+  Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Display, IntoStaticStr, VariantNames,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum OrderHold {
+  /// The run is a step of the order, which runs its steps through to the end.
+  Step,
+  /// Steps stand ahead of the final turn.
+  StepsAhead,
+  /// The order has already waited once on its final turn's hold.
+  HeldOnce,
 }
 
 /// Why the item a hold resumes after is refused.

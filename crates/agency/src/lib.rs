@@ -25,7 +25,7 @@ pub use machine::{LaunchHeld, Room};
 pub use nodes::{Node, SshReach, WorkMachine};
 pub use places::{BranchSlots, Slot, Workbench};
 pub use pool::{
-  PlaceWrite, PoolAsking, PoolRequest, PoolRole, PoolState, Reservation, ReservationAsking,
+  PlaceWrite, PoolAsking, PoolRequest, PoolRole, PoolRoom, PoolState, Reservation, ReservationAsking,
   ReservationState,
 };
 pub use records::{TurnRecord, TurnRecordKind};
@@ -165,6 +165,9 @@ pub trait Agency: Send + Sync {
   /// Lists the roles the pool knows.
   fn pool_roles(&self) -> impl Future<Output = Answer<Vec<PoolRole>>> + Send;
 
+  /// Reads the places one provider's tier holds in the pool, and how many are taken.
+  fn pool_room(&self, provider: &str, tier: &str) -> impl Future<Output = Answer<PoolRoom>> + Send;
+
   /// Takes down what stands for a branch place.
   fn retire_place(&self, pool: &str, slot: i64) -> impl Future<Output = Answer<()>> + Send;
 
@@ -229,6 +232,9 @@ pub trait Agency: Send + Sync {
 
   /// Whether a user holds an enabled Claude account.
   fn claude_account_held(&self, user: &str) -> impl Future<Output = Answer<bool>> + Send;
+
+  /// Lists the directories the logins keep their session records under, the machine's own first.
+  fn claude_homes(&self) -> impl Future<Output = Answer<Vec<String>>> + Send;
 
   /// Whether an agent rests now.
   fn resting(&self, agent: &str) -> impl Future<Output = Answer<bool>> + Send;

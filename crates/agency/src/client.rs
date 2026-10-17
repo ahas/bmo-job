@@ -9,9 +9,9 @@ use url::Url;
 
 use crate::{
   Agency, AgencyError, Answer, BranchSlots, Delivery, Execution, JobLines, LaunchHeld, LogLine, Mapping,
-  Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, PoolRole, Provider, Reservation,
-  ReservationAsking, Room, RouteAsk, Run, RunClosing, RunOpening, Session, SessionId, SessionState,
-  SshReach, Start, Tier, TurnRecord, WorkMachine, Workbench, WorkerRuntime,
+  Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, PoolRole, PoolRoom, Provider,
+  Reservation, ReservationAsking, Room, RouteAsk, Run, RunClosing, RunOpening, Session, SessionId,
+  SessionState, SshReach, Start, Tier, TurnRecord, WorkMachine, Workbench, WorkerRuntime,
 };
 use crate::{
   AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LogNote, Prepared, Reply, SessionAnswered,
@@ -80,6 +80,11 @@ struct Held {
 #[derive(Deserialize)]
 struct Rest {
   resting: bool,
+}
+
+#[derive(Deserialize)]
+struct Homes {
+  homes: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -508,6 +513,13 @@ impl Agency for AgencyClient {
     Ok(held.held)
   }
 
+  async fn claude_homes(&self) -> Answer<Vec<String>> {
+    let request = self.request(Method::GET, &["accounts", "claude", "homes"], &[]);
+    let homes: Homes = self.answer("claude_homes", request).await?;
+
+    Ok(homes.homes)
+  }
+
   async fn resting(&self, agent: &str) -> Answer<bool> {
     let request = self.request(Method::GET, &["agents", agent, "rest"], &[]);
     let rest: Rest = self.answer("resting", request).await?;
@@ -550,6 +562,12 @@ impl Agency for AgencyClient {
 
   async fn pool_roles(&self) -> Answer<Vec<PoolRole>> {
     self.answer("pool_roles", self.request(Method::GET, &["pool", "roles"], &[])).await
+  }
+
+  async fn pool_room(&self, provider: &str, tier: &str) -> Answer<PoolRoom> {
+    let request = self.request(Method::GET, &["pool", "room"], &[("provider", provider), ("tier", tier)]);
+
+    self.answer("pool_room", request).await
   }
 
   async fn retire_place(&self, pool: &str, slot: i64) -> Answer<()> {

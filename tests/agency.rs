@@ -7,10 +7,10 @@ use std::path::PathBuf;
 
 use job_agency::{
   Agency, AgencyClient, AgencyError, BranchSlots, Context, Delivery, Execution, JobLines, LaunchHeld,
-  LogLine, Mapping, Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, PoolRole, PoolState,
-  Provider, Reservation, ReservationAsking, ReservationState, Room, RouteAsk, Run, RunClosing, RunOpening,
-  Scope, Session, SessionId, SessionState, Slot, SshReach, Start, Tier, ToolCall, ToolResult, TurnRecord,
-  TurnRecordKind, WorkMachine, Workbench, WorkerRuntime,
+  LogLine, Mapping, Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, PoolRole, PoolRoom,
+  PoolState, Provider, Reservation, ReservationAsking, ReservationState, Room, RouteAsk, Run, RunClosing,
+  RunOpening, Scope, Session, SessionId, SessionState, Slot, SshReach, Start, Tier, ToolCall, ToolResult,
+  TurnRecord, TurnRecordKind, WorkMachine, Workbench, WorkerRuntime,
 };
 use serde_json::{Map, Value, json};
 use support::agency::Stub;
@@ -816,6 +816,28 @@ async fn pool_roles_lists_each_role_with_its_default_tier() {
 }
 
 #[tokio::test]
+async fn pool_room_asks_by_provider_and_tier() {
+  let stub = Stub::start().await;
+
+  stub.answer(
+    "GET /pool/room",
+    200,
+    json!({ "capacity": 4, "active": 1, "reserved": 2, "waiting": 0 }),
+  );
+
+  assert_eq!(
+    stub.client().pool_room("provider-a", "Light").await.unwrap(),
+    PoolRoom {
+      capacity: 4,
+      active: 1,
+      reserved: 2,
+      waiting: 0,
+    }
+  );
+  stub.took("GET /pool/room", "/pool/room?provider=provider-a&tier=Light", None);
+}
+
+#[tokio::test]
 async fn retire_place_deletes_the_place_by_its_pool_and_number() {
   let stub = Stub::start().await;
 
@@ -1181,6 +1203,16 @@ async fn claude_account_held_asks_by_user() {
 
   assert!(held);
   stub.took("GET /accounts/claude/held", "/accounts/claude/held?user=user-1", None);
+}
+
+#[tokio::test]
+async fn claude_homes_lists_the_record_homes() {
+  let stub = Stub::start().await;
+
+  stub.answer("GET /accounts/claude/homes", 200, json!({ "homes": ["/srv/home", "/srv/login-1"] }));
+
+  assert_eq!(stub.client().claude_homes().await.unwrap(), ["/srv/home", "/srv/login-1"]);
+  stub.took("GET /accounts/claude/homes", "/accounts/claude/homes", None);
 }
 
 // An agent's rest.

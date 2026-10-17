@@ -80,6 +80,9 @@ pub struct Units {
   pub receiver: HttpAddress,
   pub web: HttpAddress,
   pub graph: HttpAddress,
+  pub brain: HttpAddress,
+  /// The file holding bmo-brain's token.
+  pub brain_token: AbsolutePath,
   /// The cache siren a co-work branch's answer is told to, where one is given.
   pub siren: Option<HttpAddress>,
 }
@@ -120,6 +123,8 @@ pub struct Host {
   pub tree: AbsolutePath,
   /// The directory bmo-testbed writes its runs' logs in, where one is given.
   pub testbed_logs: Option<AbsolutePath>,
+  /// The directory the brain's documents stand in, where one is given.
+  pub brain: Option<AbsolutePath>,
 }
 
 /// An absolute path on the machine the service runs on.

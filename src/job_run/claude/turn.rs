@@ -7,7 +7,7 @@
 //! that answered. A co-work branch's turn goes on a session it throws away: no reset, record or work result
 //! reaches it.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -230,12 +230,13 @@ impl<'a> ClaudeRoad<'a> {
       name: asked.name.clone(),
       title: asked.title.clone(),
       thread: self.todo_id.map(|todo| format!("todo:{todo}")),
-      job: self.job_id,
+      job: Some(self.job_id),
       chat: self.chat_id,
       unit: (!self.unit.is_empty()).then(|| self.unit.clone()),
       user: self.user.clone(),
       work_key: JOB_WORK_KEY.to_owned(),
       hears_words: !self.throws_session_away(),
+      variables: BTreeMap::new(),
     };
     let prepared = ground.calls.prepare_turn(&asking).await.map_err(refused)?;
     let mut sent = self.send(&prepared.turn, asked, prepared.session.as_deref()).await?;

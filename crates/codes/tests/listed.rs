@@ -29,8 +29,8 @@ use job_codes::task::{LaunchNote, TaskAnswer, TaskRefusal};
 use job_codes::todo_blocks::BlockHead;
 use job_codes::todo_reading::{HeldWord, LineMark, ModelMark, QuestionState, RowState};
 use job_codes::todo_verbs::{
-  AfterWrong, ClosingPart, EditedPart, FilingPart, ImpactDifference, ResumeCondition, TodoAnswer, TodoFact,
-  TodoRefusal, Verdict, WrittenRecord,
+  AfterWrong, ClosingPart, EditedPart, FilingPart, ImpactDifference, OrderHold, ResumeCondition,
+  TodoAnswer, TodoFact, TodoRefusal, Verdict, WrittenRecord,
 };
 use job_codes::units::UnitRefusal;
 use job_codes::work_lines::{JobLabel, PassReason, WorkStep};
@@ -101,6 +101,7 @@ fn enums() -> Vec<(&'static str, Names, &'static [&'static str])> {
     ("Lapse", Kinds, Lapse::VARIANTS),
     ("PaneWindow", Kinds, PaneWindow::VARIANTS),
     ("PaneOption", Kinds, PaneOption::VARIANTS),
+    ("OrderHold", Kinds, OrderHold::VARIANTS),
     ("QueueHold", Kinds, QueueHold::VARIANTS),
     ("WorkStep", Kinds, WorkStep::VARIANTS),
     ("PassReason", Kinds, PassReason::VARIANTS),

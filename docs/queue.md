@@ -14,7 +14,8 @@ stands in for; a call that fails is refused with 502 under the code of the unit 
 other call of the service is.
 
 - **One place builds the ground from the settings** (docs/settings.md): the clients of bmo-agency,
-  bmo-receiver, bmo-web and bmo-testbed from `[units]` and `[host] testbed`, the host a job's unit is
+  bmo-receiver, bmo-web, bmo-gate, bmo-graph and bmo-brain, with its token, from `[units]`, and of
+  bmo-testbed from `[host] testbed`, the host a job's unit is
   started on from `[host]`, and the telling, the stops and the reading of what runs from `[host]` and
   `[server] unit`. The verbs and the server take the queue from there, and a settings file missing
   `[server]`, `[units]` or `[host]` builds none.
