@@ -24,6 +24,8 @@ pub struct Settings {
   pub server: Option<ServerSettings>,
   /// The `[units]` section, which the server requires and the libraries read without.
   pub units: Option<Units>,
+  /// The `[host]` section, which the server requires and the libraries read without.
+  pub host: Option<Host>,
   /// The `[words]` section: the deployment's own words, one table to a policy part, which the policy
   /// reads and refuses at its own load where no part takes them; empty where the section is left out.
   #[serde(default)]
@@ -72,6 +74,87 @@ pub struct Units {
   pub agency: HttpAddress,
   pub gate: HttpAddress,
   pub receiver: HttpAddress,
+  pub web: HttpAddress,
+}
+
+/// The `[host]` section: what the queue stands on of the machine it runs on.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Host {
+  /// The checkout the built-in worker works in where its row names none.
+  pub source: AbsolutePath,
+  /// bmo-testbed's program.
+  pub testbed: AbsolutePath,
+  /// The program the user's systemd manager is asked and told through.
+  pub systemctl: AbsolutePath,
+  /// The program a job's unit is started through.
+  pub systemd_run: AbsolutePath,
+  /// The program whose `job-run` verb a job's unit runs.
+  pub runner: AbsolutePath,
+  /// The directory a job's unit runs in.
+  pub runner_directory: AbsolutePath,
+  /// The search path a job's unit is started with.
+  pub runner_path: String,
+  /// The file of variables a job's unit reads, where one is given.
+  pub runner_environment: Option<AbsolutePath>,
+  /// The directory the checkouts' job locks stand in.
+  pub locks: AbsolutePath,
+  /// The directory a job's text is written to for its unit.
+  pub prompts: AbsolutePath,
+  /// How long a launch waits for the last checkout's lock.
+  pub lock_wait_seconds: WaitSeconds,
+  /// The program a runner is launched through.
+  pub launcher: AbsolutePath,
+  /// The directory a runner's launcher runs in.
+  pub launcher_directory: AbsolutePath,
+}
+
+/// An absolute path on the machine the service runs on.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "PathBuf")]
+pub struct AbsolutePath(PathBuf);
+
+impl TryFrom<PathBuf> for AbsolutePath {
+  type Error = String;
+
+  fn try_from(path: PathBuf) -> Result<Self, String> {
+    if path.is_absolute() {
+      Ok(Self(path))
+    } else {
+      Err(format!("`{}` is not an absolute path", path.display()))
+    }
+  }
+}
+
+impl Deref for AbsolutePath {
+  type Target = Path;
+
+  fn deref(&self) -> &Path {
+    &self.0
+  }
+}
+
+/// A wait in whole seconds, above 0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "u64")]
+pub struct WaitSeconds(u64);
+
+impl WaitSeconds {
+  pub fn duration(self) -> std::time::Duration {
+    std::time::Duration::from_secs(self.0)
+  }
+}
+
+impl TryFrom<u64> for WaitSeconds {
+  type Error = &'static str;
+
+  fn try_from(seconds: u64) -> Result<Self, &'static str> {
+    if seconds == 0 {
+      return Err("a wait is a whole number of seconds above 0");
+    }
+
+    Ok(Self(seconds))
+  }
 }
 
 /// An `http:` address a path can be added to.

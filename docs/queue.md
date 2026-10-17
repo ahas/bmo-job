@@ -13,6 +13,11 @@ calls on other units. The calls go through one trait of the module, which the re
 stands in for; a call that fails is refused with 502 under the code of the unit it was made on, as every
 other call of the service is.
 
+- **One place builds the ground from the settings** (docs/settings.md): the clients of bmo-agency,
+  bmo-receiver, bmo-web and bmo-testbed from `[units]` and `[host] testbed`, the host a job's unit is
+  started on from `[host]`, and the telling, the stops and the reading of what runs from `[host]` and
+  `[server] unit`. The verbs and the server take the queue from there, and a settings file missing
+  `[server]`, `[units]` or `[host]` builds none.
 - **Times are epoch milliseconds** throughout, in the rows and in what the queue hands on.
 - **Every statement runs on SQLite and on PostgreSQL alike.** A work order's body is read whole and
   filtered in the code, never by a JSON operator of one backend.

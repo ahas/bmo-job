@@ -13,9 +13,9 @@ code: the database it keeps its rows in and the names it says and records come f
 
 ## What the file holds
 
-The file holds five sections: `[database]` and `[deployment]`, both required; `[server]` and `[units]`,
-which the server requires and the libraries read without; and `[words]`, which may be left out. A key
-the service does not know is refused, so a misspelt setting fails at start rather than standing
+The file holds six sections: `[database]` and `[deployment]`, both required; `[server]`, `[units]`
+and `[host]`, which the server requires and the libraries read without; and `[words]`, which may be left
+out. A key the service does not know is refused, so a misspelt setting fails at start rather than standing
 silently at a default.
 
 ### `[database]`
@@ -64,9 +64,35 @@ The `http:` address of each unit the server calls on (docs/api.md, "Calls on oth
 | `agency` | bmo-agency, whose provider order a reading of an item's model is read against |
 | `gate` | bmo-gate, whose kept English a worker's reading carries |
 | `receiver` | bmo-receiver, which the server declares itself a holder to and hands an item's talk |
+| `web` | bmo-web, which says whose work an item's job is and whether that user may have it run |
 
 Every key of both sections is required where the section stands. An address that is not `http:` is
 refused when the file is loaded.
+
+### `[host]`
+
+What the queue stands on of the machine it runs on (docs/queue.md): the programs it starts, the
+directories it writes in, and the checkout the built-in worker works in. Every path is absolute.
+
+| Key | What it names |
+|---|---|
+| `source` | The checkout the built-in worker works in where its row names none |
+| `testbed` | bmo-testbed's program, which the queue asks for the commits a job left waiting to go live |
+| `systemctl` | The program the user's systemd manager is asked through whether a unit stands, and told to stop one |
+| `systemd_run` | The program a job's unit is started through |
+| `runner` | The program whose `job-run` verb a job's unit runs |
+| `runner_directory` | The directory a job's unit runs in |
+| `runner_path` | The search path a job's unit is started with, as `PATH` |
+| `runner_environment` | The file of variables a job's unit reads, where one is given; it may be left out |
+| `locks` | The directory the checkouts' job locks stand in |
+| `prompts` | The directory a job's text is written to for its unit, readable by the service's user alone |
+| `lock_wait_seconds` | How long a launch waits for the last checkout's lock before it refuses, a whole number above 0 |
+| `launcher` | The program a runner is launched through, with the runner's name as its verb |
+| `launcher_directory` | The directory a runner's launcher runs in |
+
+Every key but `runner_environment` is required where the section stands. A path that is not absolute,
+and a wait that is not above 0, is refused when the file is loaded. The environment the user's systemd
+manager is reached on is the service's own process environment, not a setting.
 
 ### `[words]`
 
@@ -84,6 +110,7 @@ A load that fails names the file and one of these:
 - the file is not TOML of this shape: a section or a key is missing, unknown or of the wrong type;
 - the database address is of a kind the service does not keep rows in;
 - a deployment name is empty;
-- a listening address is not a socket address, or a unit's address or the server's own is not `http:`.
+- a listening address is not a socket address, or a unit's address or the server's own is not `http:`;
+- a host path is not absolute, or the lock wait is not above 0.
 
-The server also refuses to start where `[server]` or `[units]` is left out.
+The server also refuses to start where `[server]`, `[units]` or `[host]` is left out.

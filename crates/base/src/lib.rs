@@ -9,7 +9,8 @@ pub mod settings;
 pub use database::{all, one, run, statement};
 pub use refusal::{Refusal, RefusalBody};
 pub use settings::{
-  Address, Deployment, HttpAddress, Name, ServerSettings, Settings, SettingsError, Units,
+  AbsolutePath, Address, Deployment, Host, HttpAddress, Name, ServerSettings, Settings, SettingsError,
+  Units, WaitSeconds,
 };
 
 /// Now, in the epoch milliseconds the service's own columns keep.

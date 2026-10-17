@@ -244,6 +244,7 @@ unit = "job"
 agency = "{agency}"
 gate = "{gate}"
 receiver = "{receiver}"
+web = "http://127.0.0.1:1/"
 "#
   )
 }

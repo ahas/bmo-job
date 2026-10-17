@@ -86,13 +86,55 @@ fn the_checked_in_example_loads_with_neutral_names() {
   assert_eq!(server.address.url().as_str(), "http://127.0.0.1:7841/");
   assert_eq!(&*server.unit, "job");
   assert_eq!(units.receiver.url().as_str(), "http://127.0.0.1:7844/");
+  assert_eq!(units.web.url().as_str(), "http://127.0.0.1:7845/");
+
+  let host = settings.host.expect("the example names the host");
+
+  assert_eq!(&*host.systemctl, Path::new("/usr/bin/systemctl"));
+  assert_eq!(host.lock_wait_seconds.duration(), std::time::Duration::from_secs(20));
+  assert_eq!(host.runner_environment.as_deref(), Some(Path::new("/srv/job/job.env")));
+}
+
+const HOST: &str = r#"[host]
+source = "/s"
+testbed = "/t"
+systemctl = "/c"
+systemd_run = "/r"
+runner = "/j"
+runner_directory = "/d"
+runner_path = "/usr/bin"
+locks = "/l"
+prompts = "/p"
+lock_wait_seconds = 5
+launcher = "/x"
+launcher_directory = "/d"
+"#;
+
+#[test]
+fn the_host_is_read_where_given_with_absolute_paths_and_a_wait_above_nothing() {
+  let read = |host: &str| Settings::read(&format!("{}\n{host}", with_database("sqlite::memory:")));
+  let host = read(HOST).unwrap().host.expect("the host is read");
+
+  assert_eq!(&*host.locks, Path::new("/l"));
+  assert_eq!(host.runner_environment, None, "the environment file may be left out");
+  assert_eq!(host.lock_wait_seconds.duration(), std::time::Duration::from_secs(5));
+  assert!(
+    read(&HOST.replace("\"/l\"", "\"locks\""))
+      .unwrap_err()
+      .to_string()
+      .contains("is not an absolute path")
+  );
+  assert!(read(&HOST.replace("= 5", "= 0")).unwrap_err().to_string().contains("above 0"));
+  assert!(read(&HOST.replace("launcher = \"/x\"\n", "")).is_err(), "the launcher is required");
+  assert!(read(&format!("{HOST}spare = \"/y\"\n")).is_err(), "an unknown key is refused");
 }
 
 #[test]
 fn the_server_and_its_units_are_left_out_by_the_libraries_and_read_where_given() {
   let without = Settings::read(&with_database("sqlite::memory:")).unwrap();
   let server = "[server]\nlisten = \"127.0.0.1:0\"\naddress = \"http://localhost:1/\"\nunit = \"job\"\n";
-  let units = "[units]\nagency = \"http://a\"\ngate = \"http://g\"\nreceiver = \"http://r\"\n";
+  let units =
+    "[units]\nagency = \"http://a\"\ngate = \"http://g\"\nreceiver = \"http://r\"\nweb = \"http://w\"\n";
   let with = Settings::read(&format!("{}\n{server}{units}", with_database("sqlite::memory:"))).unwrap();
   let https = Settings::read(&format!(
     "{}\n{server}{}",
@@ -105,8 +147,12 @@ fn the_server_and_its_units_are_left_out_by_the_libraries_and_read_where_given()
     server.replace("127.0.0.1:0", "nowhere")
   ));
 
-  assert!(without.server.is_none() && without.units.is_none());
-  assert_eq!(with.units.unwrap().gate.url().as_str(), "http://g/");
+  assert!(without.server.is_none() && without.units.is_none() && without.host.is_none());
+
+  let units = with.units.unwrap();
+
+  assert_eq!(units.gate.url().as_str(), "http://g/");
+  assert_eq!(units.web.url().as_str(), "http://w/");
   assert!(https.unwrap_err().to_string().contains("is not an http address"));
   assert!(no_socket.is_err());
 }
