@@ -270,6 +270,9 @@ A research run — a search or a browse — runs through bmo-agency and stands o
   told the run's settings in the variables `research.toml` names; the run's prompt names the moment it
   was asked at in UTC, and the knowledge its words call for is handed as a reference block naming the
   deployment's agent.
+- **The verbs** are `research admit`, `research run`, `research close` and `research branch`
+  (docs/cli.md, "`research`"), what each holds of a run docs/research-runs.md, "The verbs a research tool
+  calls".
 
 ## What a job cost
 

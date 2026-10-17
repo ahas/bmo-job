@@ -27,9 +27,10 @@ how it ends. The verbs are docs/verbs.md, "Research runs".
   branch; a strategy fits its key; and every field stands inside the policy's limits. A profile read back
   for another key, or one that breaks a check, is refused.
 - **A run keeps the profile it started with;** a change applies to the next run.
-- **The tier** is the work key's own profile's (docs/policy.md, `work-keys.toml`), and the model and effort
-  are that tier's on the provider the search line starts on, resolved through bmo-agency's routes. A
-  profile holds neither, so one work's model is decided in one place.
+- **The tier** is the one the launcher took for the key and handed to the run beside its profile, or,
+  where it hands none, the work key's own profile's (docs/policy.md, `work-keys.toml`); the model and
+  effort are that tier's on the provider the search line starts on, resolved through bmo-agency's routes.
+  A profile holds neither, so one work's model is decided in one place.
 - **What a run's settings open:** the policy names the run variable that opens each of a run's research
   capabilities — the picture viewer, the branches, the rulebooks — and a run holds a capability where its
   variable names something other than `0`. The run's web server is told the run's settings in the turn's
@@ -92,3 +93,30 @@ how it ends. The verbs are docs/verbs.md, "Research runs".
 - **A branch's place is the prefix of the branch line:** one per provider, model and effort, whichever run
   opened it, so branches on the same model share a warm prefix. Keeping that prefix warm while a reservation
   stands is bmo-agency's pool's.
+
+## The verbs a research tool calls
+
+A research tool hands this service a run's admission, the run and its branches on the command line
+(docs/cli.md, "`research`"). Each stands on the stand (docs/verbs.md, "Where a verb stands"), and a stop
+from outside — an interrupt, a termination or a hang-up — stops the model it carries, which keeps what it
+had written.
+
+- **The admission comes before the prompt:** a lowered depth asks for another prompt, so the tool asks
+  which depth a run goes at — the one asked, or the shallowest with the sentence saying why (「A named
+  depth, and a full pool」) — before it writes one.
+- **The run is carried whole:** what ended runs left in the pool is reclaimed; the run's entry is opened
+  in the ledger where its launcher opened none; its branches' seats are reserved, an explicit run waiting
+  for its first; its model is carried on the prompt it is handed, closed with a line naming the moment it
+  was asked and the knowledge its words call for; and the entry is closed once. It answers with the run,
+  how it ended, the context it ended carrying and the text it wrote.
+- **What fails a run:** an answer with its own work still running, closed in the ledger as `live-tasks`;
+  and a turn that gives no answer, a route that cannot be resolved or an explicit run that got no seat,
+  closed as `failed`. Each is said on standard error.
+- **An answer closes the entry as `done`,** unless the run is asked to leave it open, so that a tool whose
+  own reading of the answer is that it answered nothing closes it as `unanswered` itself. A stop closes it
+  as stopped either way, and every place the run held is given back however it ends.
+- **A branch is carried for the run's branch tool,** its angle on standard input, and answers with the
+  branch's notes or the one sentence saying why it was refused or failed, which the parent reads as the
+  branch's answer.
+- **A browse's ceiling is not this verb's to cut:** the run is asked about at its ceiling (「The browse
+  clock」), and a cut stops the run from outside.

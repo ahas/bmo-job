@@ -14,12 +14,19 @@ use job_agency::{
   TurnMapping, TurnSeat, TurnState,
 };
 use job_base::Refusal;
+use job_gate::{Gate, KnowledgeAsked};
+use serde::Serialize;
 use serde_json::Value;
 
-use super::{LINE, Profile, Told, clock, finish_leases, line_provider, owner as research_owner};
+use super::admission::{Branches, Demand, PLACE_POLL, await_place, unit_running};
+use super::{
+  LINE, Profile, Told, asked_at_text, clock, finish_leases, knowledge_block, line_provider,
+  owner as research_owner, reclaim_leases, reserve_places,
+};
+use crate::job_run::verdict::live_task_names;
 use crate::now_ms;
 use crate::queue::units::agency_failed;
-use crate::verbs::stand::Stand;
+use crate::verbs::stand::{Answer, Stand, VerbError};
 
 // How often a running turn is read again.
 const POLL: Duration = Duration::from_secs(1);
@@ -75,9 +82,10 @@ pub fn key_tier(stand: &Stand, key: &str) -> Option<String> {
   stand.policy.work_keys.profile(key).map(|profile| profile.tier.clone())
 }
 
-/// The route a research key's run takes: its tier on the provider the search line starts on.
-pub async fn run_mapping(stand: &Stand, key: &str) -> Result<Mapping, Refusal> {
-  let Some(tier) = key_tier(stand, key) else {
+/// The route a research key's run takes: the tier its launcher took, or else the key's own, on the provider
+/// the search line starts on.
+pub async fn run_mapping(stand: &Stand, key: &str, tier: Option<&str>) -> Result<Mapping, Refusal> {
+  let Some(tier) = tier.map(str::to_owned).or_else(|| key_tier(stand, key)) else {
     return Err(agency_failed(format!("the research key {key} names no tier")));
   };
   let asked = RouteAsk {
@@ -315,6 +323,12 @@ impl<'s> Research<'s> {
     Arc::clone(&self.stopping)
   }
 
+  /// The run stopped by `flag` instead of a flag of its own, so a stop heard before it was made reaches it.
+  pub fn stopped_by(mut self, flag: Arc<AtomicBool>) -> Self {
+    self.stopping = flag;
+    self
+  }
+
   /// The run's model carried on its route in `cwd`, `prompt` on its input, its web server told `told`: its
   /// answer with the context it ended carrying kept; what it had written where it was stopped; or why it gave
   /// none.
@@ -346,15 +360,20 @@ impl<'s> Research<'s> {
     Ok(carried)
   }
 
-  /// The run ended with how it ended: every place it holds in the pool given back, and its ledger entry
-  /// closed with the context it ended carrying. Whether this was the ending that closed the entry: the first
-  /// reached is the real one.
-  pub async fn close(&mut self, outcome: &str) -> bool {
+  /// Every place the run holds in the pool given back, its ledger entry left as it stands.
+  pub async fn give_back(&self, outcome: &str) {
     if let Some(owner) = &self.owner
       && let Err(why) = finish_leases(self.stand, owner, &format!("{} run {outcome}", self.source)).await
     {
       eprintln!("{} run: its pool places could not be given back: {why}", self.source);
     }
+  }
+
+  /// The run ended with how it ended: every place it holds in the pool given back, and its ledger entry
+  /// closed with the context it ended carrying. Whether this was the ending that closed the entry: the first
+  /// reached is the real one.
+  pub async fn close(&mut self, outcome: &str) -> bool {
+    self.give_back(outcome).await;
 
     let Some(run_id) = self.run_id else { return false };
 
@@ -376,4 +395,251 @@ impl<'s> Research<'s> {
 
     true
   }
+}
+
+/// The usage `research run` answers a wrong line with.
+pub const USAGE: &str = "usage: research run --key <key> --chat <chat> --unit <unit> --profile <profile> [--tier <tier>] [--demand explicit|optional] [--run <run>] [--depth <n>] [--started-by <who>] [--search-id <id>] [--leave-open]  (the prompt on stdin)";
+
+/// One run as a research tool hands it over (docs/research-runs.md, "The verbs a research tool calls").
+pub struct Started {
+  pub key: String,
+  pub chat_id: i64,
+  pub unit: String,
+  pub profile: Profile,
+  /// The tier its launcher took; none takes the key's own.
+  pub tier: Option<String>,
+  pub demand: Demand,
+  /// The entry its launcher opened in the ledger; none opens one.
+  pub run_id: Option<i64>,
+  pub opening: Opening,
+  /// Whether an answer leaves the entry open for the tool to close.
+  pub leave_open: bool,
+  /// The directory its turn runs in.
+  pub cwd: String,
+}
+
+/// How one carried run came out, as the verb prints it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Ending {
+  pub run: Option<i64>,
+  pub outcome: String,
+  pub context_tokens: Option<u64>,
+  pub text: String,
+}
+
+/// The source a research key's runs are: `search` for a search depth, `browse` for the browser.
+pub fn source_of(key: &str) -> Option<&'static str> {
+  match key.split_once(':').map_or(key, |(source, _)| source) {
+    "search" => Some("search"),
+    "browse" => Some("browse"),
+    _ => None,
+  }
+}
+
+/// One run carried whole: what ended runs left behind reclaimed, its entry opened where its launcher opened
+/// none, its branches' seats reserved — an explicit run waiting for its first — its model carried on `prompt`
+/// closed with the moment it was asked and the knowledge its words call for, and its entry closed once. A run
+/// stopped through `stopping` ends with what it had written.
+pub async fn research_run(
+  stand: &Stand,
+  started: &Started,
+  prompt: &str,
+  stopping: Arc<AtomicBool>,
+) -> Result<Ending, VerbError> {
+  let Some(source) = source_of(&started.key).filter(|_| stand.policy.research.holds(&started.key)) else {
+    return Err(VerbError::Refused(format!("{} is no research key", started.key)));
+  };
+  let systemctl = stand.ground.systemctl.clone();
+
+  // Places a research run left behind when its process died are given back before this run asks.
+  if let Err(why) = reclaim_leases(stand, |unit| unit_running(&systemctl, unit)).await {
+    eprintln!("the pool's abandoned places could not be reclaimed: {why}");
+  }
+
+  let research = match started.run_id {
+    Some(id) => Research::new(stand, source, started.chat_id, Some(id), &started.unit),
+    None => Research::open(stand, source, started.chat_id, &started.unit, &started.opening).await?,
+  };
+  let mut research = research.stopped_by(stopping);
+  let profile = &started.profile;
+
+  // A run that may open branches reserves their seats before the model is launched; an explicit one waits for
+  // its first seat before the model starts at all.
+  if let Some(owner) = research.owner().map(str::to_owned)
+    && profile.max_children() > 0
+  {
+    let branches = Branches {
+      owner: &owner,
+      source,
+      role: profile.child_role(),
+      count: u32::try_from(profile.max_children()).unwrap_or_default(),
+    };
+
+    if started.demand == Demand::Explicit {
+      let flag = research.stop_flag();
+      let place =
+        await_place(stand, &branches, profile.wait_limit_ms(), PLACE_POLL, &|| flag.load(Ordering::SeqCst))
+          .await;
+
+      if research.stopping() {
+        research.close(STOPPED).await;
+        return Ok(ending(&research, STOPPED, String::new()));
+      }
+
+      if place.reservation.is_none() {
+        let why = format!(
+          "the explicit {} run got no place in the common co-worker pool: {}",
+          started.key,
+          place.reason.unwrap_or_default()
+        );
+
+        return Err(failed(&mut research, FAILED, why).await);
+      }
+
+      eprintln!(
+        "{source} run: a pool seat was held after {}s, before the model was launched",
+        (place.waited_ms as f64 / 1000.0).round()
+      );
+    } else if let Err(why) = reserve_places(stand, &owner, source, branches.role, branches.count).await {
+      eprintln!("{source} run: its branches' seats were not reserved: {why}");
+    }
+  }
+
+  let mapping = match run_mapping(stand, &started.key, started.tier.as_deref()).await {
+    Ok(mapping) => mapping,
+    Err(why) => return Err(failed(&mut research, FAILED, why.error).await),
+  };
+  let standing = Told {
+    branch_tool: research.owner().is_some() && profile.max_children() > 0,
+    image_tool: true,
+    rulebooks: if source == "search" {
+      stand.policy.research.search.on_request.clone()
+    } else {
+      vec![]
+    },
+    ..Told::default()
+  };
+  let now = now_ms();
+  let told = run_told(standing, profile, research.owner().map(str::to_owned), source, started.chat_id, now);
+  let prompt = asked_prompt(stand, source, started.chat_id, prompt, now).await;
+
+  match research.ask(&told, &mapping, &started.cwd, &prompt, None).await {
+    Ok(Carried::Answered(reply)) if !reply.live_tasks.is_empty() => {
+      let why = format!(
+        "the run ended with its own work still running: {}",
+        live_task_names(&reply.live_tasks, 4)
+      );
+
+      Err(failed(&mut research, LIVE_TASKS, why).await)
+    }
+    Ok(Carried::Answered(reply)) if reply.text.trim().is_empty() => {
+      Err(failed(&mut research, FAILED, "the run ended without a result".to_owned()).await)
+    }
+    Ok(Carried::Answered(reply)) => {
+      let outcome = if started.leave_open {
+        research.give_back(DONE).await;
+        OPEN
+      } else {
+        research.close(DONE).await;
+        DONE
+      };
+
+      Ok(ending(&research, outcome, reply.text.trim().to_owned()))
+    }
+    Ok(Carried::Stopped(written)) => {
+      research.close(STOPPED).await;
+      Ok(ending(&research, STOPPED, written.trim().to_owned()))
+    }
+    Ok(Carried::Failed(_)) if research.stopping() => {
+      research.close(STOPPED).await;
+      Ok(ending(&research, STOPPED, String::new()))
+    }
+    Ok(Carried::Failed(why)) => Err(failed(&mut research, FAILED, why).await),
+    Err(why) => Err(failed(&mut research, FAILED, why.error).await),
+  }
+}
+
+/// A run's entry its tool left open, closed with how the tool read it ended: every place the run holds given
+/// back, then the entry closed; an entry already closed keeps its closing and is refused.
+pub async fn close_run(
+  stand: &Stand,
+  run_id: i64,
+  outcome: &str,
+  context_tokens: Option<u64>,
+) -> Result<Answer, VerbError> {
+  let agency = &stand.ground.agency;
+  let Some(run) = agency.run(run_id).await.map_err(agency_failed)? else {
+    return Err(VerbError::Refused(format!("the ledger holds no run {run_id}")));
+  };
+
+  if let Some(ended) = run.outcome.filter(|_| run.finished_at.is_some()) {
+    return Err(VerbError::Refused(format!("run {run_id} is already closed: {ended}")));
+  }
+
+  let source = source_of(&run.agent).unwrap_or(LINE);
+
+  if let Err(why) =
+    finish_leases(stand, &research_owner(source, run_id), &format!("{source} run {outcome}")).await
+  {
+    eprintln!("{source} run: its pool places could not be given back: {why}");
+  }
+
+  let closing = RunClosing {
+    finished_at: now_ms(),
+    outcome: outcome.to_owned(),
+    context_tokens,
+  };
+
+  agency.close_run(run_id, &closing).await.map_err(agency_failed)?;
+  Ok(vec![format!("run {run_id} closed: {outcome}")].into())
+}
+
+// A run that failed, closed with how: the sentence it ends with.
+async fn failed(research: &mut Research<'_>, outcome: &str, why: String) -> VerbError {
+  research.close(outcome).await;
+  VerbError::Ended {
+    code: 1,
+    said: format!("{} run failed: {why}", research.source),
+  }
+}
+
+// How a carried run's entry is closed, and what the verb says of an entry it left open.
+const DONE: &str = "done";
+const STOPPED: &str = "stopped";
+const FAILED: &str = "failed";
+const LIVE_TASKS: &str = "live-tasks";
+const OPEN: &str = "open";
+
+fn ending(research: &Research<'_>, outcome: &str, text: String) -> Ending {
+  Ending {
+    run: research.run_id(),
+    outcome: outcome.to_owned(),
+    context_tokens: research.context_tokens,
+    text,
+  }
+}
+
+// The prompt a tool handed, closed with the moment it was asked and the knowledge its words call for; a
+// failure of the gate hands over no knowledge.
+async fn asked_prompt(stand: &Stand, source: &str, chat_id: i64, prompt: &str, now: i64) -> String {
+  let asked = KnowledgeAsked {
+    agent: stand.ground.agent_key.clone(),
+    chat: chat_id,
+    lines: vec![prompt.trim().to_owned()],
+  };
+  let pieces = stand.ground.gate.knowledge(&asked).await.unwrap_or_else(|why| {
+    eprintln!("{source} run: no knowledge was picked: {why}");
+    vec![]
+  });
+  let asked_at = format!("This was asked at {}.", asked_at_text(now));
+
+  [
+    Some(prompt.trim_end().to_owned()),
+    Some(asked_at),
+    knowledge_block(source, &stand.names.agent, &pieces),
+  ]
+  .into_iter()
+  .flatten()
+  .collect::<Vec<_>>()
+  .join("\n\n")
 }

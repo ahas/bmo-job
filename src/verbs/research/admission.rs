@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use job_agency::Agency;
 
-use super::{child_mapping, reserve_places};
+use super::{Profile, child_mapping, reserve_places};
 use crate::now_ms;
 use crate::verbs::stand::Stand;
 
@@ -134,6 +134,20 @@ pub async fn admit_depth<F: Future<Output = PoolRoom>>(
     depth: shallowest.to_owned(),
     fallback: Some(format!("an optional {depth} search ran as {shallowest}: {why}")),
   }
+}
+
+/// The key a run of `key` on `profile` goes at, against the pool its branches' role finds now.
+pub async fn admit(
+  stand: &Stand,
+  key: &str,
+  shallowest: &str,
+  profile: &Profile,
+  demand: Demand,
+) -> DepthAdmission {
+  admit_depth(key, shallowest, demand, profile.max_children(), || {
+    pool_room(stand, profile.child_role())
+  })
+  .await
 }
 
 /// What a run's branches are held as in the pool: its owner, its source, the role and how many.

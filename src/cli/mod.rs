@@ -1,7 +1,9 @@
 //! The command line (docs/cli.md): the binary `bmo-job` as the platform's entry point finds it, one noun a
 //! call — the server, a job's unit, a job's own verbs, the TODO, a work order, the workers, a run past its
-//! clock, a checkout's setup and a room's jobs — each read into its verb and what it answers printed.
+//! clock, a checkout's setup, a room's jobs and a research run's verbs — each read into its verb and what it
+//! answers printed.
 
+mod research;
 mod serve;
 mod todo;
 mod worker;
@@ -17,6 +19,7 @@ use crate::verbs::stand::{Answer, JobProcess, Stand, VerbError};
 use crate::verbs::todo::TodoArgs;
 use crate::verbs::{checkout_setup, job_run, node_land, overtime, work_order};
 
+use self::research::ResearchVerb;
 use self::worker::WorkerVerb;
 
 // How many database connections a verb that opens the database alone holds.
@@ -84,6 +87,9 @@ pub enum Noun {
   /// A room.
   #[command(subcommand)]
   Room(RoomVerb),
+  /// A research run's verbs, as a research tool calls them.
+  #[command(subcommand)]
+  Research(ResearchVerb),
   /// Every noun this binary carries, one a line.
   Nouns,
 }
@@ -109,7 +115,7 @@ pub enum RoomVerb {
 }
 
 /// The nouns as `nouns` prints them, a noun of two words as two words.
-pub const NOUNS: [&str; 11] = [
+pub const NOUNS: [&str; 15] = [
   "serve",
   "job-run",
   "job",
@@ -120,6 +126,10 @@ pub const NOUNS: [&str; 11] = [
   "overtime",
   "checkout setup",
   "room jobs",
+  "research admit",
+  "research run",
+  "research close",
+  "research branch",
   "nouns",
 ];
 
@@ -251,6 +261,7 @@ async fn answered(noun: Noun) -> Result<Answer, VerbError> {
           .collect::<Vec<_>>(),
       ))
     }
+    Noun::Research(verb) => research::research(&stand(&settings).await?, verb, &here()).await,
     Noun::Serve | Noun::JobRun { .. } | Noun::Nouns | Noun::Checkout(_) => Ok(Answer::default()),
   }
 }

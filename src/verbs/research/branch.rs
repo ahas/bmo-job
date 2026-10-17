@@ -19,7 +19,7 @@ use crate::verbs::stand::Stand;
 pub const RESEARCH_CLOSED: &str = "RESEARCH CLOSED: this run's research time is over, so no new search, page or branch is started. Write the result now from what you already have, citing only pages that were actually read, and say plainly what could not be confirmed.";
 
 /// The usage the verb answers a wrong line with.
-pub const USAGE: &str = "usage: search branch --owner <owner> --source <search|browse> --role <role> --chat <chat> --index <n> [--closes-at <ms>] [--strategy <strategy>] [--host-interval-ms <ms>] [--engine-interval-ms <ms>]  (the angle on stdin)";
+pub const USAGE: &str = "usage: research branch --owner <owner> --source <search|browse> --role <role> --chat <chat> --index <n> [--closes-at <ms>] [--strategy <strategy>] [--host-interval-ms <ms>] [--engine-interval-ms <ms>]  (the angle on stdin)";
 
 const POOL_POLL: Duration = Duration::from_millis(500);
 

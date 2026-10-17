@@ -22,6 +22,10 @@ is what `bmo` reads to know which commands are this unit's. A noun of two words 
 | `overtime` | The agent's answer to a run that reached its clock (docs/verbs.md, "A run past its clock, answered") | the database |
 | `checkout setup` | The checkout it is run in set up (docs/verbs.md, "A checkout set up") | nothing |
 | `room jobs` | A room's jobs, newest first (docs/reading.md, "A room's jobs") | the database |
+| `research admit` | The depth a research run goes at (docs/research-runs.md, "A named depth, and a full pool") | the stand |
+| `research run` | One research run carried from its opening in the ledger to its closing (docs/research-runs.md, "The verbs a research tool calls") | the stand |
+| `research close` | A research run's entry left open closed with how it ended (docs/research-runs.md, "The verbs a research tool calls") | the stand |
+| `research branch` | One branch of a research run in a pool place (docs/research-runs.md, "Branches take places in the pool") | the stand |
 
 - **The stand** is docs/verbs.md's, "Where a verb stands": the settings, the database and the queue's
   ground, and the owner from bmo-receiver.
@@ -54,6 +58,26 @@ The TODO's verbs from a shell stand on the rows' ground (docs/rows.md, "Where a 
 - **the providers** bmo-agency lists, which a job's model may name.
 
 A step of a work order between its plan and its final turn closes no item.
+
+## `research`
+
+A research run's verbs, as a research tool calls them (docs/research-runs.md, "The verbs a research tool
+calls"). A profile is the launcher's copy as JSON, read back for the key it is for, and a demand is
+`explicit` or `optional`, optional where none is given.
+
+- `research admit --key <key> --shallowest <key> --profile <profile> [--demand <demand>]` prints the key
+  the run goes at, and on a second line why it was lowered where it was.
+- `research run --key <key> --chat <chat> --unit <unit> --profile <profile> [--tier <tier>]
+  [--demand <demand>] [--run <run>] [--depth <n>] [--started-by <who>] [--search-id <id>] [--leave-open]`
+  carries the run on the prompt read from standard input, in the directory it is run in. It prints one
+  line of JSON: `run`, `outcome` (`done`, `stopped`, or `open` where it was asked to leave the entry
+  open), `context_tokens` and `text`. `--run` names the entry its launcher opened, and `--depth` is the
+  number the ledger records.
+- `research close --run <run> --outcome <outcome> [--context-tokens <n>]` gives back every place the run
+  holds and closes its entry; an entry already closed keeps its closing and is refused.
+- `research branch --owner <owner> --source <search|browse> --role <role> --chat <chat> --index <n>
+  [--closes-at <ms>] [--strategy <strategy>] [--host-interval-ms <ms>] [--engine-interval-ms <ms>]` carries
+  the angle read from standard input in the directory it is run in, and prints what the branch answers.
 
 ## What it prints
 
