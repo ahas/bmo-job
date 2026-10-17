@@ -167,7 +167,7 @@ impl Built {
 
 impl Built {
   // An approval in the owner's word, or one taken back, under the hand of the person signed in to the
-  // console; BMO is told how the queue stands where it was given.
+  // console; the agent is told how the queue stands where it was given.
   async fn approve(
     &self,
     ground: &Ground<'_>,

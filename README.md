@@ -36,7 +36,7 @@ At the root stand the Cargo workspace manifest, the version, `testbed.toml`, `ru
 | `docs/reading.md` | Reading the queue: an item as a person and as a worker reads it, the time it took, a room's jobs and a work order |
 | `docs/tools.md` | The tools: `todo`, `launch` and `state`, their entries, a call and its answer, and the manifest |
 | `docs/cli.md` | The command line: the binary `bmo-job` as `bmo` finds it, its nouns, what each stands on, and what it prints |
-| `docs/checks.md` | The repository checks: no Hangul in code or tests, the layout, the dependencies |
+| `docs/checks.md` | The repository checks: no Hangul in code or tests, no personal data, the layout, the dependencies |
 
 ## Version
 

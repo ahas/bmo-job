@@ -1,7 +1,7 @@
-//! An item's impact grounds as the verb writes them (docs/rows.md, "The verbs of filing"): the grounds BMO
-//! weighed the co-work setting on, and the grounds a job of the item weighs again before it changes
-//! anything, told to BMO where they come to another verdict than the setting the item runs at, or where BMO
-//! filed none.
+//! An item's impact grounds as the verb writes them (docs/rows.md, "The verbs of filing"): the grounds the
+//! agent weighed the co-work setting on, and the grounds a job of the item weighs again before it changes
+//! anything, told to the agent where they come to another verdict than the setting the item runs at, or
+//! where the agent filed none.
 
 use job_base::Refusal;
 use job_codes::TodoRefusal;
@@ -67,9 +67,9 @@ pub async fn impact(ground: &Ground<'_>, selector: &str, written: &str) -> Answe
   })
 }
 
-/// The grounds a job of the item weighed again, kept beside BMO's; BMO is told where they come to another
-/// verdict than the setting the item runs at, or where it filed the item with none, and nobody is told where
-/// only the nodes differ. The setting stays BMO's to change.
+/// The grounds a job of the item weighed again, kept beside the agent's; the agent is told where they come
+/// to another verdict than the setting the item runs at, or where it filed the item with none, and nobody
+/// is told where only the nodes differ. The setting stays the agent's to change.
 pub async fn impact_check(ground: &Ground<'_>, selector: &str, written: &str) -> Answered {
   let (item, found) = item_and_grounds(ground, selector, written).await?;
 
@@ -131,9 +131,9 @@ fn grounds_lines(head: &str, grounds: &ImpactGrounds) -> Vec<String> {
     .collect()
 }
 
-/// What BMO is told when a job's grounds come to another verdict than the setting the item runs at, or the
-/// item carries none of BMO's: both sets of grounds and both verdicts, whose the setting is, and when a
-/// change to it reaches the work.
+/// What the agent is told when a job's grounds come to another verdict than the setting the item runs at,
+/// or the item carries none of the agent's: both sets of grounds and both verdicts, whose the setting is,
+/// and when a change to it reaches the work.
 pub fn impact_notice(item: &Item, found: &ImpactGrounds) -> String {
   let id = item.id;
   let filed = match &item.impact {

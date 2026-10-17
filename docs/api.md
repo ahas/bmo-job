@@ -180,11 +180,11 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 | `impact_unread` | 400 | `why` | the impact grounds are not the one JSON object they are written as |
 | `priority_needs_number` | 400 | | a priority is not a number |
 | `model_needed` | 400 | | a model setting names neither auto nor a model |
-| `judgement_needs_title_and_room` | 400 | | a row raised on BMO's judgement has no title or no room |
+| `judgement_needs_title_and_room` | 400 | | a row raised on the agent's judgement has no title or no room |
 | `filing_parts_missing` | 400 | `[missing]` (filing parts) | a filing lacks a part an item is made of |
 | `banned_terms` | 400 | `[terms]` | a title or summary uses terms the owner has set aside |
 | `append_empty` | 400 | | words added to an item are empty |
-| `brief_agent_only` | 403 | | anyone but chat BMO rewrites a brief |
+| `brief_agent_only` | 403 | | anyone but the chat agent rewrites a brief |
 | `brief_needs_change` | 400 | | a brief comes without what changed |
 | `brief_empty` | 400 | | a brief is empty |
 | `brief_not_english` | 400 | | a brief or its change is not in English |
@@ -405,8 +405,8 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | `items_merged` | `[ids]`, `into`, `title` | items were merged into another |
 | `item_unmerged` | `id`, `title`, `priority` | an item was taken out of a merge |
 | `item_closed` | `id`, `[written]` (closing parts), `[carried]` | an item was finished with the items merged into it |
-| `strand_handed` | `memory`, `head` | a strand left to BMO was handed to it as a memory |
-| `resume_condition_met` | `id`, `title`, `after` | the item an item waited on finished and BMO was told |
+| `strand_handed` | `memory`, `head` | a strand left to the agent was handed to it as a memory |
+| `resume_condition_met` | `id`, `title`, `after` | the item an item waited on finished and the agent was told |
 | `item_reopened` | `id`, `unmerged_from?`, `[merged_again]`, `[sources_reopened]` | an item was opened again |
 | `item_approved` | `id`, `noted` | an item was approved, with the owner's word or without |
 | `item_unapproved` | `id` | an item's approval was taken back |
@@ -417,12 +417,12 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | `cowork_set` | `id`, `title`, `on` | an item's co-work was switched |
 | `impact_set` | `id`, `title`, `contracts`, `new_home`, `verdict` (a verdict), `cowork` | an item's impact grounds were written: how many nodes change their outward contract, whether a new home is to be chosen, the verdict and the co-work setting |
 | `impact_check_kept` | `id` | a job's own impact grounds agree with the co-work setting and were kept quietly |
-| `impact_check_told` | `id`, `difference` (an impact difference) | a job's own impact grounds were kept and told to BMO |
+| `impact_check_told` | `id`, `difference` (an impact difference) | a job's own impact grounds were kept and told to the agent |
 | `model_set` | `id`, `model` | an item's job model was set |
 | `item_filed` | `id`, `title`, `cowork`, `clip` (the first message it was filed out of, on one line and cut) | a row was filed and waits for approval |
-| `item_raised` | `id`, `title`, `item`, `[sources]` (each an item id and a strand), `cowork`, `[reopened]` | a row was raised on BMO's judgement out of an item's work |
-| `words_appended_told` | `id`, `title` | words were added to an item and BMO was told |
-| `words_appended_kept` | `id`, `title` | chat BMO's own words were added to an item as a record |
+| `item_raised` | `id`, `title`, `item`, `[sources]` (each an item id and a strand), `cowork`, `[reopened]` | a row was raised on the agent's judgement out of an item's work |
+| `words_appended_told` | `id`, `title` | words were added to an item and the agent was told |
+| `words_appended_kept` | `id`, `title` | the chat agent's own words were added to an item as a record |
 | `brief_rewritten` | `id`, `title`, `job?` | an item's brief was rewritten, the running job handed the change |
 | `unfinished_resolved` | `id`, `title`, `why` | an item's unfinished note was resolved |
 | `source_resolved` | `id`, `resolution` | an unfinished note an item's rows now settle was resolved |
@@ -595,7 +595,7 @@ launch.
 | `what` | | what the work is |
 | `do` | | what has to be done |
 | `conclusion` | | the conclusion |
-| `judgement` | | BMO's judgement |
+| `judgement` | | the agent's judgement |
 | `intent` | | the work order's purpose |
 | `order` | | the work order's instruction |
 
@@ -618,7 +618,7 @@ launch.
 | Kind | Fields | Names |
 |---|---|---|
 | `differs` | `verdict`, `cowork` | the job's grounds come to another verdict than the co-work setting |
-| `unfiled` | | BMO filed no grounds on the item |
+| `unfiled` | | the agent filed no grounds on the item |
 
 #### A filing part: `FilingPart`
 
@@ -771,7 +771,7 @@ launch.
 
 | Kind | Fields | Names |
 |---|---|---|
-| `resting` | | BMO is resting |
+| `resting` | | the agent is resting |
 | `limit` | | the usage limit was reached |
 | `outage` | | the API did not answer |
 | `silent` | | the turn said nothing |
@@ -914,7 +914,7 @@ launch.
 | Kind | Fields | Names |
 |---|---|---|
 | `note` | `note`, `author`, `at` | words added to an item while it stood |
-| `judgement` | | BMO's own judgement on a row it raised |
+| `judgement` | | the agent's own judgement on a row it raised |
 | `source` | `id`, `title`, `strand` | the strand of an unfinished note a raised row came out of |
 | `raised_by_item` | `id` | the item whose work raised the row |
 | `filed_by` | `filer` | a block the filer wrote as it filed the row |
@@ -986,9 +986,9 @@ launch.
 
 | Kind | Fields | Names |
 |---|---|---|
-| `told` | | BMO was told how the queue stands |
+| `told` | | the agent was told how the queue stands |
 | `nothing_waiting` | | nothing waits for any worker |
-| `all_busy` | | everything waiting stands behind a checkout at work or a turn that is not BMO's |
+| `all_busy` | | everything waiting stands behind a checkout at work or a turn that is not the agent's |
 | `paused` | | the owner's pause or a deployment's hold stands |
 | `unreadable` | | what is running could not be read |
 | `machine_short` | | the machine has no room for another job, and is told again once it has |
@@ -1062,11 +1062,11 @@ deploy that takes it lets go, or the owner on purpose (docs/schema.md, "The keys
   deploy's to read. A hold that does not read as an object is still a hold, read as an empty object.
   Taking it again writes what it now holds for over the hold standing.
 - **Pausing** writes the pause and tells nothing. **Resuming,** and **letting a deployment's hold go,**
-  by the owner or by its deploy, tell BMO how the queue stands at once, and answer what came of it.
+  by the owner or by its deploy, tell the agent how the queue stands at once, and answer what came of it.
   Letting go a hold that does not stand answers `released` false and tells nothing.
 - The owner's pause stands on when a deployment's hold is let go.
 - Every change to a hold is news on the event stream.
-- **A queue told** is a `QueueTold` kind: what came of telling BMO how the queue stands.
+- **A queue told** is a `QueueTold` kind: what came of telling the agent how the queue stands.
 
 ### A job's end
 
@@ -1076,7 +1076,7 @@ deploy that takes it lets go, or the owner on purpose (docs/schema.md, "The keys
 | `POST /job-report` | `job` | 204 |
 | `POST /queue/tell` | `moment` (words), `repeat`, `rides_ms?` | `told` |
 
-- **A job that ended** says how, and BMO is told of it without waiting: the report the job left waiting
+- **A job that ended** says how, and the agent is told of it without waiting: the report the job left waiting
   is delivered first, then the fact of its end.
 - **A report** a job wrote is delivered by the service running now.
 - **The queue's standing** is told at a moment a verb saw move it, such as a work order freeing its

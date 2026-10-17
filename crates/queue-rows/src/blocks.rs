@@ -123,7 +123,7 @@ pub fn render_raised_instruction(
   blocks.join("\n\n")
 }
 
-/// What BMO is told when a job raises a row: that the row is its own to approve and launch at once, and
+/// What the agent is told when a job raises a row: that the row is its own to approve and launch at once, and
 /// the one thing that holds it back.
 pub fn raised_row_instruction(
   id: i64,

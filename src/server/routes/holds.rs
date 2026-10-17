@@ -1,5 +1,6 @@
 //! The queue's holds (docs/api.md, "The queue's holds"): the owner's pause and a deployment's hold, read,
-//! taken and let go. Pausing tells nothing; resuming and letting a hold go tell BMO how the queue stands.
+//! taken and let go. Pausing tells nothing; resuming and letting a hold go tell the agent how the queue
+//! stands.
 
 use std::sync::Arc;
 

@@ -25,7 +25,7 @@ pub struct Profile {
   pub key: String,
   /// The key the console's language pack shows the profile under.
   pub label: String,
-  /// bmo for the agent, worker, gate or editor.
+  /// worker, gate or editor.
   pub kind: String,
   /// The run line the work goes out on.
   pub line: String,

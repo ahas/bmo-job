@@ -282,7 +282,7 @@ impl Scene {
     }
   }
 
-  /// The ground of chat BMO's own turn.
+  /// The ground of the chat agent's own turn.
   pub fn chat(&self) -> Ground<'_> {
     Ground {
       filer: Filer {

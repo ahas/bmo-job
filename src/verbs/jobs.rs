@@ -1,4 +1,4 @@
-//! A job's end and the queue's standing told to BMO (docs/api.md, "A job's end").
+//! A job's end and the queue's standing told to the agent (docs/api.md, "A job's end").
 
 use std::future::Future;
 
@@ -24,7 +24,7 @@ pub struct Moment {
   pub rides_ms: Option<i64>,
 }
 
-/// What a job's end and the queue's standing tell BMO.
+/// What a job's end and the queue's standing tell the agent.
 pub trait Telling {
   /// The report the job left waiting delivered, then the fact of its end told.
   fn job_ended(&self, ended: JobEnded) -> impl Future<Output = Done<QueueTold>> + Send;

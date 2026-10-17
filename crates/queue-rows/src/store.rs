@@ -434,8 +434,8 @@ pub async fn awaiting_deploy(db: &impl ConnectionTrait) -> Result<Vec<(Row, Vec<
     .collect()
 }
 
-/// A condition BMO was told is met comes off the row, so the next deployment does not tell it again; the
-/// hold and its reason stay.
+/// A condition the agent was told is met comes off the row, so the next deployment does not tell it again;
+/// the hold and its reason stay.
 pub async fn clear_resume_after_deploy(db: &impl ConnectionTrait, ids: &[i64]) -> Result<(), Refusal> {
   for &id in ids {
     run(
@@ -515,7 +515,7 @@ pub struct Note {
   pub added_at: i64,
   pub removed_at: Option<i64>,
   pub removed_by: Option<String>,
-  /// BMO's change to the brief where it is one, none for the words people and jobs add.
+  /// The agent's change to the brief where it is one, none for the words people and jobs add.
   pub kind: Option<String>,
   /// When a running job was handed them, where one was.
   pub delivered_at: Option<i64>,
@@ -572,8 +572,8 @@ pub async fn add_note(
   insert_note(db, todo, author, text, None, job, now).await
 }
 
-/// BMO's change to an item's brief, kept under the agent's name as a note of its own kind with the job it
-/// was handed to; its number.
+/// The agent's change to an item's brief, kept under the agent's name as a note of its own kind with the
+/// job it was handed to; its number.
 pub async fn add_change(
   db: &impl ConnectionTrait,
   todo: i64,
@@ -622,7 +622,7 @@ async fn insert_note(
 
 /// Words taken back and marked so; for the ones that stood, whether they may be in a run already.
 ///
-/// Which of BMO's changes carries which words is not recorded, so words count as carried once a change
+/// Which of the agent's changes carries which words is not recorded, so words count as carried once a change
 /// made after them has been handed to a job, or once they carry a handing time of their own.
 pub async fn remove_note(
   db: &impl ConnectionTrait,

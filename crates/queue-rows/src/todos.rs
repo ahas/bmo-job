@@ -291,9 +291,9 @@ pub async fn set_job_impact(
   .map(drop)
 }
 
-/// The item's brief, BMO's organized English instruction its every later reading for a worker reads. Its
-/// rendering in the owner's language is cleared with it; a brief that did not change keeps the rendering it
-/// has. Whether it changed.
+/// The item's brief, the agent's organized English instruction its every later reading for a worker reads.
+/// Its rendering in the owner's language is cleared with it; a brief that did not change keeps the
+/// rendering it has. Whether it changed.
 pub async fn set_brief(db: &impl ConnectionTrait, id: i64, brief: &str) -> Result<bool, Refusal> {
   let changed = run(
     db,
@@ -452,8 +452,8 @@ pub async fn drop_item(db: &impl TransactionTrait, id: i64) -> Result<(), Refusa
   Ok(())
 }
 
-/// A raised row, waiting with the other requests: the owner's, raised from the console, or BMO's, raised by
-/// a watch, which names no person as its requester.
+/// A raised row, waiting with the other requests: the owner's, raised from the console, or the agent's,
+/// raised by a watch, which names no person as its requester.
 pub struct Raised<'a> {
   pub title: &'a str,
   pub instruction: &'a str,

@@ -15,14 +15,14 @@ A verb runs on a ground, which its caller gives it:
 - **Who runs it:** whether a job runs it and under which run, the agent whose turn files what it files
   and the label that agent's reply stands under, and the person at a shell where neither does.
 - **Its hands,** what it does beyond the database, which the caller carries: the screens told the queue
-  moved, with the work order whose body moved and what a job wrote onto an item; BMO told how the queue
-  stands; BMO told of words added to an item; and an item's runs stopped.
+  moved, with the work order whose body moved and what a job wrote onto an item; the agent told how the queue
+  stands; the agent told of words added to an item; and an item's runs stopped.
 - **Its units,** the calls it makes on other units: an instruction queued and a message read through
   bmo-receiver, a memory filed and the memories of a room read through bmo-brain, and a turn record kept
   through bmo-agency. A call that fails is refused with 502 under the unit's code (docs/api.md, "A call
   on another unit").
 
-Chat BMO's own turn is a run that is no job, filed by the deployment's agent.
+The chat agent's own turn is a run that is no job, filed by the deployment's agent.
 
 ## What a verb answers
 
@@ -55,9 +55,9 @@ named by its number, or by the title of one that is not finished; a name no item
 
 - **Words added** are refused where empty, where the item is finished (`item_closed_already`) or merged
   (`item_merged`). A job's words on its own item are that item's record; anybody else's, a job's on
-  another item among them, are BMO's to fold into the brief, and BMO is told of them as the fact
-  `words_appended`, unless chat BMO's own turn added them.
-- **The brief** is chat BMO's alone to rewrite, whole, in English, with what changed named in English.
+  another item among them, are the agent's to fold into the brief, and the agent is told of them as the fact
+  `words_appended`, unless the chat agent's own turn added them.
+- **The brief** is the chat agent's alone to rewrite, whole, in English, with what changed named in English.
   The change is kept as a note of its own kind with the job at work on the item, and a work order's
   instruction follows the brief.
 - **Words taken back** are named by their note's number.
@@ -65,15 +65,15 @@ named by its number, or by the title of one that is not finished; a name no item
   the messages the owner said it in and the agent's replies or the reply's text. Each message is read
   through bmo-receiver and copied in with its sender and time; the first one's sender is the requester. A
   missing part is refused `filing_parts_missing`, naming every part missing.
-- **Raising a row on BMO's judgement** takes a title, the room, the judgement, the item whose work raised
+- **Raising a row on the agent's judgement** takes a title, the room, the judgement, the item whose work raised
   it and the strands of unfinished notes it came out of, as `<item>:<strand>`; it takes none of a
-  conversation's parts. BMO is told the row is its own to approve and launch now. A note settled before
+  conversation's parts. The agent is told the row is its own to approve and launch now. A note settled before
   that a raised row breaks again stands open again.
 - **Both filings** refuse a title or a part using a term the owner has set aside, outside its quoted
   spans, and a model that is no job model: `auto`, `provider::model` of a provider bmo-agency lists, or a
   Claude model by name. Each keeps a draft work order of the item, and a turn record where a run filed it.
 - **Impact grounds** are written on the item as given, and the verdict they come to beside the co-work
-  setting they never move. A job's own grounds are kept beside them; BMO is told where they come to
+  setting they never move. A job's own grounds are kept beside them; the agent is told where they come to
   another verdict than the setting, or where it filed none.
 
 ## The closing's readings

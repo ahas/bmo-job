@@ -77,7 +77,7 @@ on Claude Code, Codex or OpenRouter alone. A run with no road left is refused `j
   earlier results the prompt carries: one the session holds in that very version goes as its marker, the
   rest whole. A session that last answered for another item is told so first. Where the walk moves to
   another login whose session differs, the prompt is opened again for it.
-- **While it runs,** the changes BMO made to the item's brief and the wind-down line are pushed into it
+- **While it runs,** the changes the agent made to the item's brief and the wind-down line are pushed into it
   through the sanitiser; a question the program stops on is answered by the runner where it is a command
   that stays inside the job's own places, and put to the owner as a job question otherwise.
 - **After its answer,** the words added to the item are asked over again, up to three rounds; a report

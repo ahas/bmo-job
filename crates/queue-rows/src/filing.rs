@@ -106,7 +106,7 @@ pub async fn append(ground: &Ground<'_>, selector: &str, asked: &Append<'_>) -> 
   let running = running_job_for(ground.db, item.id).await?;
   // A job's words are written under the job that wrote them, found by the run it works for. Only on that job's
   // own item are they the record a later run reads; on any other, like the words a person or a companion adds,
-  // they reach no worker and are BMO's to fold in.
+  // they reach no worker and are the agent's to fold in.
   let jobs_words = ground.in_job && asked.by.is_none();
   let writer = match ground.run_name.filter(|_| jobs_words) {
     Some(run) => at_work_for(ground.db, run).await?,
@@ -127,8 +127,9 @@ pub async fn append(ground: &Ground<'_>, selector: &str, asked: &Append<'_>) -> 
 
   keep_record(ground, TurnRecordKind::TodoAppend, said, item.id).await?;
 
-  // A job's words on its own item are that item's record, and chat BMO's own turn folds what it adds into the
-  // brief itself; anybody else's, a job's on an item not its own among them, are BMO's to fold in.
+  // A job's words on its own item are that item's record, and the chat agent's own turn folds what it adds
+  // into the brief itself; anybody else's, a job's on an item not its own among them, are the agent's to
+  // fold in.
   let told = !items_record && !ground.chat_bmos();
 
   if told {
@@ -167,9 +168,9 @@ pub struct Brief<'a> {
   pub change: &'a str,
 }
 
-/// The item's brief rewritten by chat BMO to its final version, with the change named in English: the change
-/// is kept as a note of its own kind with the job at work on the item, which is handed that change alone, and a
-/// work order's instruction follows the brief.
+/// The item's brief rewritten by the chat agent to its final version, with the change named in English: the
+/// change is kept as a note of its own kind with the job at work on the item, which is handed that change
+/// alone, and a work order's instruction follows the brief.
 pub async fn brief(ground: &Ground<'_>, selector: &str, asked: &Brief<'_>) -> Answered {
   if !ground.chat_bmos() {
     return Err(refused(TodoRefusal::BriefAgentOnly));
@@ -274,8 +275,8 @@ pub struct Approving<'a> {
   pub note: Option<&'a str>,
 }
 
-/// An approval given in the owner's word at a shell, or taken back; BMO told how the queue stands where it
-/// was given.
+/// An approval given in the owner's word at a shell, or taken back; the agent told how the queue stands
+/// where it was given.
 pub async fn approve(ground: &Ground<'_>, selector: &str, asked: &Approving<'_>) -> Answered {
   let hand = Hand {
     who: shell_hand(ground),

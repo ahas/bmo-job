@@ -44,8 +44,8 @@ pub struct Written {
   pub notes: Vec<i64>,
 }
 
-/// Words added to an item by somebody other than chat BMO's own turn and the item's own job, which BMO is
-/// told of: the item, the note they stand in, who added them and the job at work on the item.
+/// Words added to an item by somebody other than the chat agent's own turn and the item's own job, which
+/// the agent is told of: the item, the note they stand in, who added them and the job at work on the item.
 #[derive(Clone, Copy, Debug)]
 pub struct WordsAdded<'a> {
   pub todo: i64,
@@ -56,7 +56,7 @@ pub struct WordsAdded<'a> {
 }
 
 impl WordsAdded<'_> {
-  /// The fact BMO is told in the owner's chat.
+  /// The fact the agent is told in the owner's chat.
   pub fn fact(&self) -> TodoFact {
     TodoFact::WordsAppended {
       id: self.todo,
@@ -67,20 +67,20 @@ impl WordsAdded<'_> {
   }
 }
 
-/// What a verb does beyond the database, which its caller carries: the screens told the queue moved, BMO
-/// told how the queue stands and of words somebody else added, and an item's runs stopped. A test stands in
-/// for each.
+/// What a verb does beyond the database, which its caller carries: the screens told the queue moved, the
+/// agent told how the queue stands and of words somebody else added, and an item's runs stopped. A test
+/// stands in for each.
 pub trait Hands: Sync {
   /// The screens told the queue moved, with the work order whose body moved and what a job wrote, where
   /// either.
   fn moved(&self, work_order: Option<i64>, written: Option<Written>) -> BoxFuture<'_, ()>;
-  /// BMO told how the queue stands at a moment that changed it.
+  /// The agent told how the queue stands at a moment that changed it.
   fn queue_standing<'a>(
     &'a self,
     moment: &'a str,
     repeat: bool,
   ) -> BoxFuture<'a, Result<QueueTold, Refusal>>;
-  /// BMO told of words added to an item by somebody other than its own turn and the item's own job.
+  /// The agent told of words added to an item by somebody other than its own turn and the item's own job.
   fn words_added<'a>(&'a self, added: &'a WordsAdded<'a>) -> BoxFuture<'a, Result<(), Refusal>>;
   /// The item's runs stopped and the item held as stopped; how many runs were asked to stop.
   fn stop<'a>(&'a self, id: i64, why: &'a str) -> BoxFuture<'a, Result<u32, Refusal>>;
@@ -99,7 +99,7 @@ pub struct Ground<'a> {
   pub db: &'a DatabaseConnection,
   /// The owner as a sender, which words he adds are kept under.
   pub owner_sender: i64,
-  /// The owner's private chat, where BMO is told and an item filed in no room stands.
+  /// The owner's private chat, where the agent is told and an item filed in no room stands.
   pub owner_chat: i64,
   pub names: &'a Names,
   /// The deployment's agent as the records name it.
@@ -123,13 +123,13 @@ pub struct Ground<'a> {
 }
 
 impl Ground<'_> {
-  /// Whether chat BMO's own turn runs the verb, and no job.
+  /// Whether the chat agent's own turn runs the verb, and no job.
   pub fn chat_bmos(&self) -> bool {
     !self.in_job && self.filer.agent == Some(self.agent_key)
   }
 
-  /// What a job wrote onto an item, named for rendering; a person's words, and the owner's words chat BMO
-  /// files, are kept as said and name nothing.
+  /// What a job wrote onto an item, named for rendering; a person's words, and the owner's words the chat
+  /// agent files, are kept as said and name nothing.
   pub fn wrote(&self, todo: i64, texts: Vec<&'static str>, notes: Vec<i64>) -> Option<Written> {
     (self.in_job && (!texts.is_empty() || !notes.is_empty())).then_some(Written { todo, texts, notes })
   }

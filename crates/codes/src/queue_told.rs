@@ -1,9 +1,9 @@
-//! What came of telling BMO how the queue stands.
+//! What came of telling the agent how the queue stands.
 
 use serde::{Deserialize, Serialize};
 use strum::{Display, IntoStaticStr, VariantNames};
 
-/// Whether the queue's standing reached BMO, and why not where it did not.
+/// Whether the queue's standing reached the agent, and why not where it did not.
 #[derive(
   Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Display, IntoStaticStr, VariantNames,
 )]

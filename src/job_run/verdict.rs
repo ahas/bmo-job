@@ -28,7 +28,7 @@ pub fn nothing_reported(text: &str) -> bool {
     .is_empty()
 }
 
-/// The report BMO is handed: the whole answer, which opens on its summary.
+/// The report the agent is handed: the whole answer, which opens on its summary.
 pub fn report_body(text: &str) -> String {
   text.trim().to_owned()
 }
@@ -45,8 +45,8 @@ static PARAGRAPH_BREAK: LazyLock<Regex> =
 const MAX_CLOSING_LENGTH: usize = 200;
 const MAX_CLOSING_LINES: usize = 3;
 
-/// What is wrong with the shape of a report, in words BMO reads, or nothing where it is written as it should
-/// be: summary, detail and a short conclusion that carries figures.
+/// What is wrong with the shape of a report, in words the agent reads, or nothing where it is written as it
+/// should be: summary, detail and a short conclusion that carries figures.
 pub fn report_shape_fault(text: &str) -> Option<String> {
   let paragraphs: Vec<&str> = PARAGRAPH_BREAK
     .split(text.trim())
@@ -349,7 +349,7 @@ pub fn impact_faults(policy: &Policy, mapped: &[String], body: &str, calls: i64)
   }
 }
 
-// What each fault is, in the words the job and BMO read it by.
+// What each fault is, in the words the job and the agent read it by.
 fn impact_fault_lines(policy: &Policy, faults: ImpactFaults, mapped: &[String]) -> Vec<String> {
   let tool = &policy.closing.impact.tool;
   let mut lines = vec![];
@@ -412,7 +412,7 @@ pub fn shape_note(body: &str) -> String {
     .map_or_else(String::new, |fault| format!("\n\nThe report is off its shape: {fault}."))
 }
 
-/// The lines of a report that leave a check undone, named under it for BMO to settle before telling it.
+/// The lines of a report that leave a check undone, named under it for the agent to settle before telling it.
 pub fn unchecked_note(policy: &Policy, reader: &Reader, body: &str) -> String {
   let lines = reader.unchecked_lines(body);
 

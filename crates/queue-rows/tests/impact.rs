@@ -1,6 +1,6 @@
 //! Impact grounds (docs/rows.md, "The verbs of filing"): written on the item with the verdict they come to,
-//! and a job's own grounds kept beside them, told to BMO only where they come to another verdict or BMO filed
-//! none.
+//! and a job's own grounds kept beside them, told to the agent only where they come to another verdict or
+//! the agent filed none.
 
 mod support;
 
@@ -70,7 +70,9 @@ async fn a_jobs_grounds_are_kept_and_told_only_where_they_differ_or_none_were_fi
   assert_eq!(orders.len(), 2);
   assert_eq!(orders[1].sort, "impact_mismatch");
 
-  let Said::Order(told) = &orders[1].said else { panic!("BMO is told with an order") };
+  let Said::Order(told) = &orders[1].said else {
+    panic!("the agent is told with an order")
+  };
 
   assert!(
     told.contains("The grounds you filed it with:\n- a: the API\nThey come to a single job."),

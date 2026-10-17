@@ -1,4 +1,5 @@
-//! A job's end and the queue's standing told to BMO (docs/api.md, "A job's end"), by the queue's telling.
+//! A job's end and the queue's standing told to the agent (docs/api.md, "A job's end"), by the queue's
+//! telling.
 
 use job_codes::QueueTold;
 

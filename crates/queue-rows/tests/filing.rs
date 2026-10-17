@@ -493,7 +493,9 @@ async fn a_row_is_raised_on_judgement_out_of_the_strands_it_names_and_bmo_is_tol
   assert_eq!(scene.column::<Option<String>>(1, "unfinished_resolution").await, None);
 
   let orders = scene.units.instructions();
-  let Said::Order(told) = &orders[0].said else { panic!("BMO is told with an order") };
+  let Said::Order(told) = &orders[0].said else {
+    panic!("the agent is told with an order")
+  };
 
   assert_eq!(
     (orders[0].sort.as_str(), orders[0].events.clone()),

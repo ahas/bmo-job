@@ -1,8 +1,8 @@
 //! An order's body changed by the console, the command line or a launch (docs/api.md, "Work orders";
 //! docs/queue.md, "A work order's verbs"): every change applied inside the order's lock to the body read
 //! there, beside the runner waiting on the same lock, and saved. What a change sets off beyond the body —
-//! runs stopped, the item held or reopened, its brief written, BMO told how the queue stands — follows from
-//! here too.
+//! runs stopped, the item held or reopened, its brief written, the agent told how the queue stands —
+//! follows from here too.
 
 use std::path::Path;
 

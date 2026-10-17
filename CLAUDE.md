@@ -31,7 +31,8 @@ These rules hold every change to this repository.
 - What the service answers is an English sentence for a person or a status code and a snake_case code
   for a machine. Words a person reads in another language are the web console's language packs.
 - No personal data: no user names, home directories, machine names or names of any agent. Names the
-  service needs at runtime come from its deployment settings, never from the code.
+  service needs at runtime come from its deployment settings, never from the code; the personal-data
+  check in `tests/` holds this over the whole tree.
 
 ## Layout
 
