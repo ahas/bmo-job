@@ -77,6 +77,18 @@ pub struct Reservation {
   pub created_at: i64,
 }
 
+/// A role the pool knows: what it is, whether it is on and lent as a co-worker, and its default tier.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PoolRole {
+  pub name: String,
+  pub description: String,
+  pub enabled: bool,
+  /// True where the pool lends it as a co-worker.
+  pub pooled: bool,
+  /// The tier it runs at by default.
+  pub tier: String,
+}
+
 /// The provider and model a place's settings were written for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlaceWrite {

@@ -9,7 +9,7 @@ use url::Url;
 
 use crate::{
   Agency, AgencyError, Answer, BranchSlots, Delivery, Execution, JobLines, LaunchHeld, LogLine, Mapping,
-  Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, Provider, Reservation,
+  Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, PoolRole, Provider, Reservation,
   ReservationAsking, Room, RouteAsk, Run, RunClosing, RunOpening, Session, SessionId, SessionState,
   SshReach, Start, Tier, TurnRecord, WorkMachine, Workbench, WorkerRuntime,
 };
@@ -56,6 +56,16 @@ struct Finished {
 #[derive(Deserialize)]
 struct Released {
   released: bool,
+}
+
+#[derive(Deserialize)]
+struct Cache {
+  ttl_ms: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct Digest {
+  digest: String,
 }
 
 #[derive(Deserialize)]
@@ -486,5 +496,36 @@ impl Agency for AgencyClient {
     let request = self.request(Method::GET, &["places", "branch-slots", pool], &[]);
 
     self.answer("branch_slots", request).await
+  }
+
+  async fn place_cache(&self, provider: &str, model: &str, upstream: Option<&str>) -> Answer<Option<i64>> {
+    let mut query = vec![("model", model)];
+
+    query.extend(upstream.map(|upstream| ("upstream", upstream)));
+
+    let request = self.request(Method::GET, &["providers", provider, "cache"], &query);
+    let cache: Cache = self.answer("place_cache", request).await?;
+
+    Ok(cache.ttl_ms)
+  }
+
+  async fn pool_roles(&self) -> Answer<Vec<PoolRole>> {
+    self.answer("pool_roles", self.request(Method::GET, &["pool", "roles"], &[])).await
+  }
+
+  async fn retire_place(&self, pool: &str, slot: i64) -> Answer<()> {
+    let slot = slot.to_string();
+    let request = self.request(Method::DELETE, &["places", "branch-slots", pool, &slot], &[]);
+
+    self.done("retire_place", request).await
+  }
+
+  async fn prefix_digest(&self, cwd: &str, model: &str, effort: Option<&str>) -> Answer<String> {
+    let request = self
+      .request(Method::POST, &["places", "prefix-digest"], &[])
+      .json(&json!({ "cwd": cwd, "model": model, "effort": effort }));
+    let digest: Digest = self.answer("prefix_digest", request).await?;
+
+    Ok(digest.digest)
   }
 }

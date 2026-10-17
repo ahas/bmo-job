@@ -108,6 +108,8 @@ prompts = "/p"
 lock_wait_seconds = 5
 launcher = "/x"
 launcher_directory = "/d"
+documents = "/w"
+tree = "/p"
 "#;
 
 #[test]

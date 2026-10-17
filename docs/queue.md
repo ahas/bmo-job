@@ -270,3 +270,110 @@ and the journal window of the service's unit and the job's. One cause is one ord
 same cause again is counted into it, and an order not yet taken is replaced by one carrying the count.
 Where the agent cannot answer — nothing of its own answered within five minutes, or the owner's own chat
 had a run die since — the owner is told the `job_broke` fact the order keeps, once.
+
+## The work-order runner
+
+The `order_run` module carries every active or stopped work order on its own clock. A tick never runs
+beside another; each order is taken in its lock (docs/rows.md, "A work order's lock") in the owner's
+order of their items, read again inside it, and saved before the lock is let go.
+
+- **An order whose item is finished or merged** is closed once nothing of it runs.
+- **A stopped order** that holds no checkout is resumed at its turn (below); one that holds its checkout
+  lets it go first.
+- **A running order's stage** is collected: a task whose job ended done or as a work step has its report
+  written as its result document, and one that failed, reported nothing or whose unit is gone a minute
+  after its start fails. A running task is watched for a runaway.
+- **The phase moves on** once every task of the stage it stands at is settled: the plan's answer read
+  into stages, each stage in turn, the synthesis's answer read into build tasks (with the steps added
+  meanwhile after them), the final turn once everything is built, back to the build where the final turn
+  added steps, and done once the final turn has closed its item. A final turn that held its item stops
+  the order uncounted; one that did neither is refused, and the order stops.
+- **A failed stage** stops the order once nothing of the stage runs: its waiting tasks fail with the
+  reason, the stop is counted, the agent is told, and its branch places are retired.
+
+### Launching a step
+
+- **Its tier** is settled once and kept on the task: the tier it names, the one its model names where its
+  role takes that tier, and its role's default otherwise.
+- **Its place is asked of the co-worker pool** through bmo-agency: a branch's seat as a child of its
+  order, a builder turn's place as the worker's own on its checkout, under a key naming the order, the
+  task and the generation it asks at, so a tick that died between asking and keeping the token asks
+  again for the same request. The task waits while the pool lets others in first.
+- **Its prompt** is the step's context (below); a step whose texts could not be put into English waits
+  for the next tick rather than failing.
+- **Its unit** is `bmo-work-<item>-<task>-<attempt>`, started through the host's systemd-run as the
+  runner's `job-run` verb with the step's phase, session word, structure and baseline. The cancels left
+  standing on the name, or on the root its retries share, are dropped first. The prompt and the baseline
+  are written under the order's own folder of `[host] documents`, readable by the service's user alone.
+- **A branch runs in a branch place** of its repository's pool (below); a builder turn in the worker's
+  own checkout.
+
+### What a step is handed
+
+- **A branch** reads its task, the results before it cut to six thousand characters (two thousand for an
+  earlier round's), the steps decided against, and the branch rules and result shape of work-turns.
+- **A builder turn** reads the item's title, the order's purpose and instruction and every earlier
+  round's, put into English through bmo-gate; where it stands; what is done, skipped and left; and every
+  earlier result wrapped with the key it is kept under and a digest of its text, so the runner sends it
+  whole only to a session that has not read that version. The branches of a round are joined into one
+  document. A plan turn is also told the tiers and the roles a plan may name, from bmo-agency's pool.
+- **The order's own words** are its purpose and instruction alone: the item's conversation, the words
+  people append and the approval note are never carried into it.
+
+### Branch places
+
+A branch works in a standing place of its repository's pool, which bmo-agency keeps under its branch
+slots: a free place whose row in `branch_agents` still names a cache for its provider and model, the one
+whose answer is oldest first; then a free place with nothing to lose; then a new number. A row is alive
+while the provider's published lifetime, which bmo-agency answers, has not run out since the place last
+answered, and for Claude Code while the prefix the place would open on now, which bmo-agency answers too,
+is the one the row names. A place is busy while a task holding it runs. Places past eight, and places
+rested past a week with no live row, are taken away; pools no worker's checkout names any more go too. A
+place is laid out of its checkout before a branch starts: rewound to the checkout's commit, the
+checkout's open change applied on top and its new files copied in. What stands for a place in bmo-agency
+is retired once the order that used it ends.
+
+### A checkout held
+
+One work order works in a worker's checkout at a time, and only once what ran there before has left it:
+an open job of the worker, a unit of its jobs ended in the last fifteen minutes still alive, or the
+checkout's job lock held. What the order waits on is kept on it as a `ReleaseWait`.
+
+- **Taking it.** A support worker's worktree, a worker of its own in a linked worktree, and a base beside
+  support workers are put on the item's branch, the worktree made where it is not there yet; a change the
+  order parked on a branch when it stopped is merged back uncommitted, conflicts named for the next
+  builder turn. The tree as it stood just before is the order's baseline.
+- **Letting it go** as the order stops: once none of its own turns is alive and the checkout is quiet,
+  the change its own turns wrote — told by the files' times against the turns' windows — is committed
+  onto the checkout's branch and pushed where the repository's own check, run through bmo-testbed, passes
+  with it, and onto `wip/<item>` where it does not or keeps not finishing. A support worker's worktree
+  parks everything open onto the item's branch; a base checkout goes back on main, its units relinked
+  through bmo-testbed. What became of the change is kept on the order as `CheckoutNote`s.
+- **As the order ends,** a base checkout goes back on main the same way.
+
+### Stops and retries
+
+- **A runaway.** A running stage started over more than the policy's most, or running past its clock in
+  a branch, is a runaway: a branch is stopped, since its place is thrown away, and a builder turn is told
+  of once. A stop that did not take is asked again after a minute; the stage fails once its unit is gone.
+- **A stop is counted** unless it stopped on its provider — a limit, a failure of the road, or every
+  route exhausted. A counted stop is retried at the order's turn, again, then on a fresh session, then on
+  the retry model (the setting `work_retry_model`, else the policy's); the fourth sets the item aside
+  with a hold of kind `failure`.
+- **The order's turn** in its worker's line is the queue's one judgement (above); where it stands is kept
+  on the order as a `LinePlace`. It resumes only where its item may still run, the queue is not held,
+  nothing of it runs and its checkout is quiet.
+- **A stage that stopped on its provider** goes out again on a provider it has not tried, then on one
+  whose block has lapsed, resolved for its role and tier through bmo-agency.
+- **The agent is told** each stop, runaway, set-aside, resume and move as a `WorkOrderStop` fact in the
+  owner's chat; the queue's standing is told when an order stops or frees its worker, and the screens
+  hear every change of an order's body.
+
+### Seats for the next stage
+
+While a stage runs, the seats the next stage's branches will take are reserved in the pool, one
+reservation to a provider and tier, keyed by the order and the stage. A reservation is kept only while
+the stage it was made for can still use it; a stopped or finished order, and any order while the queue is
+held, holds none, and the reservations of an order no longer carried are given back. A place a task took
+is given back with what it came to once its task no longer runs and its unit is gone; one waiting for a
+task that no longer waits is given up.

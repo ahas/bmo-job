@@ -230,6 +230,7 @@ pub fn providers() -> Vec<Provider> {
       name: name.to_owned(),
       enabled,
       registered: false,
+      coworker: false,
       lines: vec![],
     })
     .collect()

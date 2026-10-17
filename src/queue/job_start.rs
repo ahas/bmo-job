@@ -190,6 +190,14 @@ fn try_hold(path: &Path) -> Option<Held> {
   file.try_lock().ok().map(|()| Held(file))
 }
 
+/// Whether a checkout's job lock is held by somebody now: a lock nobody holds is let go again at once, and
+/// a lock file that is not there is held by nobody.
+pub fn lock_held(host: &Host, cwd: &str) -> bool {
+  let path = host.locks.join(lock_file_name(cwd));
+
+  path.exists() && try_hold(&path).is_none()
+}
+
 /// The lock taken once whoever holds it lets go, waited for as long as given and no longer; none where it
 /// stayed held or its file could not be opened.
 pub async fn hold_within(path: &Path, wait: Duration) -> Option<Held> {

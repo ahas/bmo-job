@@ -10,13 +10,14 @@ use bmo_job::queue::units::Units;
 use bmo_job::{Settings, run};
 use futures_util::future::BoxFuture;
 use job_agency::{
-  Execution, JobLines, LaunchHeld, LogLine, Mapping, Node, PinChoice, Provider, Room as MachineRoom,
-  RouteAsk, Run, Workbench, WorkerRuntime,
+  BranchSlots, Execution, JobLines, LaunchHeld, LogLine, Mapping, Node, PinChoice, PoolAsking, PoolRequest,
+  PoolRole, PoolState, Provider, Reservation, ReservationAsking, ReservationState, Room as MachineRoom,
+  RouteAsk, Run, Tier, Workbench, WorkerRuntime,
 };
 use job_base::Refusal;
 use job_policy::Policy;
 use job_receiver::{Answerer, Answerers, Instruction, InstructionState, Notice, Room};
-use job_testbed::Pending;
+use job_testbed::{Pending, Relinked};
 use job_web::{Checked, ObjectCheck};
 use migration::{Migrator, MigratorTrait};
 use sea_orm::DatabaseConnection;
@@ -75,6 +76,10 @@ pub struct Fake {
   pub states: Mutex<Vec<(i64, InstructionState)>>,
   pub last_lines: Mutex<Vec<(i64, LogLine)>>,
   pub starts: u64,
+  pub tiers: Vec<Tier>,
+  pub roles: Vec<PoolRole>,
+  pub requests: Mutex<Vec<PoolRequest>>,
+  pub reservations: Mutex<Vec<Reservation>>,
 }
 
 impl Default for Fake {
@@ -83,6 +88,7 @@ impl Default for Fake {
       name: name.into(),
       enabled: true,
       registered: false,
+      coworker: true,
       lines: vec!["worker".into()],
     };
 
@@ -99,6 +105,10 @@ impl Default for Fake {
       states: Mutex::default(),
       last_lines: Mutex::default(),
       starts: 0,
+      tiers: vec![],
+      roles: vec![],
+      requests: Mutex::default(),
+      reservations: Mutex::default(),
     }
   }
 }
@@ -320,6 +330,182 @@ impl Units for Fake {
       root: std::env::temp_dir().join(worker),
       scratches: vec![],
     })
+  }
+
+  fn tiers(&self) -> BoxFuture<'_, Result<Vec<Tier>, Refusal>> {
+    ready(self.tiers.clone())
+  }
+
+  fn pool_roles(&self) -> BoxFuture<'_, Result<Vec<PoolRole>, Refusal>> {
+    ready(self.roles.clone())
+  }
+
+  fn enqueue_request<'a>(&'a self, asking: &'a PoolAsking) -> BoxFuture<'a, Result<PoolRequest, Refusal>> {
+    let mut requests = locked(&self.requests);
+    let held = requests.iter().find(|held| held.asking.request_key == asking.request_key).cloned();
+    let request = held.unwrap_or_else(|| {
+      let request = PoolRequest {
+        asking: asking.clone(),
+        token: format!("token-{}", requests.len() + 1),
+        state: PoolState::Waiting,
+        enqueued_at: NOW,
+        leased_at: None,
+        child: None,
+        ended_at: None,
+        outcome: None,
+      };
+
+      requests.push(request.clone());
+      request
+    });
+
+    ready(request)
+  }
+
+  fn pool_request<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<Option<PoolRequest>, Refusal>> {
+    ready(locked(&self.requests).iter().find(|held| held.token == token).cloned())
+  }
+
+  fn open_requests<'a>(
+    &'a self,
+    owner: Option<&'a str>,
+  ) -> BoxFuture<'a, Result<Vec<PoolRequest>, Refusal>> {
+    let open = locked(&self.requests)
+      .iter()
+      .filter(|held| held.state != PoolState::Ended && owner.is_none_or(|owner| held.asking.owner == owner))
+      .cloned()
+      .collect();
+
+    ready(open)
+  }
+
+  fn lease_place<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<PoolRequest, Refusal>> {
+    let leased = locked(&self.requests).iter_mut().find(|held| held.token == token).map(|held| {
+      if held.state == PoolState::Waiting {
+        held.state = PoolState::Active;
+        held.leased_at = Some(NOW);
+      }
+
+      held.clone()
+    });
+
+    Box::pin(async move {
+      leased.ok_or_else(|| Refusal::absent("no_pool_request", "there is no such pool request"))
+    })
+  }
+
+  fn bind_child<'a>(
+    &'a self,
+    token: &'a str,
+    child: &'a str,
+  ) -> BoxFuture<'a, Result<PoolRequest, Refusal>> {
+    let bound = locked(&self.requests).iter_mut().find(|held| held.token == token).map(|held| {
+      held.child.get_or_insert_with(|| child.to_owned());
+      held.clone()
+    });
+
+    Box::pin(async move {
+      bound.ok_or_else(|| Refusal::absent("no_pool_request", "there is no such pool request"))
+    })
+  }
+
+  fn reserve_seats<'a>(
+    &'a self,
+    asking: &'a ReservationAsking,
+  ) -> BoxFuture<'a, Result<Reservation, Refusal>> {
+    let mut reservations = locked(&self.reservations);
+    let held = reservations
+      .iter_mut()
+      .find(|held| held.asking.reservation_key == asking.reservation_key);
+    let reservation = match held {
+      Some(held) => {
+        held.asking.wanted = asking.wanted;
+        held.clone()
+      }
+      None => {
+        let reservation = Reservation {
+          asking: asking.clone(),
+          token: format!("seats-{}", reservations.len() + 1),
+          state: ReservationState::Held,
+          created_at: NOW,
+        };
+
+        reservations.push(reservation.clone());
+        reservation
+      }
+    };
+
+    ready(reservation)
+  }
+
+  fn held_reservations<'a>(
+    &'a self,
+    owner: Option<&'a str>,
+  ) -> BoxFuture<'a, Result<Vec<Reservation>, Refusal>> {
+    let held = locked(&self.reservations)
+      .iter()
+      .filter(|held| {
+        held.state == ReservationState::Held && owner.is_none_or(|owner| held.asking.owner == owner)
+      })
+      .cloned()
+      .collect();
+
+    ready(held)
+  }
+
+  fn release_reservation<'a>(&'a self, token: &'a str, _: &'a str) -> BoxFuture<'a, Result<bool, Refusal>> {
+    let released = locked(&self.reservations)
+      .iter_mut()
+      .find(|held| held.token == token && held.state == ReservationState::Held)
+      .map(|held| held.state = ReservationState::Released)
+      .is_some();
+
+    ready(released)
+  }
+
+  fn all_executions(&self) -> BoxFuture<'_, Result<Vec<Execution>, Refusal>> {
+    ready(self.executions.clone())
+  }
+
+  fn place_cache<'a>(
+    &'a self,
+    _: &'a str,
+    _: &'a str,
+    _: Option<&'a str>,
+  ) -> BoxFuture<'a, Result<Option<i64>, Refusal>> {
+    ready(None)
+  }
+
+  fn prefix_digest<'a>(
+    &'a self,
+    cwd: &'a str,
+    model: &'a str,
+    _: Option<&'a str>,
+  ) -> BoxFuture<'a, Result<String, Refusal>> {
+    ready(format!("{cwd}:{model}"))
+  }
+
+  fn retire_place<'a>(&'a self, _: &'a str, _: i64) -> BoxFuture<'a, Result<(), Refusal>> {
+    ready(())
+  }
+
+  fn branch_slots<'a>(&'a self, pool: &'a str) -> BoxFuture<'a, Result<BranchSlots, Refusal>> {
+    ready(BranchSlots {
+      root: std::env::temp_dir().join("branch-slots").join(pool),
+      slots: vec![],
+    })
+  }
+
+  fn relink_units<'a>(&'a self, _: &'a std::path::Path) -> BoxFuture<'a, Result<Relinked, Refusal>> {
+    ready(Relinked {
+      relinked: vec![],
+      dangling: vec![],
+      unmatched: vec![],
+    })
+  }
+
+  fn english<'a>(&'a self, texts: &'a [String]) -> BoxFuture<'a, Result<Vec<String>, Refusal>> {
+    ready(texts.to_vec())
   }
 }
 

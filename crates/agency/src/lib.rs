@@ -24,7 +24,8 @@ pub use machine::{LaunchHeld, Room};
 pub use nodes::{Node, SshReach, WorkMachine};
 pub use places::{BranchSlots, Slot, Workbench};
 pub use pool::{
-  PlaceWrite, PoolAsking, PoolRequest, PoolState, Reservation, ReservationAsking, ReservationState,
+  PlaceWrite, PoolAsking, PoolRequest, PoolRole, PoolState, Reservation, ReservationAsking,
+  ReservationState,
 };
 pub use records::{TurnRecord, TurnRecordKind};
 pub use routes::{Mapping, PinChoice, Provider, RouteAsk, Tier};
@@ -145,6 +146,29 @@ pub trait Agency: Send + Sync {
 
   /// Lists the model tiers.
   fn tiers(&self) -> impl Future<Output = Answer<Vec<Tier>>> + Send;
+
+  /// How long a place's prefix is worth counting on for a provider's model, `None` where the provider
+  /// publishes no lifetime.
+  fn place_cache(
+    &self,
+    provider: &str,
+    model: &str,
+    upstream: Option<&str>,
+  ) -> impl Future<Output = Answer<Option<i64>>> + Send;
+
+  /// Lists the roles the pool knows.
+  fn pool_roles(&self) -> impl Future<Output = Answer<Vec<PoolRole>>> + Send;
+
+  /// Takes down what stands for a branch place.
+  fn retire_place(&self, pool: &str, slot: i64) -> impl Future<Output = Answer<()>> + Send;
+
+  /// The prefix a worker's run would open on in a directory now.
+  fn prefix_digest(
+    &self,
+    cwd: &str,
+    model: &str,
+    effort: Option<&str>,
+  ) -> impl Future<Output = Answer<String>> + Send;
 
   /// Resolves a route to a model, `None` where no route serves it.
   fn resolve_route(&self, asked: &RouteAsk) -> impl Future<Output = Answer<Option<Mapping>>> + Send;

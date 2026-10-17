@@ -3,6 +3,8 @@
 //! talk (`talk`) and the event stream (`events`).
 
 pub mod events;
+pub mod job_run;
+pub mod order_run;
 pub mod queue;
 pub mod server;
 pub mod talk;

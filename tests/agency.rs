@@ -7,9 +7,9 @@ use std::path::PathBuf;
 
 use job_agency::{
   Agency, AgencyClient, AgencyError, BranchSlots, Context, Delivery, Execution, JobLines, LaunchHeld,
-  LogLine, Mapping, Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, PoolState, Provider,
-  Reservation, ReservationAsking, ReservationState, Room, RouteAsk, Run, RunClosing, RunOpening, Scope,
-  Session, SessionId, SessionState, Slot, SshReach, Start, Tier, ToolCall, ToolResult, TurnRecord,
+  LogLine, Mapping, Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, PoolRole, PoolState,
+  Provider, Reservation, ReservationAsking, ReservationState, Room, RouteAsk, Run, RunClosing, RunOpening,
+  Scope, Session, SessionId, SessionState, Slot, SshReach, Start, Tier, ToolCall, ToolResult, TurnRecord,
   TurnRecordKind, WorkMachine, Workbench, WorkerRuntime,
 };
 use serde_json::{Map, Value, json};
@@ -754,7 +754,7 @@ async fn providers_lists_each_with_its_lines() {
   stub.answer(
     "GET /providers",
     200,
-    json!([{ "name": "provider-a", "enabled": true, "registered": false, "lines": ["job"] }]),
+    json!([{ "name": "provider-a", "enabled": true, "registered": false, "coworker": true, "lines": ["job"] }]),
   );
 
   let providers = stub.client().providers().await.unwrap();
@@ -765,10 +765,83 @@ async fn providers_lists_each_with_its_lines() {
       name: "provider-a".into(),
       enabled: true,
       registered: false,
+      coworker: true,
       lines: vec!["job".into()],
     }]
   );
   stub.took("GET /providers", "/providers", None);
+}
+
+#[tokio::test]
+async fn place_cache_reads_the_lifetime_by_model_and_upstream() {
+  let stub = Stub::start().await;
+
+  stub.answer("GET /providers/{provider}/cache", 200, json!({ "ttl_ms": 240_000 }));
+
+  let client = stub.client();
+
+  assert_eq!(client.place_cache("provider-a", "model-1", Some("up-1")).await.unwrap(), Some(240_000));
+  stub.took(
+    "GET /providers/{provider}/cache",
+    "/providers/provider-a/cache?model=model-1&upstream=up-1",
+    None,
+  );
+
+  stub.answer("GET /providers/{provider}/cache", 200, json!({ "ttl_ms": null }));
+
+  assert_eq!(client.place_cache("provider-a", "model-1", None).await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn pool_roles_lists_each_role_with_its_default_tier() {
+  let stub = Stub::start().await;
+
+  stub.answer(
+    "GET /pool/roles",
+    200,
+    json!([{ "name": "scout", "description": "Finds things.", "enabled": true, "pooled": true, "tier": "Light" }]),
+  );
+
+  assert_eq!(
+    stub.client().pool_roles().await.unwrap(),
+    [PoolRole {
+      name: "scout".into(),
+      description: "Finds things.".into(),
+      enabled: true,
+      pooled: true,
+      tier: "Light".into(),
+    }]
+  );
+  stub.took("GET /pool/roles", "/pool/roles", None);
+}
+
+#[tokio::test]
+async fn retire_place_deletes_the_place_by_its_pool_and_number() {
+  let stub = Stub::start().await;
+
+  stub.answer_empty("DELETE /places/branch-slots/{pool}/{slot}", 204);
+  stub.client().retire_place("pool-1", 3).await.unwrap();
+  stub.took("DELETE /places/branch-slots/{pool}/{slot}", "/places/branch-slots/pool-1/3", None);
+}
+
+#[tokio::test]
+async fn prefix_digest_posts_the_directory_and_reads_the_digest() {
+  let stub = Stub::start().await;
+
+  stub.answer("POST /places/prefix-digest", 200, json!({ "digest": "abc123" }));
+
+  let digest = stub
+    .client()
+    .prefix_digest("/data/slots/pool-1/1", "model-1", Some("high"))
+    .await
+    .unwrap();
+
+  assert_eq!(digest, "abc123");
+  stub.took(
+    "POST /places/prefix-digest",
+    "/places/prefix-digest",
+    Some(json!({ "cwd": "/data/slots/pool-1/1", "model": "model-1", "effort": "high" })),
+  );
 }
 
 #[tokio::test]

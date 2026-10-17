@@ -38,17 +38,18 @@ pub enum ReleaseWait {
   EndedRecord {
     worker: String,
     unit: String,
-    id: i64,
+    /// The execution not closed.
+    id: String,
     label: String,
     more: u32,
   },
   OwnTurns {
     live: Vec<String>,
   },
-  /// `starts` in epoch milliseconds.
+  /// The check over `count` changed files, started `starts` times.
   Checking {
     count: u32,
-    starts: i64,
+    starts: u32,
   },
   Release,
 }
@@ -58,10 +59,29 @@ pub enum ReleaseWait {
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum LinePlace {
-  ResumeTurn,
-  Passing,
-  Held,
-  OwnerStop { why: String },
+  ResumeTurn { why: PlaceReason },
+  Passing { why: PlaceReason },
+  Held { why: PlaceReason },
+}
+
+/// Why an order stands where it does in its worker's line.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Display, IntoStaticStr, VariantNames)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum PlaceReason {
+  OwnerPause,
+  DeployHold,
+  Passed {
+    reason: crate::work_lines::PassReason,
+  },
+  Busy {
+    wait: ReleaseWait,
+  },
+  WorkerFree,
+  StopHeld,
+  Held {
+    reason: Option<String>,
+  },
 }
 
 /// What became of an order's change at its end or its stop.

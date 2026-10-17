@@ -36,3 +36,5 @@ prompts = "/srv/job/prompts"
 lock_wait_seconds = 20
 launcher = "/srv/job/bin/launcher"
 launcher_directory = "/srv/job"
+documents = "/srv/job/work-orders"
+tree = "/srv/platform"

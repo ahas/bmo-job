@@ -107,6 +107,10 @@ pub struct Host {
   pub launcher: AbsolutePath,
   /// The directory a runner's launcher runs in.
   pub launcher_directory: AbsolutePath,
+  /// The directory a work order's prompts, result documents and check logs are written under.
+  pub documents: AbsolutePath,
+  /// The directory whose `bin/` holds the platform's command line.
+  pub tree: AbsolutePath,
 }
 
 /// An absolute path on the machine the service runs on.

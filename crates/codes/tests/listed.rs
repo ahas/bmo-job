@@ -10,7 +10,7 @@ use job_codes::agents::AgentRefusal;
 use job_codes::branch_split::BranchSplitRefusal;
 use job_codes::chat_health::{FailureFact, RunDeath};
 use job_codes::checkout_holds::{
-  CheckoutNote, CheckoutPlace, CheckoutStop, GitFailure, GitStep, LinePlace, ReleaseWait,
+  CheckoutNote, CheckoutPlace, CheckoutStop, GitFailure, GitStep, LinePlace, PlaceReason, ReleaseWait,
 };
 use job_codes::control_answers::{ControlRefusal, FieldForm};
 use job_codes::job_ask::{JobAskAnswer, JobAskRefusal};
@@ -35,7 +35,7 @@ use job_codes::units::UnitRefusal;
 use job_codes::work_lines::{JobLabel, PassReason, WorkStep};
 use job_codes::work_order_edits::{PlanPart, WorkOrderRefusal};
 use job_codes::work_order_lines::{QueueHold, WorkOrderAnswer};
-use job_codes::work_order_stops::WorkOrderStop;
+use job_codes::work_order_stops::{RetryStep, RunawayAction, RunawayCause, StopReason, WorkOrderStop};
 use job_codes::{Code, Fact, JobError, Refused};
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use serde_json::json;
@@ -106,6 +106,11 @@ fn enums() -> Vec<(&'static str, Names, &'static [&'static str])> {
     ("Unanswered", Kinds, Unanswered::VARIANTS),
     ("ReleaseWait", Kinds, ReleaseWait::VARIANTS),
     ("LinePlace", Kinds, LinePlace::VARIANTS),
+    ("PlaceReason", Kinds, PlaceReason::VARIANTS),
+    ("StopReason", Kinds, StopReason::VARIANTS),
+    ("RunawayCause", Kinds, RunawayCause::VARIANTS),
+    ("RunawayAction", Kinds, RunawayAction::VARIANTS),
+    ("RetryStep", Kinds, RetryStep::VARIANTS),
     ("CheckoutNote", Kinds, CheckoutNote::VARIANTS),
     ("CheckoutPlace", Kinds, CheckoutPlace::VARIANTS),
     ("GitFailure", Kinds, GitFailure::VARIANTS),

@@ -89,6 +89,8 @@ directories it writes in, and the checkout the built-in worker works in. Every p
 | `lock_wait_seconds` | How long a launch waits for the last checkout's lock before it refuses, a whole number above 0 |
 | `launcher` | The program a runner is launched through, with the runner's name as its verb |
 | `launcher_directory` | The directory a runner's launcher runs in |
+| `documents` | The directory a work order's prompts, result documents and check logs are written under, one folder to an item |
+| `tree` | The directory whose `bin/` holds the platform's command line, which a builder turn of a work order adds steps through |
 
 Every key but `runner_environment` is required where the section stands. A path that is not absolute,
 and a wait that is not above 0, is refused when the file is loaded. The environment the user's systemd

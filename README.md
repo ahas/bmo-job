@@ -11,7 +11,7 @@ memories and brain holds through bmo-brain, and what a checkout's code graph nam
 
 | Folder | Holds |
 |---|---|
-| `src/` | The service's own package: the server's routes, the verbs' traits it is built on, the job queue, the item talk and the event stream, and under `src/bin/` the binary `bmo-job` that serves them |
+| `src/` | The service's own package: the server's routes, the verbs' traits it is built on, the job queue, the work-order runner and the pieces of a job's run it stands on, the item talk and the event stream, and under `src/bin/` the binary `bmo-job` that serves them |
 | `crates/` | `agency`, the port to bmo-agency: every call the service makes there, as a trait and an HTTP client; `base`, the library base every crate stands on: refusals, the database, settings and the clock; `brain`, the port to bmo-brain: every call the service makes there, as a trait and an HTTP client; `codes`, every refusal, answer and fact the service gives as codes with structured fields; `gate`, the port to bmo-gate: every call the service makes there, as a trait and an HTTP client; `graph`, the port to bmo-graph: every call the service makes there, as a trait and an HTTP client; `policy`, which reads the files of `policy/`; `queue-read`, which reads the queue as the database holds it; `queue-rows`, which writes the TODO's rows and work orders; `receiver`, the port to bmo-receiver: every call the service makes there, as a trait and an HTTP client; `testbed`, the port to bmo-testbed: every call the service makes there, as a trait and a client running its binary; and `web`, the port to bmo-web: every call the service makes there, as a trait and an HTTP client |
 | `migration/` | The schema of the tables the service owns, as migrations that run up and down |
 | `policy/` | The service's fixed numbers and words, as TOML files read by its policy loader |
@@ -30,7 +30,7 @@ At the root stand the Cargo workspace manifest, the version, `testbed.toml`, `ru
 | `docs/policy.md` | The policy: the parts under `policy/`, their marks, patterns and words, and how they load |
 | `docs/schema.md` | The schema: the tables the service owns, the rules they keep, and the migrations |
 | `docs/rows.md` | Writing the queue: an item filed, added to, approved, weighed, merged and closed, the closing's readings of its unfinished note, and a work order's lock |
-| `docs/queue.md` | Running the queue: workers, routes and turns, a launch judged and started, what is running, how a job ends, its questions and clocks, a work order's verbs, and what the agent and the rooms are told |
+| `docs/queue.md` | Running the queue: workers, routes and turns, a launch judged and started, what is running, how a job ends, its questions and clocks, a work order's verbs, what the agent and the rooms are told, and the work-order runner |
 | `docs/reading.md` | Reading the queue: an item as a person and as a worker reads it, the time it took, a room's jobs and a work order |
 | `docs/checks.md` | The repository checks: no Hangul in code or tests, the layout, the dependencies |
 

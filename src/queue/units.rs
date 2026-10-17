@@ -1,15 +1,19 @@
-//! The calls the queue makes on other units (docs/queue.md, "Where the queue stands"): one trait a test
-//! stands in for, and the real ports carrying it. A call that fails is refused with 502 under the unit's
-//! code.
+//! The calls the queue and the work-order runner make on other units (docs/queue.md, "Where the queue
+//! stands"): one trait a test stands in for, and the real ports carrying it. A call that fails is refused
+//! with 502 under the unit's code.
+
+use std::path::Path;
 
 use futures_util::future::BoxFuture;
 use job_agency::{
-  Agency, AgencyError, Execution, JobLines, LaunchHeld, LogLine, Mapping, Node, PinChoice, Provider,
-  RouteAsk, Run, Workbench, WorkerRuntime,
+  Agency, AgencyError, BranchSlots, Execution, JobLines, LaunchHeld, LogLine, Mapping, Node, PinChoice,
+  PoolAsking, PoolRequest, PoolRole, Provider, Reservation, ReservationAsking, RouteAsk, Run, Tier,
+  Workbench, WorkerRuntime,
 };
 use job_codes::{JobError, ProviderRefusal, UnitRefusal};
+use job_gate::{Gate, GateError};
 use job_receiver::{Answerers, Instruction, InstructionState, Notice, Receiver, Room};
-use job_testbed::{Pending, PendingOf, Testbed};
+use job_testbed::{Pending, PendingOf, Relinked, Testbed};
 use job_web::{Checked, ObjectCheck, Web};
 
 use crate::Refusal;
@@ -79,6 +83,75 @@ pub trait Units: Sync {
   fn job_lines(&self, job: i64) -> BoxFuture<'_, Result<JobLines, Refusal>>;
   /// A worker's workbench.
   fn workbench<'a>(&'a self, worker: &'a str) -> BoxFuture<'a, Result<Workbench, Refusal>>;
+  /// The model tiers, in the ladder's order.
+  fn tiers(&self) -> BoxFuture<'_, Result<Vec<Tier>, Refusal>>;
+  /// The roles the pool knows.
+  fn pool_roles(&self) -> BoxFuture<'_, Result<Vec<PoolRole>, Refusal>>;
+  /// A request for a co-worker's place enqueued, or the one its key already names.
+  fn enqueue_request<'a>(&'a self, asking: &'a PoolAsking) -> BoxFuture<'a, Result<PoolRequest, Refusal>>;
+  /// A pool request by its token, none where there is no such request.
+  fn pool_request<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<Option<PoolRequest>, Refusal>>;
+  /// The pool requests waiting or active, an owner's or everyone's.
+  fn open_requests<'a>(
+    &'a self,
+    owner: Option<&'a str>,
+  ) -> BoxFuture<'a, Result<Vec<PoolRequest>, Refusal>>;
+  /// A request's place leased where its turn has come.
+  fn lease_place<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<PoolRequest, Refusal>>;
+  /// The unit a lease is carried into, bound to it.
+  fn bind_child<'a>(
+    &'a self,
+    token: &'a str,
+    child: &'a str,
+  ) -> BoxFuture<'a, Result<PoolRequest, Refusal>>;
+  /// Seats reserved, or the reservation its key already names moved to the count asked.
+  fn reserve_seats<'a>(
+    &'a self,
+    asking: &'a ReservationAsking,
+  ) -> BoxFuture<'a, Result<Reservation, Refusal>>;
+  /// The reservations held, an owner's or everyone's.
+  fn held_reservations<'a>(
+    &'a self,
+    owner: Option<&'a str>,
+  ) -> BoxFuture<'a, Result<Vec<Reservation>, Refusal>>;
+  /// A reservation given back; whether it was still held.
+  fn release_reservation<'a>(
+    &'a self,
+    token: &'a str,
+    reason: &'a str,
+  ) -> BoxFuture<'a, Result<bool, Refusal>>;
+  /// Every execution, ended or not.
+  fn all_executions(&self) -> BoxFuture<'_, Result<Vec<Execution>, Refusal>>;
+  /// How long a place's prefix is worth counting on for a provider's model.
+  fn place_cache<'a>(
+    &'a self,
+    provider: &'a str,
+    model: &'a str,
+    upstream: Option<&'a str>,
+  ) -> BoxFuture<'a, Result<Option<i64>, Refusal>>;
+  /// The prefix a worker's run would open on in a directory now.
+  fn prefix_digest<'a>(
+    &'a self,
+    cwd: &'a str,
+    model: &'a str,
+    effort: Option<&'a str>,
+  ) -> BoxFuture<'a, Result<String, Refusal>>;
+  /// What stands for a branch place taken down.
+  fn retire_place<'a>(&'a self, pool: &'a str, slot: i64) -> BoxFuture<'a, Result<(), Refusal>>;
+  /// A pool's branch places.
+  fn branch_slots<'a>(&'a self, pool: &'a str) -> BoxFuture<'a, Result<BranchSlots, Refusal>>;
+  /// The installed units linked into a checkout relinked where its files moved.
+  fn relink_units<'a>(&'a self, checkout: &'a Path) -> BoxFuture<'a, Result<Relinked, Refusal>>;
+  /// Texts put into English, in the order given; a text in English already comes back as it stands.
+  fn english<'a>(&'a self, texts: &'a [String]) -> BoxFuture<'a, Result<Vec<String>, Refusal>>;
+}
+
+/// A failed call on bmo-gate, refused under its code.
+pub fn gate_failed(why: impl std::fmt::Display) -> Refusal {
+  JobError::from(UnitRefusal::Gate {
+    failure: why.to_string(),
+  })
+  .into()
 }
 
 /// A failed call on bmo-testbed, refused under its code.
@@ -114,15 +187,16 @@ pub fn agency_failed(why: impl std::fmt::Display) -> Refusal {
 }
 
 /// The calls made over the real ports, the agent's own by its key.
-pub struct Ports<'a, A, R, W, T> {
+pub struct Ports<'a, A, R, W, T, G> {
   pub agency: &'a A,
   pub receiver: &'a R,
   pub web: &'a W,
   pub testbed: &'a T,
+  pub gate: &'a G,
   pub agent_key: &'a str,
 }
 
-impl<A: Agency, R: Receiver, W: Web, T: Testbed> Units for Ports<'_, A, R, W, T> {
+impl<A: Agency, R: Receiver, W: Web, T: Testbed, G: Gate> Units for Ports<'_, A, R, W, T, G> {
   fn providers(&self) -> BoxFuture<'_, Result<Vec<Provider>, Refusal>> {
     Box::pin(async move { self.agency.providers().await.map_err(agency_failed) })
   }
@@ -252,5 +326,116 @@ impl<A: Agency, R: Receiver, W: Web, T: Testbed> Units for Ports<'_, A, R, W, T>
 
   fn workbench<'a>(&'a self, worker: &'a str) -> BoxFuture<'a, Result<Workbench, Refusal>> {
     Box::pin(async move { self.agency.workbench(worker).await.map_err(agency_failed) })
+  }
+
+  fn tiers(&self) -> BoxFuture<'_, Result<Vec<Tier>, Refusal>> {
+    Box::pin(async move { self.agency.tiers().await.map_err(agency_failed) })
+  }
+
+  fn pool_roles(&self) -> BoxFuture<'_, Result<Vec<PoolRole>, Refusal>> {
+    Box::pin(async move { self.agency.pool_roles().await.map_err(agency_failed) })
+  }
+
+  fn enqueue_request<'a>(&'a self, asking: &'a PoolAsking) -> BoxFuture<'a, Result<PoolRequest, Refusal>> {
+    Box::pin(async move { self.agency.enqueue_request(asking).await.map_err(agency_failed) })
+  }
+
+  fn pool_request<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<Option<PoolRequest>, Refusal>> {
+    Box::pin(async move { self.agency.pool_request(token).await.map_err(agency_failed) })
+  }
+
+  fn open_requests<'a>(
+    &'a self,
+    owner: Option<&'a str>,
+  ) -> BoxFuture<'a, Result<Vec<PoolRequest>, Refusal>> {
+    Box::pin(async move { self.agency.open_requests(owner).await.map_err(agency_failed) })
+  }
+
+  fn lease_place<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<PoolRequest, Refusal>> {
+    Box::pin(async move { self.agency.lease_place(token).await.map_err(agency_failed) })
+  }
+
+  fn bind_child<'a>(
+    &'a self,
+    token: &'a str,
+    child: &'a str,
+  ) -> BoxFuture<'a, Result<PoolRequest, Refusal>> {
+    Box::pin(async move { self.agency.bind_child(token, child).await.map_err(agency_failed) })
+  }
+
+  fn reserve_seats<'a>(
+    &'a self,
+    asking: &'a ReservationAsking,
+  ) -> BoxFuture<'a, Result<Reservation, Refusal>> {
+    Box::pin(async move { self.agency.reserve_seats(asking).await.map_err(agency_failed) })
+  }
+
+  fn held_reservations<'a>(
+    &'a self,
+    owner: Option<&'a str>,
+  ) -> BoxFuture<'a, Result<Vec<Reservation>, Refusal>> {
+    Box::pin(async move { self.agency.held_reservations(owner).await.map_err(agency_failed) })
+  }
+
+  fn release_reservation<'a>(
+    &'a self,
+    token: &'a str,
+    reason: &'a str,
+  ) -> BoxFuture<'a, Result<bool, Refusal>> {
+    Box::pin(async move { self.agency.release_reservation(token, reason).await.map_err(agency_failed) })
+  }
+
+  fn all_executions(&self) -> BoxFuture<'_, Result<Vec<Execution>, Refusal>> {
+    Box::pin(async move { self.agency.executions(false).await.map_err(agency_failed) })
+  }
+
+  fn place_cache<'a>(
+    &'a self,
+    provider: &'a str,
+    model: &'a str,
+    upstream: Option<&'a str>,
+  ) -> BoxFuture<'a, Result<Option<i64>, Refusal>> {
+    Box::pin(async move { self.agency.place_cache(provider, model, upstream).await.map_err(agency_failed) })
+  }
+
+  fn prefix_digest<'a>(
+    &'a self,
+    cwd: &'a str,
+    model: &'a str,
+    effort: Option<&'a str>,
+  ) -> BoxFuture<'a, Result<String, Refusal>> {
+    Box::pin(async move { self.agency.prefix_digest(cwd, model, effort).await.map_err(agency_failed) })
+  }
+
+  fn retire_place<'a>(&'a self, pool: &'a str, slot: i64) -> BoxFuture<'a, Result<(), Refusal>> {
+    Box::pin(async move { self.agency.retire_place(pool, slot).await.map_err(agency_failed) })
+  }
+
+  fn branch_slots<'a>(&'a self, pool: &'a str) -> BoxFuture<'a, Result<BranchSlots, Refusal>> {
+    Box::pin(async move { self.agency.branch_slots(pool).await.map_err(agency_failed) })
+  }
+
+  fn relink_units<'a>(&'a self, checkout: &'a Path) -> BoxFuture<'a, Result<Relinked, Refusal>> {
+    Box::pin(async move { self.testbed.relink_units(checkout).await.map_err(testbed_failed) })
+  }
+
+  fn english<'a>(&'a self, texts: &'a [String]) -> BoxFuture<'a, Result<Vec<String>, Refusal>> {
+    Box::pin(async move {
+      let readings = self.gate.translate("en", texts).await.map_err(|why: GateError| gate_failed(why))?;
+
+      // A text not wholly put into English stands under the mark a worker reads it by.
+      Ok(
+        readings
+          .into_iter()
+          .map(|reading| {
+            if reading.whole {
+              reading.text
+            } else {
+              format!("{}\n{}", queue_read::worker_lines::UNTRANSLATED_MARK, reading.text)
+            }
+          })
+          .collect(),
+      )
+    })
   }
 }

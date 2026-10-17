@@ -57,6 +57,10 @@ fn routes() -> Router<Shared> {
     .route("/machine/launch-held", put(take))
     .route("/places/workbench/{worker}", get(take))
     .route("/places/branch-slots/{pool}", get(take))
+    .route("/places/branch-slots/{pool}/{slot}", delete(take))
+    .route("/places/prefix-digest", post(take))
+    .route("/providers/{provider}/cache", get(take))
+    .route("/pool/roles", get(take))
 }
 
 impl Stub {

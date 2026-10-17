@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use job_agency::{AgencyClient, AgencyError};
 use job_base::Settings;
+use job_gate::{GateClient, GateError};
 use job_policy::Policy;
 use job_receiver::{ReceiverClient, ReceiverError};
 use job_testbed::{TestbedClient, TestbedError};
@@ -22,7 +23,7 @@ use super::units::{Ports, Units};
 use crate::events::Events;
 
 /// The clients the queue's calls go over.
-pub type QueuePorts<'a> = Ports<'a, AgencyClient, ReceiverClient, WebClient, TestbedClient>;
+pub type QueuePorts<'a> = Ports<'a, AgencyClient, ReceiverClient, WebClient, TestbedClient, GateClient>;
 
 /// Why no ground was built from the settings.
 #[derive(Debug, thiserror::Error)]
@@ -41,6 +42,8 @@ pub enum GroundError {
   Web(#[from] WebError),
   #[error(transparent)]
   Testbed(#[from] TestbedError),
+  #[error(transparent)]
+  Gate(#[from] GateError),
 }
 
 /// Everything the queue stands on that the settings name.
@@ -49,6 +52,7 @@ pub struct QueueGround {
   pub receiver: ReceiverClient,
   pub web: WebClient,
   pub testbed: TestbedClient,
+  pub gate: GateClient,
   /// The deployment's agent, as the records name it.
   pub agent_key: String,
   /// The service's own unit, whose journal a broken run is read in.
@@ -62,6 +66,10 @@ pub struct QueueGround {
   /// The program a runner is launched through, and the directory it runs in.
   pub launcher: PathBuf,
   pub launcher_directory: PathBuf,
+  /// Where a work order's prompts, result documents and check logs are written, one folder to an item.
+  pub documents: PathBuf,
+  /// The directory whose `bin/` holds the platform's command line.
+  pub tree: PathBuf,
 }
 
 impl QueueGround {
@@ -77,6 +85,7 @@ impl QueueGround {
       receiver: ReceiverClient::new(units.receiver.url().clone())?,
       web: WebClient::new(units.web.url().clone())?,
       testbed: TestbedClient::new(host.testbed.to_path_buf())?,
+      gate: GateClient::new(units.gate.url().clone())?,
       agent_key: settings.deployment.agent_key.to_string(),
       service_unit: server.unit.to_string(),
       source: host.source.to_path_buf(),
@@ -94,6 +103,8 @@ impl QueueGround {
       },
       launcher: host.launcher.to_path_buf(),
       launcher_directory: host.launcher_directory.to_path_buf(),
+      documents: host.documents.to_path_buf(),
+      tree: host.tree.to_path_buf(),
     })
   }
 
@@ -109,6 +120,7 @@ impl QueueGround {
       receiver: &self.receiver,
       web: &self.web,
       testbed: &self.testbed,
+      gate: &self.gate,
       agent_key: &self.agent_key,
     }
   }

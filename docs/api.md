@@ -490,6 +490,11 @@ launch.
 | Code | Fields | Told when |
 |---|---|---|
 | `final_not_closed` | `item` | the final turn ended done with its item neither finished nor held |
+| `order_stopped` | `item`, `worker`, `phase`, `reason` (a stop reason) | a work order stopped |
+| `stage_runaway` | `item`, `worker`, `stage`, `unit`, `cause` (a runaway cause), `starts`, `minutes`, `action` (a runaway action) | a running stage was found circling or past its clock, and was told of or stopped |
+| `order_set_aside` | `item`, `worker`, `failures` | a work order stopped past its last retry, so its item was held |
+| `order_resuming` | `item`, `worker`, `[stages]`, `failures`, `retry` (a retry step) | the service resumes a stopped work order at its turn |
+| `stage_rerouted` | `item`, `worker`, `stage`, `from`, `to` | a stage that stopped on its provider goes out again on another |
 
 #### A work order's checkout: `CheckoutStop`
 
@@ -720,19 +725,61 @@ launch.
 | `open_job` | `worker`, `job` | a job of the worker is still open |
 | `lock` | | the checkout's job lock is held |
 | `ended_units` | `worker`, `[units]` | ended job units of the worker are still alive |
-| `ended_record` | `worker`, `unit`, `id`, `label`, `more` | an ended unit's run record is not closed, with how many more such records |
+| `ended_record` | `worker`, `unit`, `id` (the execution), `label`, `more` | an ended unit's execution is not closed, with how many more such executions |
 | `own_turns` | `[live]` | the order's own turns from before its stop are still alive |
-| `checking` | `count`, `starts` | the repository check runs over the changed files |
+| `checking` | `count`, `starts` | the repository check runs over `count` changed files, started `starts` times |
 | `release` | | the order waits for its turn to let the checkout go |
 
 #### A line place: `LinePlace`
 
 | Kind | Fields | Names |
 |---|---|---|
-| `resume_turn` | | its turn to resume |
-| `passing` | | passing its turn on |
-| `held` | | held |
-| `owner_stop` | `why` | stopped by the owner |
+| `resume_turn` | `why` (a place reason) | the order resumes at its turn, as soon as what `why` names allows |
+| `passing` | `why` | the turn went past the order |
+| `held` | `why` | the order's item is held |
+
+#### A place reason: `PlaceReason`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `owner_pause` | | the owner paused automatic progress |
+| `deploy_hold` | | a deployment holds the queue while a job ends |
+| `passed` | `reason` (a pass reason) | why the turn went past the order |
+| `busy` | `wait` (a release wait) | what still stands in the order's checkout |
+| `worker_free` | | the worker is free, and the order resumes next |
+| `stop_held` | | the owner's stop holds the item until it is released |
+| `held` | `reason?` | the item is held with this reason |
+
+#### A stop reason: `StopReason`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `left_running` | `line` | the turn walked away from work it left running, as its record's line says |
+| `runaway` | `line` | the runner ended a runaway stage, as its record's line says |
+| `no_route` | | no provider could carry the stage |
+| `stage_failed` | | a stage failed to run, or its result did not hold |
+
+#### A runaway cause: `RunawayCause`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `spin` | | started over past the most a run may be |
+| `clock` | | running past its clock with no result |
+
+#### A runaway action: `RunawayAction`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `told` | | told of and left running, since stopping it costs more than the run |
+| `stopped` | | stopped, since its copy is thrown away |
+
+#### A retry step: `RetryStep`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `again` | | the failed stages run again |
+| `fresh_session` | | they run again on a fresh session |
+| `other_model` | | they run again on the retry model |
 
 #### A checkout note: `CheckoutNote`
 
@@ -1338,7 +1385,8 @@ whether its keepalive is paused, and the context it last carried.
 
 | Call | Method and path | Request | Answer |
 |---|---|---|---|
-| List the providers | `GET /providers` | | a list of `name`, `enabled`, `registered`, `lines` (the work lines it carries) |
+| List the providers | `GET /providers` | | a list of `name`, `enabled`, `registered`, `coworker` (true where it lends co-workers), `lines` (the work lines it carries) |
+| Read a provider's cache | `GET /providers/{provider}/cache?model={model}&upstream={upstream}` | | `ttl_ms?`: how long a place's prefix is worth counting on for the model, the provider's published lifetime less the pool's margin; none where it publishes none |
 | List the tiers | `GET /tiers` | | a list of `name`, `coworker` (true where a co-worker may run at it) |
 | Resolve a route | `POST /routes/resolve` | `work_key`, `provider?`, `tier` | `provider`, `tier`, `model`, `effort?`, `answer_tokens?`; 404 where no route serves it |
 | Check a pin | `POST /pins/check` | `value` | a pin choice |
@@ -1366,6 +1414,7 @@ as the tiers' capacity allows.
 | List held reservations | `GET /pool/reservations?owner={owner}` | | a list of reservations held; the owner may be left out |
 | Release a reservation | `POST /pool/reservations/{token}/release` | `reason` | `released`: false where it was no longer held |
 | Record a place's write | `PUT /pool/places/{place}/write` | `provider`, `model`, `effort?`, `upstream?` | 204 |
+| List the roles | `GET /pool/roles` | | a list of `name`, `description`, `enabled`, `pooled` (true where the pool lends it as a co-worker), `tier` (the tier it runs at by default) |
 
 - **A pool request's asking:** `request_key`, `owner`, `source`, `role`, `work_key`, `provider`,
   `model`, `effort?`, `tier`, `yielding`, `place_key?`, `turn`, `reservation?`.
@@ -1377,6 +1426,10 @@ as the tiers' capacity allows.
   `created_at`.
 - **Cancel** finishes a request still waiting without its having run; a request that conflicts with
   the pool's present state is refused with 409.
+- **Enqueueing is idempotent by `request_key`,** and reserving by `reservation_key`: asked again, the
+  pool answers the request or the reservation it already holds under the key, a reservation moving only
+  its live seats to the count asked. A work order puts the generation it asks at into the key.
+- **The tiers are listed in the ladder's order,** and a role's `tier` stands on the ladder.
 
 #### Nodes
 
@@ -1422,6 +1475,11 @@ as the tiers' capacity allows.
 |---|---|---|---|
 | Read a worker's workbench | `GET /places/workbench/{worker}` | | `root`, `scratches` (the item scratch directories under it) |
 | Read a pool's branch slots | `GET /places/branch-slots/{pool}` | | `root`, `slots`: a list of `slot` and `dir` |
+| Retire a branch place | `DELETE /places/branch-slots/{pool}/{slot}` | | 204: what stands for the place, its program and its workspace, taken down; the place's directory stays |
+| Read a place's prefix | `POST /places/prefix-digest` | `cwd`, `model`, `effort?` | `digest`: the prefix a worker's run would open on in that directory now, as one short word |
+
+- **A branch place** of a pool is `root/<pool>/<slot>`, the pool named by the service from the
+  repository the checkout belongs to.
 
 - A path answered is absolute on the machine the service runs on.
 

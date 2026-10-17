@@ -10,6 +10,9 @@ pub struct Provider {
   pub name: String,
   pub enabled: bool,
   pub registered: bool,
+  /// True where it lends co-workers.
+  #[serde(default)]
+  pub coworker: bool,
   #[serde(default)]
   pub lines: Vec<String>,
 }

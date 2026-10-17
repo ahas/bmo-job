@@ -10,6 +10,7 @@ fn provider(name: &str, enabled: bool) -> Provider {
     name: name.to_owned(),
     enabled,
     registered: false,
+    coworker: false,
     lines: vec![],
   }
 }

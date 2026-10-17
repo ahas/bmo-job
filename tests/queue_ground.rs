@@ -28,6 +28,8 @@ prompts = "/srv/prompts"
 lock_wait_seconds = 7
 launcher = "/srv/bin/launcher"
 launcher_directory = "/srv/launch"
+documents = "/srv/work-orders"
+tree = "/srv/platform"
 "#;
 
 fn base() -> String {
