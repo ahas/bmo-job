@@ -14,6 +14,7 @@ pub mod job;
 pub mod job_close;
 pub mod job_figures;
 pub mod job_guard;
+pub mod job_run;
 pub mod land;
 pub mod live_claude;
 pub mod node_land;

@@ -1,14 +1,17 @@
 //! The service's server (docs/api.md, "Routes"): the settings read, the database migrated up, the routes
 //! served on `[server] listen` over the service's verbs until the process is told to stop, the work-order
-//! runner started beside them, and the service declared to bmo-receiver as a holder of rooms' rows.
+//! runner started beside them, and the service declared to bmo-receiver as a holder of rooms' rows. Called
+//! with `job-run`, it is instead the program a job's unit runs (docs/runs.md), ending with the run's code.
 
 use std::process::ExitCode;
 use std::sync::Arc;
 
 use bmo_job::events::Events;
 use bmo_job::order_run::standing::{Standing, stand};
+use bmo_job::queue::job_start::JOB_RUNNER_VERB;
 use bmo_job::server::{self, Server};
 use bmo_job::verbs::Built;
+use bmo_job::verbs::job_run::job_run;
 use job_base::Settings;
 use job_receiver::Receiver;
 use migration::{Migrator, MigratorTrait};
@@ -20,6 +23,18 @@ const CONNECTIONS: u32 = 8;
 
 #[tokio::main]
 async fn main() -> ExitCode {
+  let words: Vec<String> = std::env::args().skip(1).collect();
+
+  if words.first().map(String::as_str) == Some(JOB_RUNNER_VERB) {
+    return match Settings::load(&Settings::place()) {
+      Ok(settings) => job_run(&settings, &words[1..]).await,
+      Err(failed) => {
+        eprintln!("job-run: {failed}");
+        ExitCode::FAILURE
+      }
+    };
+  }
+
   match run().await {
     Ok(()) => ExitCode::SUCCESS,
     Err(failed) => {

@@ -15,6 +15,17 @@ none), the unit, the worker and its directory, and for a work order's run its ph
 (`plan` or `synthesis`), the baseline a final turn is measured against, and the model a stopped stage's
 last retry runs on. A run with no chat, prompt file or job never starts.
 
+- **The verb** is the binary's own, `bmo-job job-run -- <words>`, the program `[host] runner` names
+  (docs/settings.md). It reads the settings the server reads, builds the queue's ground from them
+  (docs/queue.md, "Where the queue stands") and the runner's ground on it: the queue's calls and the run's
+  own, the telling, the host, the documents, the platform's tree, the testbed's logs and the cache siren,
+  the policy and the closing's reader built from the deployment's names, the owner's set-aside terms, the
+  owner's chat, and the deployment's agent by its key and its name. It then holds the locks below and runs
+  the job, ending with the run's exit code. Words that do not read end it with code 2 before anything is
+  held, and settings or a database that cannot be had with code 1.
+- **What the runner tells the screens** goes to the server at `[server] address`, since the runner is a
+  process of its own and not the server's stream.
+
 - **A co-work branch** is a step whose session word is `fresh`: it runs on a session it throws away, in a
   place of its own, and keeps nothing of the worker's.
 - **A middle step** (`work-step`) tells every tool it calls through `BMO_WORK_ORDER_STEP=1`, closes no
