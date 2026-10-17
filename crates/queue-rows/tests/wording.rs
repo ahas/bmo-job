@@ -30,7 +30,7 @@ fn settings(wording: Option<&str>) -> Settings {
   let named = wording.map_or_else(String::new, |path| format!("wording = \"{path}\"\n"));
 
   Settings::read(&format!(
-    "[database]\nurl = \"sqlite::memory:\"\n\n[deployment]\nowner_name = \"Owner\"\nagent_name = \"Agent\"\nagent_key = \"agent\"\nsender_name = \"Agent\"\nreceiver_unit = \"receiver\"\n{named}"
+    "[database]\nurl = \"sqlite::memory:\"\n\n[deployment]\nowner_name = \"Owner\"\nagent_name = \"Agent\"\nagent_key = \"agent\"\nsender_name = \"Agent\"\nreceiver_unit = \"receiver\"\nowner_chat = 100\n{named}"
   ))
   .expect("the test settings read")
 }

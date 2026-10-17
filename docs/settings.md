@@ -33,7 +33,7 @@ silently at a default.
 ### `[deployment]`
 
 The names the deployment goes by, which the service says in what it writes and matches in what it
-reads:
+reads, and the owner's chat:
 
 | Key | What it names |
 |---|---|
@@ -42,10 +42,11 @@ reads:
 | `agent_key` | The deployment's agent, as the records name it |
 | `sender_name` | The sender the agent's own messages are stored under |
 | `receiver_unit` | The service unit the chat receiver runs as |
+| `owner_chat` | The owner's private chat with the deployment's agent, by its number: where the queue's telling, the work-order runner and the verbs tell the agent their facts, and where a job's question is put |
 | `wording` | The owner's wording document, by its absolute path, which the terms the owner has set aside are read out of |
 
-Every key but `wording` is required and none may be empty. Where `wording` is left out, no term is set
-aside.
+Every key but `wording` is required and none may be empty; `owner_chat` is a whole number other than 0.
+Where `wording` is left out, no term is set aside.
 
 #### The owner's wording document
 
@@ -137,7 +138,7 @@ A load that fails names the file and one of these:
 - the file cannot be read;
 - the file is not TOML of this shape: a section or a key is missing, unknown or of the wrong type;
 - the database address is of a kind the service does not keep rows in;
-- a deployment name is empty;
+- a deployment name is empty, or the owner's chat is 0 or not a whole number;
 - a listening address is not a socket address, or a unit's address or the server's own is not `http:`;
 - a host path or the wording document's path is not absolute, or the lock wait is not above 0.
 

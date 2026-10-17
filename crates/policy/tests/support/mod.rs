@@ -13,7 +13,7 @@ pub const EXAMPLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../settings.e
 pub fn settings(owner: &str, agent: &str, words: &str) -> Settings {
   let text = format!(
     "[database]\nurl = \"sqlite::memory:\"\n\n[deployment]\nowner_name = {owner:?}\nagent_name = {agent:?}\n\
-     agent_key = \"agent\"\nsender_name = \"Sender\"\nreceiver_unit = \"receiver\"\n\n{words}"
+     agent_key = \"agent\"\nsender_name = \"Sender\"\nreceiver_unit = \"receiver\"\nowner_chat = 100\n\n{words}"
   );
 
   Settings::read(&text).unwrap_or_else(|error| panic!("the test settings read: {error}"))

@@ -11,8 +11,8 @@ command line reads its words into these verbs and prints what they answer.
 
 - **The stand** is built once from the settings (docs/settings.md): the database, the queue's ground
   with the clients of every unit (docs/queue.md, "Where the queue stands"), the policy and the closing's
-  reader, the deployment's names, and the owner as bmo-receiver names him, his sender and his private
-  chat. A stand that cannot be built is refused before any verb runs, naming why.
+  reader, the deployment's names, the owner's chat from `[deployment] owner_chat`, and the owner as
+  a sender, as bmo-receiver names him. A stand that cannot be built is refused before any verb runs, naming why.
 - **A job's own process** is told by three variables of the program a work turn starts: `CLAUDECODE`,
   set by the program itself; `BMO_TASK_LOCKED`, set where the program runs a job's turn; and
   `BMO_RUN_NAME`, the run's name the turn was asked under, which is the job's unit. A process carrying

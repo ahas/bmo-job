@@ -53,6 +53,8 @@ pub struct Deployment {
   pub sender_name: Name,
   /// The service unit the chat receiver runs as.
   pub receiver_unit: Name,
+  /// The owner's private chat with the deployment's agent, where the service tells the agent its facts.
+  pub owner_chat: Chat,
   /// The owner's wording document, which the terms the owner has set aside are read out of, where one is
   /// named.
   #[serde(default)]
@@ -302,6 +304,29 @@ impl Deref for Name {
 
   fn deref(&self) -> &str {
     &self.0
+  }
+}
+
+/// A chat by its number, which is never 0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "i64")]
+pub struct Chat(i64);
+
+impl Chat {
+  pub fn number(self) -> i64 {
+    self.0
+  }
+}
+
+impl TryFrom<i64> for Chat {
+  type Error = &'static str;
+
+  fn try_from(number: i64) -> Result<Self, &'static str> {
+    if number == 0 {
+      return Err("the owner's chat is 0, which names no chat");
+    }
+
+    Ok(Self(number))
   }
 }
 

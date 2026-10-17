@@ -57,7 +57,7 @@ pub struct Stand {
   pub policy: Policy,
   pub reader: Reader,
   pub names: Names,
-  /// The owner as bmo-receiver names him: his sender and his private chat.
+  /// The owner: his sender as bmo-receiver names him, and his private chat from the settings.
   pub owner: Owner,
   /// The server's own address.
   pub server: Url,
@@ -71,7 +71,11 @@ impl Stand {
     let policy = Policy::load(settings)?;
     let names = Names::of(&settings.deployment);
     let reader = Reader::new(&policy.closing, &names);
-    let owner = ground.receiver.owner().await.map_err(|why| StandError::Owner(why.to_string()))?;
+    let sender = ground.receiver.owner().await.map_err(|why| StandError::Owner(why.to_string()))?.sender;
+    let owner = Owner {
+      sender,
+      chat: ground.owner_chat,
+    };
     let db = settings.database.url.connect(CONNECTIONS).await?;
 
     Ok(Self {

@@ -77,6 +77,8 @@ pub struct QueueGround {
   pub server: Url,
   /// The deployment's agent, as the records name it.
   pub agent_key: String,
+  /// The owner's private chat, where the telling and the work-order runner tell the agent their facts.
+  pub owner_chat: i64,
   /// The service's own unit, whose journal a broken run is read in.
   pub service_unit: String,
   /// The checkout the built-in worker works in where its row names none.
@@ -122,6 +124,7 @@ impl QueueGround {
       siren: units.siren.as_ref().map(|siren| siren.url().clone()),
       server: server.address.url().clone(),
       agent_key: settings.deployment.agent_key.to_string(),
+      owner_chat: settings.deployment.owner_chat.number(),
       service_unit: server.unit.to_string(),
       source: host.source.to_path_buf(),
       systemctl: host.systemctl.to_path_buf(),
@@ -207,14 +210,13 @@ impl QueueGround {
     db: &'a DatabaseConnection,
     units: &'a dyn Units,
     policy: &'a Policy,
-    owner_chat: i64,
     events: Option<&'a Events>,
   ) -> Teller<'a> {
     Teller {
       db,
       units,
       policy,
-      owner_chat,
+      owner_chat: self.owner_chat,
       source: self.source.clone(),
       service_unit: self.service_unit.clone(),
       systemctl: Some(self.systemctl.clone()),

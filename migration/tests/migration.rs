@@ -17,6 +17,7 @@ agent_name = "Agent"
 agent_key = "agent"
 sender_name = "Agent"
 receiver_unit = "receiver"
+owner_chat = 100
 "#;
 
 /// The tables the migrations make.

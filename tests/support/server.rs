@@ -234,6 +234,7 @@ agent_name = "Agent"
 agent_key = "agent"
 sender_name = "Agent"
 receiver_unit = "receiver"
+owner_chat = 100
 
 [server]
 listen = "127.0.0.1:0"

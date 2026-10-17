@@ -16,6 +16,7 @@ agent_name = "Agent"
 agent_key = "agent"
 sender_name = "Agent"
 receiver_unit = "receiver"
+owner_chat = 100
 "#;
 
 fn with_database(url: &str) -> String {
@@ -110,6 +111,18 @@ fn the_checked_in_example_loads_with_neutral_names() {
   assert_eq!(host.lock_wait_seconds.duration(), std::time::Duration::from_secs(20));
   assert_eq!(host.runner_environment.as_deref(), Some(Path::new("/srv/job/job.env")));
   assert_eq!(host.testbed_logs.as_deref(), Some(Path::new("/srv/job/testbed-logs")));
+}
+
+#[test]
+fn the_owner_s_chat_is_a_number_other_than_nought_and_is_required() {
+  let read =
+    |chat: &str| Settings::read(&with_database("sqlite::memory:").replace("owner_chat = 100\n", chat));
+
+  assert_eq!(Settings::load(Path::new(EXAMPLE)).unwrap().deployment.owner_chat.number(), 100);
+  assert_eq!(read("owner_chat = -42\n").unwrap().deployment.owner_chat.number(), -42);
+  assert!(read("owner_chat = 0\n").unwrap_err().to_string().contains("names no chat"));
+  assert!(read("owner_chat = \"100\"\n").is_err(), "a chat is a number, not text");
+  assert!(read("").is_err(), "the owner's chat is required");
 }
 
 const HOST: &str = r#"[host]

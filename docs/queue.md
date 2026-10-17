@@ -16,8 +16,9 @@ other call of the service is.
 - **One place builds the ground from the settings** (docs/settings.md): the clients of bmo-agency,
   bmo-receiver, bmo-web, bmo-gate, bmo-graph and bmo-brain, with its token, from `[units]`, and of
   bmo-testbed from `[host] testbed`, the host a job's unit is
-  started on from `[host]`, and the telling, the stops and the reading of what runs from `[host]` and
-  `[server] unit`. The verbs and the server take the queue from there, and a settings file missing
+  started on from `[host]`, the owner's chat from `[deployment] owner_chat`, and the telling, the
+  stops and the reading of what runs from `[host]` and `[server] unit`. The telling and the work-order
+  runner tell their facts in that chat. The verbs and the server take the queue from there, and a settings file missing
   `[server]`, `[units]` or `[host]` builds none.
 - **Times are epoch milliseconds** throughout, in the rows and in what the queue hands on.
 - **Every statement runs on SQLite and on PostgreSQL alike.** A work order's body is read whole and

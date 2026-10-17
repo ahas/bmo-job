@@ -27,6 +27,7 @@ agent_name = "Agent"
 agent_key = "agent"
 sender_name = "Sender"
 receiver_unit = "receiver"
+owner_chat = 100
 "#;
 
 /// The room the seeded jobs ran in.

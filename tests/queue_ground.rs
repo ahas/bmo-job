@@ -74,8 +74,13 @@ fn the_ground_takes_the_host_and_the_server_unit_from_the_settings() {
   let db = DatabaseConnection::Disconnected;
   let fake = Fake::default();
   let policy = policy();
-  let teller = ground.teller(&db, &fake, &policy, 100, None);
+  let teller = ground.teller(&db, &fake, &policy, None);
 
+  assert_eq!(
+    (ground.owner_chat, teller.owner_chat),
+    (100, 100),
+    "the owner's chat is the settings' own"
+  );
   assert_eq!(teller.source, Path::new("/srv/source"));
   assert_eq!(teller.service_unit, "job");
   assert_eq!(teller.systemctl.as_deref(), Some(Path::new("/usr/bin/systemctl")));

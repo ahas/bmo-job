@@ -26,14 +26,13 @@ const TICK: Duration = Duration::from_secs(5);
 // How long the runs a stop's cancel reached are given to reach their own ending before systemd is asked.
 const STOP_SETTLE: Duration = Duration::from_secs(3);
 
-/// What the runner stands on in the service, owned for as long as the process runs.
+/// What the runner stands on in the service, owned for as long as the process runs. Its facts go into the
+/// owner's chat the queue's ground was built with.
 pub struct Standing {
   pub queue: Arc<QueueGround>,
   pub db: DatabaseConnection,
   pub policy: Arc<Policy>,
   pub events: Events,
-  /// The owner's chat the runner's facts go into.
-  pub owner_chat: i64,
 }
 
 /// What the runner reaches past the database with, out of the service it stands in.
@@ -58,13 +57,7 @@ impl Spawn for ServiceHands<'_> {
 
 impl ServiceHands<'_> {
   async fn tell_standing(&self, moment: &str) {
-    let teller = self.queue.teller(
-      self.ground.db,
-      self.units,
-      self.ground.policy,
-      self.ground.owner_chat,
-      Some(self.events),
-    );
+    let teller = self.queue.teller(self.ground.db, self.units, self.ground.policy, Some(self.events));
 
     if let Err(failed) = teller.tell_queue_standing(moment, false, None, now_ms()).await {
       eprintln!("bmo-job: the queue's standing was not told: {}", failed.error);
@@ -118,7 +111,7 @@ pub fn stand(standing: Standing) {
         tree: queue.tree.clone(),
         source: queue.source.clone(),
         systemctl: Some(queue.systemctl.clone()),
-        owner_chat: standing.owner_chat,
+        owner_chat: queue.owner_chat,
       };
       let hands = ServiceHands {
         ground: &ground,

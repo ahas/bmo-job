@@ -99,7 +99,7 @@ fn the_binary_refuses_to_start_without_its_server_section() {
   std::fs::write(
     &place,
     format!(
-      "[database]\nurl = \"{url}\"\n\n[deployment]\nowner_name = \"Owner\"\nagent_name = \"Agent\"\nagent_key = \"agent\"\nsender_name = \"Agent\"\nreceiver_unit = \"receiver\"\n"
+      "[database]\nurl = \"{url}\"\n\n[deployment]\nowner_name = \"Owner\"\nagent_name = \"Agent\"\nagent_key = \"agent\"\nsender_name = \"Agent\"\nreceiver_unit = \"receiver\"\nowner_chat = 100\n"
     ),
   )
   .unwrap();
