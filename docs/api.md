@@ -8,8 +8,9 @@ service through this API and nothing else.
 - **The status is a plain HTTP status code:** 400 for a request that is wrong as asked, 403 for one
   the asker may not make, 404 for something that does not exist, 409 for a request that conflicts
   with the present state, 413 for a file larger than the service takes, 500 for a failure on the
-  service's side, such as its database, 501 for a verb the running build does not carry, and 502 for a
-  call on another unit that failed.
+  service's side, such as its database, 501 for a verb the running build does not carry, 502 for a
+  call on another unit that failed, and 503 for a machine service the service needs that cannot be
+  reached.
 - **The body is a JSON object of exactly two keys:**
   - `error`: one English sentence for a person, naming why;
   - `code`: a stable snake_case code for a machine. A caller decides on the code and never on the
@@ -59,6 +60,7 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 | `single_model_provider` | 409 | | a co-worker is asked of a provider that serves one model alone |
 | `job_model_wrong` | 400 | `selection` | the job model named is no tier, no provider and no model |
 | `no_job_model` | 409 | | no provider that is on offers a job model |
+| `pin_wrong` | 400 | `value`, `said` | bmo-agency refused the worker's pin value; `said` is its sentence |
 
 #### Work order edits: `WorkOrderRefusal`
 
@@ -246,6 +248,8 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 | `not_built` | 501 | `verb` | the route's verb is not carried by the running build |
 | `takes_no_files` | 400 | | files come with a request that takes none |
 | `too_many_files` | 400 | `most` | more files come with a request than it takes |
+| `file_empty` | 400 | `name` | a file that comes with a request is empty |
+| `file_too_large` | 413 | `name`, `size`, `most` | a file that comes with a request is larger than the most bytes it takes |
 
 #### A call on another unit: `UnitRefusal`
 
@@ -266,6 +270,25 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | Code | Status | Fields | Refused when |
 |---|---|---|---|
 | `task_needs_room_and_work` | 400 | | a launch names no room or nothing to do |
+| `launch_needs_launcher` | 400 | | a launch does not say who launched it |
+| `item_launch_takes_no_why` | 400 | `item` | a launch of an item gives a line of why, which only a job with no item takes |
+| `why_one_line` | 400 | | a launch's line of why holds more than one line |
+| `itemless_needs_why` | 400 | | a launch by no chat session, of no item, gives no line of why |
+| `session_launches_item` | 400 | `worker`, `front?` | a chat session launches no item; `front` is the item at the front of the worker's queue |
+| `launch_item_absent` | 404 | `item` | the item launched is no TODO item |
+| `launch_item_done` | 409 | `item`, `title` | the item launched is done |
+| `launch_item_merged` | 409 | `item`, `title`, `into` | the item launched is merged into another |
+| `launch_item_held` | 409 | `item`, `title`, `why?` | the item launched is held |
+| `launch_item_unapproved` | 409 | `item`, `title` | the item launched is not approved |
+| `launch_item_other_worker` | 409 | `item`, `title`, `worker`, `asked` | the item launched is another worker's work than the one asked |
+| `launch_waits` | 409 | `item`, `title`, `streak`, `wait_ms` | the item's last launches died before reaching the work, and its wait has not run out |
+| `runner_unknown` | 400 | `runner`, `[runners]` | a runner launched is none of the runners |
+| `runner_depth_wrong` | 400 | `[depths]` | a runner is launched at a depth none of its own |
+| `runner_not_launched` | 500 | `runner`, `why` | the runner's launcher could not be started, failed, or ran past its while |
+| `manager_unreachable` | 503 | `why` | the user's service manager a job's unit is started by cannot be reached |
+| `unit_not_started` | 500 | `job` | the job's unit did not start, and its row was closed as an error |
+| `prompt_not_written` | 500 | `why` | the job's text could not be written to the file its unit is handed |
+| `checkout_held` | 409 | `cwd`, `[holders]` | the checkout is at work already; each holder is `worker`, `job`, `item?`, `unit` and `borrowed` (true where the job borrowed the checkout) |
 
 #### Branch records: `BranchSplitRefusal`
 
@@ -296,6 +319,26 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | `builtin_stays_here` | 409 | | the built-in worker is placed on a node |
 | `support_follows_base` | 409 | `worker`, `base` | a support worker is placed apart from its base |
 | `has_support` | 409 | `worker` | a worker with support workers or node checkouts is placed on a node |
+| `worker_name_form` | 400 | `name` | a new worker's name breaks the worker rule |
+| `label_empty` | 400 | | a worker's label is empty |
+| `label_long` | 400 | `most` | a worker's label runs past the most characters |
+| `path_empty` | 400 | | a worker's path is empty |
+| `path_not_absolute` | 400 | `path` | a worker's path is not absolute |
+| `path_absent` | 400 | `path` | a worker's path does not exist |
+| `path_not_directory` | 400 | `path` | a worker's path is not a directory |
+| `made_path_blocked` | 400 | `path` | something that is not a directory stands where a new worker's directory is to be made |
+| `preamble_long` | 400 | `most` | a worker's preamble runs past the most characters |
+| `dev_command_lines` | 400 | | a worker's dev server command holds more than one line |
+| `dev_command_long` | 400 | `most` | a worker's dev server command runs past the most characters |
+| `support_changed_by_base` | 409 | `worker`, `base` | a support worker is changed in anything its base's settings decide |
+| `builtin_path_fixed` | 409 | `worker` | the built-in worker's path is moved |
+| `support_removed_by_count` | 409 | `worker`, `base` | a support worker is removed rather than counted out by its base |
+| `builtin_not_removed` | 409 | `worker` | the built-in worker is removed |
+| `support_has_no_settings` | 409 | `worker`, `base` | a support worker is given support settings of its own |
+| `support_count_range` | 400 | `most` | a support count is no whole number from 0 to the most |
+| `keepalive_count_form` | 400 | | a keepalive count is no whole number of 0 or more |
+| `keepalive_over_count` | 400 | `keepalive`, `count` | a keepalive count passes the support count |
+| `support_name_long` | 400 | `base`, `name` | a base's name is too long to name its last support worker within the worker rule |
 
 ### Answers
 
@@ -393,6 +436,8 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | Code | Fields | Told when |
 |---|---|---|
 | `job_ended` | `reason` (a job ending), `job_id`, `checkout` | a job ended |
+| `job_gone` | `job_id`, `label?` (a job label), `purpose?`, `removed_room?` | a job the room asked for ended without reporting: its run was killed or crashed |
+| `work_reported` | `item?`, `done`, `summary?` | the room that asked for a piece of work hears what it came to; `summary` holds only the sentences of the report that say nothing of the system |
 
 #### A job's question: `QuestionFact`
 
@@ -414,6 +459,31 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | Code | Fields | Told when |
 |---|---|---|
 | `run_failed` | `room?`, `cause` (a run death), `said?`, `last_tool?`, `tool_detail?`, `run_log` | a job's run died or held together and gave no answer |
+| `job_broke` | `job_id`, `label` (a job label), `outcome`, `said?`, `last_tool?`, `tool_detail?`, `unit`, `count` | a broken job's order went unanswered, so the owner hears it; `count` is how many runs the same cause broke |
+
+#### The queue: `QueueFact`
+
+What the agent is told in the owner's chat about the queue, for it to decide on. None names an item to
+launch.
+
+| Code | Fields | Told when |
+|---|---|---|
+| `queue_waiting` | `moment`, `[workers]` | workers stand with a free checkout and work of their own waiting; each is `worker`, `label`, `cwd`, `waiting` and `free_checkouts` |
+| `queue_stalled` | `worker`, `label`, `cwd`, `waiting`, `minutes` | a worker has stood with a free checkout and work waiting for that long with no job started |
+| `job_finished` | the fields of a job's finish | a job ended, with what that means for its item and what stands around it |
+| `repair_ceiling` | `item`, `title`, `rounds`, `limit`, `[held]`, `last_job?`, `last_item?`, `outcome` | a chain of repairs had all its rounds and still failed, so it was held whole |
+| `job_circling` | `job_id`, `item?`, `worker`, `unit`, `starts`, `most` | an open job was started over past the most a run may be |
+| `job_quiet` | `job_id`, `item?`, `worker`, `unit`, `minutes`, `last_activity_at`, `last_line?`, `wait?` | an open job has done nothing for that long |
+
+- **A job's finish:** `worker?`, `label`, `job_id?`, `item?`, `outcome` (the ending's word as its record
+  keeps it), `ending?` (a job ending), `succeeded`, `attempts?` and `launch_failures?` (each a `count`
+  and its `limit`; `attempts` adds `counted`, whether this run counted), `held?` (a hold cause, where the
+  ending set the item aside), `repair?` (`of`, the item the chain began at, `rounds` and `limit`),
+  `[pending_deploy]` (each `commit` and `urgent`), `queue_paused`, `deploy_hold`, `[machine_short]` (why
+  launches are held), `report?`, `room_line_to?` (the room that heard a line of it), `removed_room?` and
+  `report_untold` (the worker's report went to nobody, and is the agent's to pass on).
+- **A last line:** `kind` and `name?`, as the agent log wrote it. **A wait:** `what`, `target` (a wait
+  target), `until`, `ended_at?` and `standing` (a wait standing).
 
 #### Work order stops: `WorkOrderStop`
 
@@ -617,6 +687,15 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | `build` | | a build step |
 | `final` | | the final turn |
 
+#### A pass reason: `PassReason`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `closing` | | the stopped order is being closed, so it is not resumed |
+| `no_route` | | no route is open for it, so the turn goes to an item behind it |
+| `just_stopped` | | it has only just stopped, so one turn goes to an item behind it |
+| `waiting_after_stop` | | nothing waits behind it, and it waits out the minute after its stop |
+
 #### A job label: `JobLabel`
 
 | Kind | Fields | Names |
@@ -735,6 +814,22 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | `filed_by` | `filer` | a block the filer wrote as it filed the row |
 | `fast_track` | `tool` | a fast-track promotion's first block |
 | `message` | `id` | the archived message a copied message came from |
+
+#### A hold cause: `HoldCause`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `attempts` | `count`, `last` | the item's work failed that many times, the last ending as its record keeps it |
+| `launch_failures` | `count`, `last` | the item's runs failed to start that many times in a row |
+| `repair_ceiling` | `rounds`, `item`, `last` | the chain of repairs of `item` had that many rounds and failed again |
+
+#### A wait standing: `WaitStanding`
+
+| Kind | Fields | Names |
+|---|---|---|
+| `waiting` | | the wait the job marked has not run past its end |
+| `overdue` | | the wait ran past its end and its target still stands |
+| `ended` | | the wait's target is gone |
 
 #### A wait target: `WaitTarget`
 
@@ -1012,8 +1107,9 @@ deploy that takes it lets go, or the owner on purpose (docs/schema.md, "The keys
 - A word the owner said to one worker rather than to the agent: it launches nothing, its files are
   written under the worker's workbench and named at the end of the words, and the words are offered to
   the worker's own session. It comes as JSON, or as a form whose files stand under `file`; more files
-  than `queue.word_files` (docs/policy.md) are refused `too_many_files`. A worker not given is the
-  built-in worker.
+  than `queue.word_files` (docs/policy.md) are refused `too_many_files`, an empty file `file_empty`,
+  and a file larger than `queue.word_file_bytes` `file_too_large`. A worker not given is the built-in
+  worker.
 
 ### Branch agents
 
@@ -1158,9 +1254,12 @@ them, and asks one cancelled where a job it carries is stopped.
 
 - **An execution:** `id`, `parent?`, `root?`, `line?`, `shared_pane` (true where it runs in a pane it
   shares), `started_at?`, `ended_at?`, `outcome?` (the outcome it recorded as it ended, as an object),
-  and `details`: an object of every other field bmo-agency records of it, handed on as it stands.
+  `cancelled` (true where a cancel asked of it, or of an execution that covers it, still stands), and
+  `details`: an object of every other field bmo-agency records of it, handed on as it stands.
 - **The executions one covers** are itself, every execution whose parent chain leads to it, and every
   one whose `root` is it. A cancel stays asked until it is dropped.
+- **Asking one cancelled** ends each execution it covers that is still running by whatever reaches it;
+  the service stops a job's unit through systemd only where the unit still stands after that.
 
 #### Runs
 
@@ -1294,6 +1393,14 @@ as the tiers' capacity allows.
 | Call | Method and path | Request | Answer |
 |---|---|---|---|
 | Check a requester's account | `GET /accounts/claude/held?user={user}` | | `held`: true where an enabled Claude account is held by the user |
+
+#### An agent's rest
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| Read whether an agent rests | `GET /agents/{agent}/rest` | | `resting`: true where the agent rests now |
+
+- While the deployment's agent rests, no job goes out on Claude Code, which runs as that agent.
 
 #### The machine's room
 

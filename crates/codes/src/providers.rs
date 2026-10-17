@@ -16,6 +16,8 @@ pub enum ProviderRefusal {
   JobModelWrong { selection: String },
   #[error("no provider that is on offers a job model")]
   NoJobModel,
+  #[error("the pin {value} chooses nothing that can run: {said}")]
+  PinWrong { value: String, said: String },
 }
 
 coded!(ProviderRefusal);
@@ -23,7 +25,7 @@ coded!(ProviderRefusal);
 impl Refused for ProviderRefusal {
   fn status(&self) -> StatusCode {
     match self {
-      Self::JobModelWrong { .. } => StatusCode::BAD_REQUEST,
+      Self::JobModelWrong { .. } | Self::PinWrong { .. } => StatusCode::BAD_REQUEST,
       Self::ProviderOff | Self::SingleModelProvider | Self::NoJobModel => StatusCode::CONFLICT,
     }
   }

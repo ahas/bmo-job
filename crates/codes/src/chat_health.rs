@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use strum::{Display, IntoStaticStr, VariantNames};
 
+use crate::work_lines::JobLabel;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, IntoStaticStr, VariantNames)]
 #[serde(tag = "code", rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
@@ -14,6 +16,16 @@ pub enum FailureFact {
     last_tool: Option<String>,
     tool_detail: Option<String>,
     run_log: String,
+  },
+  JobBroke {
+    job_id: i64,
+    label: JobLabel,
+    outcome: String,
+    said: Option<String>,
+    last_tool: Option<String>,
+    tool_detail: Option<String>,
+    unit: String,
+    count: u32,
   },
 }
 

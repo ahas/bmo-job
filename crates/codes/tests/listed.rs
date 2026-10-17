@@ -18,6 +18,7 @@ use job_codes::job_ended::{JobEnding, JobFact};
 use job_codes::job_questions::{Lapse, PaneOption, PaneWindow, QuestionAnswer, QuestionFact};
 use job_codes::job_wait::{JobWaitRefusal, WaitTarget};
 use job_codes::providers::ProviderRefusal;
+use job_codes::queue_facts::{HoldCause, QueueFact, WaitStanding};
 use job_codes::queue_told::QueueTold;
 use job_codes::room_removal::RoomHoldings;
 use job_codes::run_stop::{RunStopAnswer, RunStopRefusal, StopState, TargetStop};
@@ -31,7 +32,7 @@ use job_codes::todo_verbs::{
   TodoRefusal, Verdict, WrittenRecord,
 };
 use job_codes::units::UnitRefusal;
-use job_codes::work_lines::{JobLabel, WorkStep};
+use job_codes::work_lines::{JobLabel, PassReason, WorkStep};
 use job_codes::work_order_edits::{PlanPart, WorkOrderRefusal};
 use job_codes::work_order_lines::{QueueHold, WorkOrderAnswer};
 use job_codes::work_order_stops::WorkOrderStop;
@@ -78,6 +79,7 @@ fn enums() -> Vec<(&'static str, Names, &'static [&'static str])> {
     ("FailureFact", Codes, FailureFact::VARIANTS),
     ("WorkOrderStop", Codes, WorkOrderStop::VARIANTS),
     ("CheckoutStop", Codes, CheckoutStop::VARIANTS),
+    ("QueueFact", Codes, QueueFact::VARIANTS),
     ("TodoFact", Codes, TodoFact::VARIANTS),
     ("PlanPart", Kinds, PlanPart::VARIANTS),
     ("StopState", Kinds, StopState::VARIANTS),
@@ -99,6 +101,7 @@ fn enums() -> Vec<(&'static str, Names, &'static [&'static str])> {
     ("PaneOption", Kinds, PaneOption::VARIANTS),
     ("QueueHold", Kinds, QueueHold::VARIANTS),
     ("WorkStep", Kinds, WorkStep::VARIANTS),
+    ("PassReason", Kinds, PassReason::VARIANTS),
     ("JobLabel", Kinds, JobLabel::VARIANTS),
     ("Unanswered", Kinds, Unanswered::VARIANTS),
     ("ReleaseWait", Kinds, ReleaseWait::VARIANTS),
@@ -111,6 +114,8 @@ fn enums() -> Vec<(&'static str, Names, &'static [&'static str])> {
     ("SpanName", Kinds, SpanName::VARIANTS),
     ("TokenKind", Kinds, TokenKind::VARIANTS),
     ("BlockHead", Kinds, BlockHead::VARIANTS),
+    ("HoldCause", Kinds, HoldCause::VARIANTS),
+    ("WaitStanding", Kinds, WaitStanding::VARIANTS),
     ("WaitTarget", Kinds, WaitTarget::VARIANTS),
     ("JobEnding", Kinds, JobEnding::VARIANTS),
     ("QueueTold", Kinds, QueueTold::VARIANTS),

@@ -52,6 +52,7 @@ fn routes() -> Router<Shared> {
     .route("/nodes/{name}/reach", get(take))
     .route("/nodes/heavy-run", post(take))
     .route("/accounts/claude/held", get(take))
+    .route("/agents/{agent}/rest", get(take))
     .route("/machine/room", get(take))
     .route("/machine/launch-held", put(take))
     .route("/places/workbench/{worker}", get(take))

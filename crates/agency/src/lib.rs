@@ -111,7 +111,7 @@ pub trait Agency: Send + Sync {
   fn run(&self, run: i64) -> impl Future<Output = Answer<Option<Run>>> + Send;
 
   /// Counts the starts an agent's run has logged.
-  fn run_starts(&self, agent: &str, run: i64) -> impl Future<Output = Answer<u64>> + Send;
+  fn run_starts(&self, agent: &str, run: &str) -> impl Future<Output = Answer<u64>> + Send;
 
   /// Reads the last line a job's run logged.
   fn job_last_line(&self, job: i64) -> impl Future<Output = Answer<Option<LogLine>>> + Send;
@@ -199,6 +199,9 @@ pub trait Agency: Send + Sync {
 
   /// Whether a user holds an enabled Claude account.
   fn claude_account_held(&self, user: &str) -> impl Future<Output = Answer<bool>> + Send;
+
+  /// Whether an agent rests now.
+  fn resting(&self, agent: &str) -> impl Future<Output = Answer<bool>> + Send;
 
   /// Reads the room on the machine.
   fn machine_room(&self) -> impl Future<Output = Answer<Room>> + Send;

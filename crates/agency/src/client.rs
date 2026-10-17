@@ -64,6 +64,11 @@ struct Held {
 }
 
 #[derive(Deserialize)]
+struct Rest {
+  resting: bool,
+}
+
+#[derive(Deserialize)]
 struct Placed {
   machine: Option<WorkMachine>,
 }
@@ -276,9 +281,8 @@ impl Agency for AgencyClient {
     self.found("run", self.request(Method::GET, &["runs", &run], &[])).await
   }
 
-  async fn run_starts(&self, agent: &str, run: i64) -> Answer<u64> {
-    let run = run.to_string();
-    let request = self.request(Method::GET, &["log", "starts"], &[("agent", agent), ("run", &run)]);
+  async fn run_starts(&self, agent: &str, run: &str) -> Answer<u64> {
+    let request = self.request(Method::GET, &["log", "starts"], &[("agent", agent), ("run", run)]);
     let counted: Counted = self.answer("run_starts", request).await?;
 
     Ok(counted.count)
@@ -453,6 +457,13 @@ impl Agency for AgencyClient {
     let held: Held = self.answer("claude_account_held", request).await?;
 
     Ok(held.held)
+  }
+
+  async fn resting(&self, agent: &str) -> Answer<bool> {
+    let request = self.request(Method::GET, &["agents", agent, "rest"], &[]);
+    let rest: Rest = self.answer("resting", request).await?;
+
+    Ok(rest.resting)
   }
 
   async fn machine_room(&self) -> Answer<Room> {

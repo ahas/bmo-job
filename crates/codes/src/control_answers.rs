@@ -24,6 +24,10 @@ pub enum ControlRefusal {
   TakesNoFiles,
   #[error("at most {most} files come with this request")]
   TooManyFiles { most: u32 },
+  #[error("{name} is empty, so it was not sent")]
+  FileEmpty { name: String },
+  #[error("{name} is {size} bytes, and a file comes with this request up to {most} bytes")]
+  FileTooLarge { name: String, size: u64, most: u64 },
 }
 
 coded!(ControlRefusal);
@@ -33,6 +37,7 @@ impl Refused for ControlRefusal {
     match self {
       Self::RouteAbsent => StatusCode::NOT_FOUND,
       Self::NotBuilt { .. } => StatusCode::NOT_IMPLEMENTED,
+      Self::FileTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
       _ => StatusCode::BAD_REQUEST,
     }
   }

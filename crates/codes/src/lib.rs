@@ -32,6 +32,7 @@ pub mod job_ended;
 pub mod job_questions;
 pub mod job_wait;
 pub mod providers;
+pub mod queue_facts;
 pub mod queue_told;
 pub mod room_removal;
 pub mod run_stop;
@@ -57,6 +58,7 @@ pub use job_ended::JobFact;
 pub use job_questions::{QuestionAnswer, QuestionFact};
 pub use job_wait::JobWaitRefusal;
 pub use providers::ProviderRefusal;
+pub use queue_facts::QueueFact;
 pub use queue_told::QueueTold;
 pub use room_removal::RoomHoldings;
 pub use run_stop::{RunStopAnswer, RunStopRefusal};
@@ -156,6 +158,7 @@ pub enum Fact {
   Failure(FailureFact),
   Job(JobFact),
   Question(QuestionFact),
+  Queue(QueueFact),
   Todo(TodoFact),
   WorkOrder(WorkOrderStop),
 }
@@ -167,6 +170,7 @@ impl Fact {
       Self::Failure(fact) => fact,
       Self::Job(fact) => fact,
       Self::Question(fact) => fact,
+      Self::Queue(fact) => fact,
       Self::Todo(fact) => fact,
       Self::WorkOrder(fact) => fact,
     }

@@ -44,6 +44,54 @@ pub enum AgentRefusal {
   SupportFollowsBase { worker: String, base: String },
   #[error("{worker} has support workers or node checkouts, so it stays on this machine")]
   HasSupport { worker: String },
+  #[error(
+    "{name} is no worker name: it starts with a small letter or a digit, runs 2 to 32 characters, and holds only small letters, digits, dots, underscores and dashes"
+  )]
+  WorkerNameForm { name: String },
+  #[error("the label is empty")]
+  LabelEmpty,
+  #[error("a label runs to {most} characters")]
+  LabelLong { most: u32 },
+  #[error("the path is empty")]
+  PathEmpty,
+  #[error("{path} is not an absolute path")]
+  PathNotAbsolute { path: String },
+  #[error("{path} does not exist")]
+  PathAbsent { path: String },
+  #[error("{path} is not a directory")]
+  PathNotDirectory { path: String },
+  #[error(
+    "something that is not a directory stands at {path}, so the working directory cannot be made there"
+  )]
+  MadePathBlocked { path: String },
+  #[error("a preamble runs to {most} characters")]
+  PreambleLong { most: u32 },
+  #[error("a dev server command is one line")]
+  DevCommandLines,
+  #[error("a dev server command runs to {most} characters")]
+  DevCommandLong { most: u32 },
+  #[error(
+    "{worker} is a support worker of {base}, so its label, path, preamble, dev server and pin are changed in {base}'s settings"
+  )]
+  SupportChangedByBase { worker: String, base: String },
+  #[error("{worker} is the built-in worker, which runs in this repository, so its path is not moved")]
+  BuiltinPathFixed { worker: String },
+  #[error("{worker} is a support worker of {base}: lower {base}'s support count instead of removing it")]
+  SupportRemovedByCount { worker: String, base: String },
+  #[error("{worker} is the built-in worker, which is never removed")]
+  BuiltinNotRemoved { worker: String },
+  #[error(
+    "{worker} is a support worker of {base} and has no support settings of its own: change them in {base}'s"
+  )]
+  SupportHasNoSettings { worker: String, base: String },
+  #[error("a support count is a whole number from 0 to {most}")]
+  SupportCountRange { most: u32 },
+  #[error("a keepalive count is a whole number of 0 or more")]
+  KeepaliveCountForm,
+  #[error("the keepalive count ({keepalive}) cannot pass the support count ({count})")]
+  KeepaliveOverCount { keepalive: u32, count: u32 },
+  #[error("{base}'s name is too long for its support worker's name {name}")]
+  SupportNameLong { base: String, name: String },
 }
 
 coded!(AgentRefusal);
@@ -55,7 +103,22 @@ impl Refused for AgentRefusal {
       | Self::NothingToChange
       | Self::NotABase { .. }
       | Self::CheckoutNameLong { .. }
-      | Self::NodePathForm => StatusCode::BAD_REQUEST,
+      | Self::NodePathForm
+      | Self::WorkerNameForm { .. }
+      | Self::LabelEmpty
+      | Self::LabelLong { .. }
+      | Self::PathEmpty
+      | Self::PathNotAbsolute { .. }
+      | Self::PathAbsent { .. }
+      | Self::PathNotDirectory { .. }
+      | Self::MadePathBlocked { .. }
+      | Self::PreambleLong { .. }
+      | Self::DevCommandLines
+      | Self::DevCommandLong { .. }
+      | Self::SupportCountRange { .. }
+      | Self::KeepaliveCountForm
+      | Self::KeepaliveOverCount { .. }
+      | Self::SupportNameLong { .. } => StatusCode::BAD_REQUEST,
       Self::NoWorker { .. } | Self::CheckoutNotOnNode { .. } | Self::NoNode { .. } => StatusCode::NOT_FOUND,
       Self::CheckoutNotRemoved { .. } => StatusCode::INTERNAL_SERVER_ERROR,
       Self::NotRestable { .. }
@@ -66,7 +129,12 @@ impl Refused for AgentRefusal {
       | Self::NodeTakesNoJobs { .. }
       | Self::BuiltinStaysHere
       | Self::SupportFollowsBase { .. }
-      | Self::HasSupport { .. } => StatusCode::CONFLICT,
+      | Self::HasSupport { .. }
+      | Self::SupportChangedByBase { .. }
+      | Self::BuiltinPathFixed { .. }
+      | Self::SupportRemovedByCount { .. }
+      | Self::BuiltinNotRemoved { .. }
+      | Self::SupportHasNoSettings { .. } => StatusCode::CONFLICT,
     }
   }
 }

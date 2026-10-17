@@ -169,6 +169,7 @@ name = "bmo-job"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "chrono",
  "futures-util",
  "job-agency",
  "job-base",
@@ -181,7 +182,10 @@ dependencies = [
  "job-testbed",
  "job-web",
  "migration",
+ "pulldown-cmark",
  "queue-read",
+ "queue-rows",
+ "regex",
  "reqwest",
  "sea-orm",
  "serde",

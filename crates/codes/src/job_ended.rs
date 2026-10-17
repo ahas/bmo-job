@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use strum::{Display, IntoStaticStr, VariantNames};
 
+use crate::work_lines::JobLabel;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, IntoStaticStr, VariantNames)]
 #[serde(tag = "code", rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
@@ -11,6 +13,17 @@ pub enum JobFact {
     reason: JobEnding,
     job_id: i64,
     checkout: String,
+  },
+  JobGone {
+    job_id: i64,
+    label: Option<JobLabel>,
+    purpose: Option<String>,
+    removed_room: Option<i64>,
+  },
+  WorkReported {
+    item: Option<i64>,
+    done: bool,
+    summary: Option<String>,
   },
 }
 

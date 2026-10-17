@@ -10,7 +10,7 @@ and the words from its `[words]` section (docs/settings.md).
 
 | File | What it holds |
 |---|---|
-| `queue.toml` | The job queue's limits: how long the owner may stop a question's clock, how many files one word to a worker carries, the model a stopped work order's last retry runs on, and the tier a stage's builder task runs at where its plan named none |
+| `queue.toml` | The job queue's limits: how long the owner may stop a question's clock, how many files one word to a worker carries and how large each may be, the model a stopped work order's last retry runs on, and the tier a stage's builder task runs at where its plan named none |
 | `job-prompt.toml` | What a job's prompt is made of beside the job's own text: the lines of the preamble a worker's job prompt opens with, the workbench names those lines cite, what a step of a bot-managed work order is told, and the block an item's impact grounds stand in |
 | `research.toml` | A research run's keys, which of them are clocked and which open no branches, the ways a page is fetched, the capabilities a run's settings open and the variable opening each, the bounds of each field of a profile, and the rulebooks a search is bound by |
 | `work-keys.toml` | Every work key and the profile it starts on: its kind, run line, road, tier and the model choices its first seed drew on, with the gate settings a gate adds and the answer floors an editor adds |

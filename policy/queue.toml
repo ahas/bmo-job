@@ -9,6 +9,9 @@ question_stop_seconds = 1800
 # How many files one word to a worker carries: as many as the console's box lets one send carry.
 word_files = 10
 
+# The largest one file a word to a worker carries may be, in bytes: what the console takes in one file.
+word_file_bytes = 52428800
+
 # The model a stopped work order's last retry runs on where the archive setting `work_retry_model`
 # names no Claude Code model: another model, so what one model's safeguard blocks again and again may
 # pass.

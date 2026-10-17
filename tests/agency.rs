@@ -34,6 +34,7 @@ fn execution_json() -> Value {
     "started_at": 1_000,
     "ended_at": null,
     "outcome": { "state": "done" },
+    "cancelled": true,
     "details": { "pid": 42, "kind": "job" }
   })
 }
@@ -48,6 +49,7 @@ fn execution() -> Execution {
     started_at: Some(1_000),
     ended_at: None,
     outcome: Some(object(json!({ "state": "done" }))),
+    cancelled: true,
     details: object(json!({ "pid": 42, "kind": "job" })),
   }
 }
@@ -462,10 +464,10 @@ async fn run_starts_counts_by_agent_and_run() {
 
   stub.answer("GET /log/starts", 200, json!({ "count": 3 }));
 
-  let count = stub.client().run_starts("agent", 17).await.unwrap();
+  let count = stub.client().run_starts("agent", "run-17").await.unwrap();
 
   assert_eq!(count, 3);
-  stub.took("GET /log/starts", "/log/starts?agent=agent&run=17", None);
+  stub.took("GET /log/starts", "/log/starts?agent=agent&run=run-17", None);
 }
 
 #[tokio::test]
@@ -1106,6 +1108,18 @@ async fn claude_account_held_asks_by_user() {
 
   assert!(held);
   stub.took("GET /accounts/claude/held", "/accounts/claude/held?user=user-1", None);
+}
+
+// An agent's rest.
+
+#[tokio::test]
+async fn resting_reads_the_agents_rest() {
+  let stub = Stub::start().await;
+
+  stub.answer("GET /agents/{agent}/rest", 200, json!({ "resting": true }));
+
+  assert!(stub.client().resting("agent").await.unwrap());
+  stub.took("GET /agents/{agent}/rest", "/agents/agent/rest", None);
 }
 
 // The machine's room.

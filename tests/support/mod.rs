@@ -9,6 +9,7 @@ pub mod agency;
 pub mod brain;
 pub mod gate;
 pub mod graph;
+pub mod queue;
 pub mod receiver;
 pub mod server;
 pub mod stub;

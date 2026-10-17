@@ -18,6 +18,9 @@ pub struct Execution {
   pub ended_at: Option<i64>,
   /// The outcome it recorded as it ended.
   pub outcome: Option<Map<String, Value>>,
+  /// True where a cancel asked of it, or of an execution that covers it, still stands.
+  #[serde(default)]
+  pub cancelled: bool,
   #[serde(default)]
   pub details: Map<String, Value>,
 }
