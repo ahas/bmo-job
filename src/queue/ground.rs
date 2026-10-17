@@ -14,6 +14,7 @@ use job_policy::Policy;
 use job_receiver::{ReceiverClient, ReceiverError};
 use job_testbed::{TestbedClient, TestbedError};
 use job_web::{WebClient, WebError};
+use queue_rows::wording::{BannedTerm, set_aside_terms};
 use sea_orm::DatabaseConnection;
 use url::Url;
 
@@ -85,6 +86,8 @@ pub struct QueueGround {
   pub tree: PathBuf,
   /// The directory bmo-testbed writes its runs' logs in, where one is named.
   pub testbed_logs: Option<PathBuf>,
+  /// The terms the owner has set aside, read once out of the wording document the settings name.
+  pub banned: Vec<BannedTerm>,
 }
 
 impl QueueGround {
@@ -124,6 +127,7 @@ impl QueueGround {
       documents: host.documents.to_path_buf(),
       tree: host.tree.to_path_buf(),
       testbed_logs: host.testbed_logs.as_deref().map(PathBuf::from),
+      banned: set_aside_terms(settings),
     })
   }
 

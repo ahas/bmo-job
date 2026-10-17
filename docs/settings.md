@@ -42,8 +42,27 @@ reads:
 | `agent_key` | The deployment's agent, as the records name it |
 | `sender_name` | The sender the agent's own messages are stored under |
 | `receiver_unit` | The service unit the chat receiver runs as |
+| `wording` | The owner's wording document, by its absolute path, which the terms the owner has set aside are read out of |
 
-Every key is required and none may be empty.
+Every key but `wording` is required and none may be empty. Where `wording` is left out, no term is set
+aside.
+
+#### The owner's wording document
+
+A markdown document the owner keeps, read once as the service starts, by the server and by a job's
+runner alike: what a filing's title and parts are held to, and what a job's report is named under for
+(docs/rows.md, docs/runs.md). The service reads three of its sections, each a level-two heading over a
+list, and nothing else in it:
+
+- **`Banned terms`:** each item `<lang> · <term> → <instead>`, optionally followed by ` — ` and when it
+  applies. `<lang>` is `ko`, `ja` or `en`, the language of the lines the term is found on.
+- **`Uses in the word's own sense`:** each item `<lang> · <term> · <phrase> — <why>`, a phrase in which a
+  banned term listed above keeps its own sense and passes. The phrase must hold the term.
+- An item of any other shape in those sections, and every other section, is read past.
+
+A document that cannot be read, an item naming another language, or a phrase that names no banned term
+listed above it or does not hold it, sets no term aside: the service says why in its log and goes on,
+since nothing is held to a document nobody can read.
 
 ### `[server]`
 
@@ -116,6 +135,6 @@ A load that fails names the file and one of these:
 - the database address is of a kind the service does not keep rows in;
 - a deployment name is empty;
 - a listening address is not a socket address, or a unit's address or the server's own is not `http:`;
-- a host path is not absolute, or the lock wait is not above 0.
+- a host path or the wording document's path is not absolute, or the lock wait is not above 0.
 
 The server also refuses to start where `[server]`, `[units]` or `[host]` is left out.

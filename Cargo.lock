@@ -1700,6 +1700,7 @@ dependencies = [
  "job-policy",
  "job-receiver",
  "migration",
+ "pulldown-cmark",
  "queue-read",
  "regex",
  "sea-orm",

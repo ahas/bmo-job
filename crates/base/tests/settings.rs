@@ -78,6 +78,20 @@ fn the_checked_in_example_loads_with_neutral_names() {
     ],
     ["Owner", "Agent", "agent", "Agent", "receiver"]
   );
+  assert_eq!(names.wording.as_deref(), Some(Path::new("/srv/owner/WORDING.md")));
+  assert_eq!(
+    Settings::read(&with_database("sqlite::memory:")).unwrap().deployment.wording,
+    None,
+    "the wording document may be left out"
+  );
+  assert!(
+    Settings::read(
+      &with_database("sqlite::memory:")
+        .replace("receiver_unit = \"receiver\"", "receiver_unit = \"receiver\"\nwording = \"WORDING.md\"")
+    )
+    .is_err(),
+    "a wording document named by a relative path is refused"
+  );
 
   let server = settings.server.expect("the example stands a server");
   let units = settings.units.expect("the example names the units");

@@ -17,6 +17,7 @@ use job_codes::{ControlRefusal, JobError};
 use job_gate::GateClient;
 use job_policy::{Names, Policy};
 use job_receiver::{Effect, Holder, Holding, Receiver, ReceiverClient};
+use queue_rows::wording::{BannedTerm, set_aside_terms};
 use sea_orm::DatabaseConnection;
 use tokio::net::TcpListener;
 
@@ -39,6 +40,8 @@ pub struct Server<V> {
   pub gate: GateClient,
   pub receiver: ReceiverClient,
   pub verbs: V,
+  /// The terms the owner has set aside, read once out of the wording document the settings name.
+  pub banned: Vec<BannedTerm>,
   /// The moment the server was made, in epoch milliseconds.
   pub started_at: i64,
 }
@@ -83,6 +86,7 @@ impl<V: Verbs> Server<V> {
       events,
       db,
       verbs,
+      banned: set_aside_terms(settings),
       started_at: now_ms(),
     })
   }

@@ -53,6 +53,10 @@ pub struct Deployment {
   pub sender_name: Name,
   /// The service unit the chat receiver runs as.
   pub receiver_unit: Name,
+  /// The owner's wording document, which the terms the owner has set aside are read out of, where one is
+  /// named.
+  #[serde(default)]
+  pub wording: Option<AbsolutePath>,
 }
 
 /// The `[server]` section: where the server stands.

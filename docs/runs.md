@@ -92,7 +92,7 @@ server error is the service being out.
   uncommitted, or changed a file the graph names and left the graph alone; and is done otherwise.
 - **A done report** is handed over with notes under it: its shape (summary, detail and a short closing
   with figures), a screen it changed and said nothing of sweeping, a check it left undone, a word the
-  owner banned, what it left uncommitted, an item it left open, and a change reaching the graph its
+  owner set aside in the owner's wording document (docs/settings.md), what it left uncommitted, an item it left open, and a change reaching the graph its
   report does not answer for.
 
 ## The ending

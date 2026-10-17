@@ -10,7 +10,7 @@ this crate writes; the verbs, the routes and the command line stand on it (docs/
 A verb runs on a ground, which its caller gives it:
 
 - **The database,** the owner's private chat, the deployment's names and agent key, the policy, the
-  terms the owner has set aside, the providers a job's model may name, and the moment, in epoch
+  terms the owner has set aside (read out of the owner's wording document, docs/settings.md), the providers a job's model may name, and the moment, in epoch
   milliseconds.
 - **Who runs it:** whether a job runs it and under which run, the agent whose turn files what it files
   and the label that agent's reply stands under, and the person at a shell where neither does.
