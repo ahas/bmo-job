@@ -10,6 +10,7 @@ pub mod brain;
 pub mod desk;
 pub mod gate;
 pub mod graph;
+pub mod job;
 pub mod program;
 pub mod queue;
 pub mod receiver;
@@ -18,6 +19,7 @@ pub mod server;
 pub mod stub;
 pub mod testbed;
 pub mod todo;
+pub mod turns;
 pub mod web;
 
 use std::fs;

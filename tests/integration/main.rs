@@ -6,10 +6,12 @@
 mod support;
 
 mod ask_verb;
+mod control;
 mod final_turn;
 mod job_close;
 mod job_figures;
 mod job_guard;
+mod job_run;
 mod job_verbs;
 mod landing;
 mod machine_verbs;
