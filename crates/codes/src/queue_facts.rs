@@ -1,6 +1,6 @@
 //! The queue as the agent is told it in the owner's chat: workers standing with work waiting, a job's
-//! finish and what it means for its item, a chain of repairs held at its ceiling, and an open job that
-//! circles or stands still.
+//! finish and what it means for its item, a chain of repairs held at its ceiling, an open job that circles
+//! or stands still, and an item the owner stopped.
 
 use serde::{Deserialize, Serialize};
 use strum::{Display, IntoStaticStr, VariantNames};
@@ -51,6 +51,15 @@ pub enum QueueFact {
     last_activity_at: i64,
     last_line: Option<LastLine>,
     wait: Option<WaitMark>,
+  },
+  /// The owner stopped an item: held as stopped with his reason, its runs asked to end, and a work order of
+  /// it stopped keeping what it finished where `order_stopped`.
+  OwnerStoppedItem {
+    item: i64,
+    title: String,
+    reason: String,
+    runs: u32,
+    order_stopped: bool,
   },
 }
 

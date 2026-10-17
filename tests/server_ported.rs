@@ -292,6 +292,26 @@ async fn an_item_is_stopped_with_its_reason_and_an_order_read_before_the_queue_m
     served.post("/todo", json!({ "action": "stop", "id": 3, "why": "not now" })).await,
     (200, json!({ "moved": true, "stopped": 0 }))
   );
+
+  // The owner's chat is told of the stop as one fact.
+  let told: Vec<Value> = served
+    .receiver
+    .calls()
+    .into_iter()
+    .filter(|call| call.route == "POST /instructions")
+    .filter_map(|call| call.body)
+    .filter(|body| body["said"]["fact"]["code"] == "owner_stopped_item")
+    .collect();
+
+  assert_eq!(told.len(), 1, "{told:?}");
+  assert_eq!(told[0]["chat"], OWNER_CHAT);
+  assert_eq!(
+    told[0]["said"]["fact"],
+    json!({
+      "code": "owner_stopped_item", "item": 3, "title": "Fix the reader", "reason": "not now", "runs": 0,
+      "order_stopped": false
+    })
+  );
   assert_eq!(
     refused(&served.post("/todo", json!({ "action": "reorder", "id": 4, "order": [4, 9] })).await),
     (409, "reorder_stale")

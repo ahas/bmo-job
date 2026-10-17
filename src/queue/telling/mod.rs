@@ -13,6 +13,7 @@ mod quiet;
 mod report;
 mod runner;
 mod standing;
+mod stopped;
 mod words;
 
 pub use dead::WAITING_ENDING;

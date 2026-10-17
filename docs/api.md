@@ -524,6 +524,7 @@ launch.
 | `repair_ceiling` | `item`, `title`, `rounds`, `limit`, `[held]`, `last_job?`, `last_item?`, `outcome` | a chain of repairs had all its rounds and still failed, so it was held whole |
 | `job_circling` | `job_id`, `item?`, `worker`, `unit`, `starts`, `most` | an open job was started over past the most a run may be |
 | `job_quiet` | `job_id`, `item?`, `worker`, `unit`, `minutes`, `last_activity_at`, `last_line?`, `wait?` | an open job has done nothing for that long |
+| `owner_stopped_item` | `item`, `title`, `reason`, `runs`, `order_stopped` | the owner stopped an item: it is held as stopped with his reason, `runs` of its runs were asked to end, and `order_stopped` says whether a work order of it was stopped keeping what it finished |
 
 - **A job's finish:** `worker?`, `label`, `job_id?`, `item?`, `outcome` (the ending's word as its record
   keeps it), `ending?` (a job ending), `succeeded`, `attempts?` and `launch_failures?` (each a `count`

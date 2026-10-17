@@ -49,7 +49,8 @@ runner").
   once, words added told in the owner's chat, and an item stopped by the item stop below.
 - **An item stop** holds the item as stopped with the owner's reason inside its order's lock, stops a
   work order of it, marks every run of it stopped, gives back the pool places still waited for, and asks
-  the runs to end after it has answered; the queue's standing is told at once.
+  the runs to end after it has answered. The owner's chat is told of the stop as an `owner_stopped_item`
+  fact, and then the queue's standing at once.
 - **A work order's change** is made inside the order's lock on the body read there, saved, and told on
   the stream where the body moved; a change that freed the order's worker tells the queue's standing
   once the lock is let go.

@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use job_agency::{Agency, Execution};
 use job_codes::run_stop::{StopState, TargetStop};
-use job_codes::{JobError, RunStopAnswer, RunStopRefusal, WorkOrderRefusal};
+use job_codes::{JobError, QueueFact, RunStopAnswer, RunStopRefusal, WorkOrderRefusal};
 use queue_rows::order_lock::with_order_lock;
 use queue_rows::{todos, work_orders as rows};
 
@@ -50,7 +50,8 @@ struct Reached {
 impl Built {
   /// The owner's stop of an item (docs/verbs.md, "The server's verbs"), at `moment`: held as a stop with his
   /// reason, its work order stopped, every run of it marked and asked to end after the answer, the pool places
-  /// still waited for given back, and the queue's standing told. How many runs it asked to end.
+  /// still waited for given back, and the owner's chat told of the stop and then of the queue's standing. How
+  /// many runs it asked to end.
   pub(super) async fn stop_item(&self, id: i64, why: &str, moment: &str) -> Result<u32, Refusal> {
     let reason = why.trim().to_owned();
 
@@ -59,7 +60,7 @@ impl Built {
     }
 
     let db = &self.db;
-    let runs = with_order_lock(db, id, async {
+    let (runs, title, order_stopped) = with_order_lock(db, id, async {
       let item = todos::item(db, id).await?.ok_or_else(|| order_refused(WorkOrderRefusal::ItemAbsent))?;
 
       if item.done {
@@ -68,6 +69,7 @@ impl Built {
 
       let now = now_ms();
       let mut stopped: Vec<StoppedRun> = vec![];
+      let mut order_stopped = false;
 
       if let Some(mut order) = rows::read(db, id).await?
         && matches!(orders::text(&order, "status"), Some("active" | "paused"))
@@ -76,6 +78,7 @@ impl Built {
         stopped.extend(orders::stop(&mut order, &reason, now)?);
         rows::save(db, &mut order).await?;
         self.events.order_changed(id, &order);
+        order_stopped = true;
       }
 
       let units: Vec<String> = stopped.iter().filter_map(|run| run.unit.clone()).collect();
@@ -105,7 +108,7 @@ impl Built {
 
       todos::stop_hold(db, id, &reason, now).await?;
 
-      Ok::<_, Refusal>(stopped)
+      Ok::<_, Refusal>((stopped, item.title, order_stopped))
     })
     .await?;
     let units = self.units();
@@ -122,6 +125,13 @@ impl Built {
 
     let running: Vec<StoppedRun> = runs.into_iter().filter(|run| run.unit.is_some()).collect();
     let count = u32::try_from(running.len()).unwrap_or(u32::MAX);
+    let told = QueueFact::OwnerStoppedItem {
+      item: id,
+      title,
+      reason: reason.clone(),
+      runs: count,
+      order_stopped,
+    };
     let ending = (self.ground.clone(), self.db.clone(), self.settle);
 
     tokio::spawn(async move {
@@ -137,6 +147,7 @@ impl Built {
       }
     });
 
+    self.teller(&units).tell_owner_stopped(told).await?;
     self.tell_standing(moment, false).await?;
 
     Ok(count)
