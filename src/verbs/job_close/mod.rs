@@ -17,10 +17,10 @@ use self::gate::{
 };
 use super::checkout_setup::checkout_of;
 use super::job_guard::git_language::EnglishTest;
-use super::land::{landing_branch_of, pushed_from_nodes};
+use super::land::{home_said, land_held, landing_of};
 use super::node_land::{record_pending, setup_inputs_moved};
 use super::stand::{Answer, JobProcess, RunningJob, Stand, VerbError, last_job};
-use crate::job_run::checkout::landing::{LandOptions, LandingHold, Recheck, land_on_main};
+use crate::job_run::checkout::landing::{LandOptions, LandingHold, Recheck};
 use crate::job_run::checkout::units::{CheckoutUnits, TestbedLinks};
 use crate::job_run::checkout::{Checkout, is_work_branch};
 use crate::job_run::worktree::{preserved_work, recorded_baseline, worktree_state};
@@ -145,6 +145,10 @@ struct Close<'a> {
   others_open: Vec<String>,
   pushed: bool,
   main: Option<String>,
+  /// What holds the landing: here, or on a work node the operations machine's, which records what it lands.
+  hold: Option<LandingHold>,
+  /// What the operations machine said of a landing it held, the record's line among it.
+  home_said: Option<Vec<String>>,
   since: Option<String>,
   logs: PathBuf,
   runs: usize,
@@ -304,6 +308,7 @@ impl CloseHands for Close<'_> {
     let checkout = self.checkout.clone();
     let others_open = self.others_open.clone();
     let pushed = self.pushed;
+    let mut hold = self.hold.take();
     let mut flaky = Vec::new();
     let mut again = |from: &str| -> Option<String> {
       let ran =
@@ -332,9 +337,16 @@ impl CloseHands for Close<'_> {
       units: Some(&units),
       ..LandOptions::default()
     };
-    let mut hold = LandingHold::Here(stand.ground.host.locks.clone());
-    let landed = land_on_main(&checkout, policy, &stand.ground.documents, &main, options, &mut hold).await;
+    let landed = land_held(&checkout, policy, &stand.ground.documents, &main, options, &mut hold).await;
     let said = &policy.close.close;
+
+    if let Some(LandingHold::Home(_)) = &hold {
+      self.home_said = Some(home_said(&hold));
+    }
+
+    for line in home_said(&hold) {
+      say(&line);
+    }
 
     match landed {
       Err(refusal) => Some(Err(refusal.text(policy, &main))),
@@ -371,6 +383,11 @@ impl CloseHands for Close<'_> {
   }
 
   async fn record(&mut self) -> String {
+    // A landing the operations machine held was recorded there, and its last word is the record's line.
+    if let Some(said) = &self.home_said {
+      return said.last().cloned().unwrap_or_else(|| self.stand.policy.close.close.unrecorded.clone());
+    }
+
     let root = self.root.to_string_lossy().into_owned();
 
     record_pending(self.stand, &root, &self.head, self.job.as_ref(), None, &self.why).await
@@ -420,7 +437,8 @@ pub async fn job_close(
   let on_branch = is_work_branch(checkout.current_branch().as_deref());
   // A close run on a job's own branch lands the branch itself: rebased onto main before the suite, so the suite
   // runs on what would land, and landed once it has passed. Main is read off the base checkout.
-  let main = on_branch.then(|| landing_branch_of(&checkout, &rows));
+  let (landing_main, pushed, hold) = landing_of(stand, &checkout, &rows, Some(why.trim().to_owned()));
+  let main = on_branch.then_some(landing_main);
   let testbed = &stand.ground.testbed;
   let deployed = testbed.deployed(&root).await.map_err(testbed_failed)?.map(|deployed| deployed.commit);
   let pending: Vec<String> = testbed
@@ -446,7 +464,6 @@ pub async fn job_close(
     return Err(refused(stand, &refusal));
   }
 
-  let pushed = pushed_from_nodes(&checkout, &rows);
   // What a base checkout already had open when its job began is somebody else's, set aside by the landing.
   let others_open = match &main {
     Some(_) => {
@@ -517,6 +534,8 @@ pub async fn job_close(
     others_open,
     pushed,
     main,
+    hold,
+    home_said: None,
     since,
     logs,
     runs: 0,

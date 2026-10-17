@@ -124,6 +124,17 @@ Every key but `runner_environment`, `testbed_logs`, `brain` and `worker_homes` i
 and a wait that is not above 0, is refused when the file is loaded. The environment the user's systemd
 manager is reached on is the service's own process environment, not a setting.
 
+### `[node]`
+
+Where the file stands on a work node rather than on the operations machine (docs/verbs.md, "Where a verb
+stands"). The section is left out on the operations machine, and its presence is what tells a verb it runs
+on a node.
+
+| Key | What it names |
+|---|---|
+| `name` | The node this machine is, as the workers' rows name it in `node` |
+| `home` | The command, as a list of words, that runs this service's binary on the operations machine, such as an SSH login followed by the program; the verb's own words follow it. It may not be empty |
+
 ### `[words]`
 
 The words of the deployment's own language that the service's policy reads and writes by, one table to
@@ -141,6 +152,7 @@ A load that fails names the file and one of these:
 - the database address is of a kind the service does not keep rows in;
 - a deployment name is empty, or the owner's chat is 0 or not a whole number;
 - a listening address is not a socket address, or a unit's address or the server's own is not `http:`;
-- a host path or the wording document's path is not absolute, or the lock wait is not above 0.
+- a host path or the wording document's path is not absolute, or the lock wait is not above 0;
+- a node's name is empty, or its home command names no word.
 
 The server also refuses to start where `[server]`, `[units]` or `[host]` is left out.

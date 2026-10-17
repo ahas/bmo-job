@@ -623,10 +623,14 @@ pub async fn land_on_main(
 }
 
 /// A landing from a checkout on a work node: the repository's landing lock is the operations machine's, held
-/// there by `node-land` for as long as the node's landing runs; once the node has pushed, the same verb has the
-/// base checkout there follow the remote's main and, where the close asks, writes the commit down as waiting to
-/// go live.
+/// there by `node-land --worker <name>` for as long as the node's landing runs; once the node has pushed, the
+/// same verb has the base checkout there follow the remote's main and, where the close asks, writes the commit
+/// down as waiting to go live.
 pub struct HomeLanding {
+  /// The program that runs the service's binary on the operations machine, and the words before the verb's.
+  program: String,
+  args: Vec<String>,
+  worker: String,
   record: Option<String>,
   asked: Option<Child>,
   lines: Option<Lines<BufReader<ChildStdout>>>,
@@ -635,10 +639,13 @@ pub struct HomeLanding {
 }
 
 impl HomeLanding {
-  /// The hold of a node's landing, the commit written down as waiting to go live for this reason where one is
-  /// given.
-  pub fn new(record: Option<String>) -> Self {
+  /// The hold of a node's landing from the checkout of `worker`, reached through the operations machine's
+  /// `home` command, the commit written down as waiting to go live for this reason where one is given.
+  pub fn new(home: &job_base::Command, worker: &str, record: Option<String>) -> Self {
     Self {
+      program: home.program().to_owned(),
+      args: home.args().to_vec(),
+      worker: worker.to_owned(),
       record,
       asked: None,
       lines: None,
@@ -649,10 +656,9 @@ impl HomeLanding {
   // The operations machine asked to take the repository's landing lock, answering once it says it holds it;
   // false where it never did.
   fn take(&mut self) -> bool {
-    let Ok(program) = std::env::current_exe() else { return false };
-    let mut command = Command::new(program);
+    let mut command = Command::new(&self.program);
 
-    command.arg("node-land");
+    command.args(&self.args).args(["node-land", "--worker", &self.worker]);
 
     if let Some(record) = &self.record {
       command.args(["--record", record]);

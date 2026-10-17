@@ -144,6 +144,26 @@ tree = "/p"
 "#;
 
 #[test]
+fn a_node_is_read_where_given_with_its_name_and_the_words_of_its_home() {
+  let read = |node: &str| Settings::read(&format!("{}\n{node}", with_database("sqlite::memory:")));
+  let given = read("[node]\nname = \"n1\"\nhome = [\"ssh\", \"ops\", \"bmo-job\"]\n").unwrap();
+  let node = given.node.expect("the node is read");
+
+  assert_eq!(&*node.name, "n1");
+  assert_eq!(node.home.program(), "ssh");
+  assert_eq!(node.home.args(), ["ops", "bmo-job"]);
+  assert_eq!(read("").unwrap().node, None, "the operations machine has no node section");
+  assert!(
+    read("[node]\nname = \"n1\"\nhome = []\n")
+      .unwrap_err()
+      .to_string()
+      .contains("names no word")
+  );
+  assert!(read("[node]\nname = \" \"\nhome = [\"ssh\"]\n").is_err(), "a node is named");
+  assert!(read("[node]\nname = \"n1\"\n").is_err(), "the home is required");
+}
+
+#[test]
 fn the_host_is_read_where_given_with_absolute_paths_and_a_wait_above_nothing() {
   let read = |host: &str| Settings::read(&format!("{}\n{host}", with_database("sqlite::memory:")));
   let host = read(HOST).unwrap().host.expect("the host is read");

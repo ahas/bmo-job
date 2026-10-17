@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use job_base::Settings;
+use job_base::{NodeSettings, Settings};
 use job_codes::Fact;
 use job_policy::{Names, Policy, PolicyError};
 use job_receiver::{Instruction, Owner, Receiver, Said};
@@ -61,6 +61,8 @@ pub struct Stand {
   pub owner: Owner,
   /// The server's own address.
   pub server: Url,
+  /// The work node this machine is and how the operations machine is reached; none on the operations machine.
+  pub node: Option<NodeSettings>,
 }
 
 impl Stand {
@@ -86,6 +88,7 @@ impl Stand {
       names,
       owner,
       server,
+      node: settings.node.clone(),
     })
   }
 

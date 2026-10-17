@@ -20,6 +20,10 @@ command line reads its words into these verbs and prints what they answer.
   order between its plan and its final turn also carries `BMO_WORK_ORDER_STEP=1`.
 - **The server is told the queue moved** at its own `POST /queue/moved` (`[server] address`), so the
   screens read it again; a word that did not land is said on the error stream and fails nothing.
+- **A verb runs on a work node** where the settings have a `[node]` section (docs/settings.md): its `name`
+  is the node this machine is, and its `home` the command that runs this service's binary on the
+  operations machine. A checkout on a node is the worker's whose row names that node and that directory,
+  a directory written from the home (`~/`) being read against this machine's home.
 - **Times are epoch milliseconds,** and a moment a verb prints is UTC, named as UTC.
 
 ## What a verb answers
@@ -135,6 +139,13 @@ the worker rows name for it; what a base checkout had open before its job began 
 the rebase; a repository whose checkouts on work nodes push main takes the remote's main in first. It
 prints the commit main stands at and how many commits it put there, or why it refused.
 
+On a work node the landing is held on the operations machine: main is the checkout's own, read as the
+remote's, and taken in from the remote before each rebase; the verb starts the `[node] home` command
+followed by `node-land --worker <name>` for the worker this checkout is, with `--record <reason>` where a
+close records what it lands. It lands once that says `held`, writes `landed <commit>` or `nothing` to it,
+and passes on what it says after. A checkout on a node that no worker's row names, a home that never says
+`held`, or one that cannot be started, is refused as a landing whose lock was not had.
+
 `node-land --worker <name>` is the operations machine's side of a landing from that worker's checkout on
 a work node: it takes the landing lock of the repository the worker's base checkout belongs to, says
 `held`, and waits for the node's word on its standard input, `landed <commit>` or `nothing`. Landed, the
@@ -162,7 +173,9 @@ never deploys.
 - **Landed and recorded.** A job's branch lands on main, re-checked where its rebase took in commits
   the check did not cover; the commit is then recorded as waiting to go live through bmo-testbed. A
   suite that failed records nothing, so nothing the suite did not pass ever waits to go live. The last
-  line names each test that passed only when run once more.
+  line names each test that passed only when run once more. On a work node a job's branch lands under the
+  operations machine's hold ("Landing a branch"), and the record of what it landed is made there, through
+  `node-land --record` with the close's `--then` reason, its line the last the operations machine said.
 
 ## The shell hook
 

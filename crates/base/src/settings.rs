@@ -26,6 +26,8 @@ pub struct Settings {
   pub units: Option<Units>,
   /// The `[host]` section, which the server requires and the libraries read without.
   pub host: Option<Host>,
+  /// The `[node]` section, which stands only on a work node.
+  pub node: Option<NodeSettings>,
   /// The `[words]` section: the deployment's own words, one table to a policy part, which the policy
   /// reads and refuses at its own load where no part takes them; empty where the section is left out.
   #[serde(default)]
@@ -281,6 +283,45 @@ impl TryFrom<String> for Address {
     };
 
     Ok(Self { text, backend })
+  }
+}
+
+/// The `[node]` section: the work node this machine is, and how the operations machine's binary is reached.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NodeSettings {
+  /// The node, as the workers' rows name it.
+  pub name: Name,
+  /// The command that runs this service's binary on the operations machine, a verb's own words after it.
+  pub home: Command,
+}
+
+/// A command as the words it is run with, never none.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "Vec<String>")]
+pub struct Command(Vec<String>);
+
+impl TryFrom<Vec<String>> for Command {
+  type Error = &'static str;
+
+  fn try_from(words: Vec<String>) -> Result<Self, &'static str> {
+    if words.first().is_none_or(|program| program.trim().is_empty()) {
+      return Err("a node's home command names no word");
+    }
+
+    Ok(Self(words))
+  }
+}
+
+impl Command {
+  /// The program the command starts.
+  pub fn program(&self) -> &str {
+    &self.0[0]
+  }
+
+  /// The words the program is started with before a verb's own.
+  pub fn args(&self) -> &[String] {
+    &self.0[1..]
   }
 }
 
