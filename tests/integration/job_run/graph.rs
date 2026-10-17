@@ -1,5 +1,5 @@
-//! What a job's own commits are measured against (docs/runs.md, "How a job ends"): the graph, which the job is
-//! asked once to bring along and to answer for node by node; the design rules a changed screen is swept
+//! What a job's own commits are measured against (docs/runs.md, "The judgement"): the graph, which the job
+//! is asked once to bring along and to answer for node by node; the design rules a changed screen is swept
 //! against; and the commits somebody else made and the change somebody else left open, which are never held
 //! against the job.
 

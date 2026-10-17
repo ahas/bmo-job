@@ -1,6 +1,6 @@
-//! Filing a row (docs/rows.md, "Filing an item"): out of a conversation, out of the agent's own judgement on an
-//! unfinished note, and the worker, co-work, impact grounds and repair link set on it, with the words the verb
-//! does not read — each read back through the server's readings.
+//! Filing a row (docs/rows.md, "The verbs of filing"): out of a conversation, out of the agent's own
+//! judgement on an unfinished note, and the worker, co-work, impact grounds and repair link set on it, with
+//! the words the verb does not read — each read back through the server's readings.
 
 use serde_json::json;
 

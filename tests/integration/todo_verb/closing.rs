@@ -1,6 +1,7 @@
-//! The account a closing leaves on an item (docs/rows.md, "Closing an item"): what the closing refuses, what it
-//! keeps and hands over, the unfinished note resolved by hand or settled by the last of the rows raised out of
-//! it, and what reopening, resolving and dropping answer — read back through the server's readings.
+//! The account a closing leaves on an item (docs/rows.md, "The closing's readings"): what the closing
+//! refuses, what it keeps and hands over, the unfinished note resolved by hand or settled by the last of
+//! the rows raised out of it, and what reopening, resolving and dropping answer — read back through the
+//! server's readings.
 
 use bmo_job::queue::questions::{self, NewQuestion};
 use serde_json::{Value, json};

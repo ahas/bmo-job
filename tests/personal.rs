@@ -26,9 +26,11 @@ fn home_directory() -> Sought {
   }
 }
 
-/// A name standing as a whole word, as it is spelled or in any case.
-fn whole_word(what: &str, name: &str, any_case: bool) -> Sought {
-  let pattern = RegexBuilder::new(&format!(r"(?:^|[^\w]){}(?:[^\w]|$)", regex::escape(name)))
+/// A name standing as a whole word, as it is spelled or in any case. Where `hyphen_joins`, a word joined to
+/// others by a hyphen is an identifier of its own and not the name.
+fn whole_word(what: &str, name: &str, any_case: bool, hyphen_joins: bool) -> Sought {
+  let apart = if hyphen_joins { r"[^\w-]" } else { r"[^\w]" };
+  let pattern = RegexBuilder::new(&format!(r"(?:^|{apart}){}(?:{apart}|$)", regex::escape(name)))
     .case_insensitive(any_case)
     .build()
     .expect("a name's pattern builds");
@@ -97,7 +99,7 @@ fn sought() -> (Vec<Sought>, Option<PathBuf>) {
       ("the agent's name", &deployment.agent_name),
       ("the sender's name", &deployment.sender_name),
     ] {
-      sought.push(whole_word(what, name, false));
+      sought.push(whole_word(what, name, false, true));
     }
 
     if let Some(node) = &settings.node {
@@ -107,7 +109,7 @@ fn sought() -> (Vec<Sought>, Option<PathBuf>) {
 
   machines.sort();
   machines.dedup();
-  sought.extend(machines.iter().map(|name| whole_word("a machine's name", name, true)));
+  sought.extend(machines.iter().map(|name| whole_word("a machine's name", name, true, false)));
 
   (sought, settings.map(|(place, _)| place))
 }
@@ -149,8 +151,8 @@ fn a_home_is_a_folder_with_a_name_and_a_name_is_a_whole_word() {
   let home = format!("/{}/", "home");
   let sought = [
     home_directory(),
-    whole_word("the agent's name", "Ada", false),
-    whole_word("a machine's name", "box", true),
+    whole_word("the agent's name", "Ada", false, true),
+    whole_word("a machine's name", "box", true, false),
   ];
   let text = [
     format!("cd {home}someone/work"),
@@ -159,6 +161,8 @@ fn a_home_is_a_folder_with_a_name_and_a_name_is_a_whole_word() {
     "ADA_SETTINGS and Adamant and ada".to_owned(),
     "ssh BOX.local".to_owned(),
     "a boxed answer".to_owned(),
+    "X-Ada-Deploy=bot".to_owned(),
+    "the box-two checkout".to_owned(),
   ]
   .join("\n");
 
@@ -167,7 +171,8 @@ fn a_home_is_a_folder_with_a_name_and_a_name_is_a_whole_word() {
     [
       "sample:1: a home directory",
       "sample:3: the agent's name \"Ada\"",
-      "sample:5: a machine's name \"box\""
+      "sample:5: a machine's name \"box\"",
+      "sample:8: a machine's name \"box\""
     ]
   );
   assert_eq!(machine_names("box.example.org"), ["box.example.org", "box"]);

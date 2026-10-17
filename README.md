@@ -16,11 +16,13 @@ memories and brain holds through bmo-brain, and what a checkout's code graph nam
 | `migration/` | The schema of the tables the service owns, as migrations that run up and down |
 | `policy/` | The service's fixed numbers and words, as TOML files read by its policy loader |
 | `tools/` | The service's own tools, one folder a tool: `todo`, `launch` and `state`, each its `tool.toml`, its call schemas, its crate and its tests (docs/tools.md) |
+| `deploy/` | The service's user unit, which runs `bmo-job serve` out of the deploy tree (docs/deploy.md) |
 | `tests/` | The root package's tests: the repository checks; the agency, brain, gate, graph, receiver, testbed and web ports' contract tests, each against a stand-in for its unit: an in-process server, or for bmo-testbed a stand-in program; and the server's request tests, every route through the real server and the binary as a unit runs it |
 | `docs/` | The canonical statements of what the service does |
 
-At the root stand the Cargo workspace manifest, the version, `testbed.toml`, `rustfmt.toml`,
-`CLAUDE.md` and `settings.example.toml`, the example of the settings file a deployment gives.
+At the root stand the Cargo workspace manifest, the version, `testbed.toml` (bmo-testbed's declaration of how
+this repository is tested, checked, built and deployed, docs/deploy.md), `rustfmt.toml`, `CLAUDE.md` and
+`settings.example.toml`, the example of the settings file a deployment gives.
 
 ## Documents
 
@@ -36,6 +38,16 @@ At the root stand the Cargo workspace manifest, the version, `testbed.toml`, `ru
 | `docs/reading.md` | Reading the queue: an item as a person and as a worker reads it, the time it took, a room's jobs and a work order |
 | `docs/tools.md` | The tools: `todo`, `launch` and `state`, their entries, a call and its answer, and the manifest |
 | `docs/cli.md` | The command line: the binary `bmo-job` as `bmo` finds it, its nouns, what each stands on, and what it prints |
+| `docs/verbs.md` | The job's verbs: where a verb stands, the server's verbs, a job's question and wait, the clocks, borrowing, landing and closing, the shell hook, the TODO's edits and holds, a work order read and changed, research runs and what a job cost |
+| `docs/jobs.md` | Jobs: how a job runs, what it is told and reports, how it closes, fails and finishes, its time, its questions, and what the queue tells the agent of it |
+| `docs/todo.md` | The TODO: a row filed, approved, closed, edited, added to, held, wound down, merged and thrown out, and its unfinished note |
+| `docs/work-orders.md` | Work orders: a co-work item's plan, branches, build and final turn, its stops and retries, its checkout, reopening, and the verbs that change it |
+| `docs/worker-slots.md` | Support workers and their worktrees: the branch each job works on, landing on main, the nodes' checkouts, and a job writing only in its own checkout |
+| `docs/worker-language.md` | The language between the agent and its workers: what a worker reads, what it writes, and which hand translates |
+| `docs/job-tools.md` | What a job's shell is held to: its file writes, its commits, a graph file, and how this service's verbs answer |
+| `docs/live-claude-guard.md` | The shell hook in front of a job: a real Claude session opened only once said what for, the structure document, removals, stalling habits, heavy commands, the brain and other workers' checkouts |
+| `docs/research-runs.md` | Research runs: the keys and depths, a run's profile, its run in bmo-agency's ledger, its clock, and its branches' places in the pool |
+| `docs/deploy.md` | Deploying the service: what a release holds, where the service stands, and what gates a deployment |
 | `docs/checks.md` | The repository checks: no Hangul in code or tests, no personal data, the layout, the dependencies |
 
 ## Version
@@ -61,3 +73,6 @@ docs/cli.md:
 cargo run --bin bmo-job -- serve
 cargo run --bin bmo-job -- nouns
 ```
+
+Deployed, the service runs as the user unit `deploy/bmo-job.service`, `bmo-job serve` out of the deploy tree;
+bmo-testbed puts a commit live by `testbed.toml` (docs/deploy.md).

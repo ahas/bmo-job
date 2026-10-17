@@ -9,9 +9,9 @@ this crate writes; the verbs, the routes and the command line stand on it (docs/
 
 A verb runs on a ground, which its caller gives it:
 
-- **The database,** the owner's private chat, the deployment's names and agent key, the policy, the
-  terms the owner has set aside (read out of the owner's wording document, docs/settings.md), the providers a job's model may name, and the moment, in epoch
-  milliseconds.
+- **The database,** the owner's private chat, the deployment's names and agent key, the policy, the terms the
+  owner has set aside (read out of the owner's wording document, docs/settings.md), the providers a job's
+  model may name, and the moment, in epoch milliseconds.
 - **Who runs it:** whether a job runs it and under which run, the agent whose turn files what it files
   and the label that agent's reply stands under, and the person at a shell where neither does.
 - **Its hands,** what it does beyond the database, which the caller carries: the screens told the queue
@@ -20,15 +20,15 @@ A verb runs on a ground, which its caller gives it:
 - **Its units,** the calls it makes on other units: an instruction queued and a message read through
   bmo-receiver, a memory filed and the memories of a room read through bmo-brain, and a turn record kept
   through bmo-agency. A call that fails is refused with 502 under the unit's code (docs/api.md, "A call
-  on another unit").
+  on another unit: `UnitRefusal`").
 
 The chat agent's own turn is a run that is no job, filed by the deployment's agent.
 
 ## What a verb answers
 
-A verb answers a `TodoAnswer` code with its fields, or a refusal (docs/api.md, "TODO verbs"). An item is
-named by its number, or by the title of one that is not finished; a name no item answers to is refused
-`no_such_item`. Nothing a verb answers is a sentence in a person's language.
+A verb answers a `TodoAnswer` code with its fields, or a refusal (docs/api.md, "TODO verbs: `TodoRefusal`").
+An item is named by its number, or by the title of one that is not finished; a name no item answers to is
+refused `no_such_item`. Nothing a verb answers is a sentence in a person's language.
 
 ## The rows
 
@@ -65,8 +65,8 @@ named by its number, or by the title of one that is not finished; a name no item
   the messages the owner said it in and the agent's replies or the reply's text. Each message is read
   through bmo-receiver and copied in with its sender and time; the first one's sender is the requester. A
   missing part is refused `filing_parts_missing`, naming every part missing.
-- **Raising a row on the agent's judgement** takes a title, the room, the judgement, the item whose work raised
-  it and the strands of unfinished notes it came out of, as `<item>:<strand>`; it takes none of a
+- **Raising a row on the agent's judgement** takes a title, the room, the judgement, the item whose work
+  raised it and the strands of unfinished notes it came out of, as `<item>:<strand>`; it takes none of a
   conversation's parts. The agent is told the row is its own to approve and launch now. A note settled before
   that a raised row breaks again stands open again.
 - **Both filings** refuse a title or a part using a term the owner has set aside, outside its quoted

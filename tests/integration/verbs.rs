@@ -1,5 +1,6 @@
-//! A person's verbs on what runs (docs/verbs.md, "Overtime" and "What a job cost"): an overtime ask listed, kept
-//! or cut, and a work order's time merged across its runs — each on a stand of the test's own.
+//! A person's verbs on what runs (docs/verbs.md, "A run past its clock, answered" and "What a job cost"):
+//! an overtime ask listed, kept or cut, and a work order's time merged across its runs — each on a stand of
+//! the test's own.
 
 use bmo_job::verbs::cowork_timing::{Orders, Run, cowork_timing, run_seconds};
 use bmo_job::verbs::overtime::{USAGE, Verdict, answer, duration_seconds, list};

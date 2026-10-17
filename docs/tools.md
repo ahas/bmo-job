@@ -27,6 +27,12 @@ runs a tool's executable once a call; nothing here knows the host beyond what a 
 - **A worker's reading** is its lines; **a person's reading** and every other answer is the JSON the
   route or the verb answered, as the lines of the reading schema.
 
+## Where a tool is placed
+
+- **A deployment places each tool** in its folder's `.placed/` inside the release, the folder the tool host
+  reads: the executable the release's `bin/` holds, beside the manifest and the schema files it names. The
+  steps that do it stand in `testbed.toml` (docs/deploy.md).
+
 ## A call
 
 - **What a tool is handed** is one JSON object on standard input: `protocol` (1), `kind` (`call`), `entry`

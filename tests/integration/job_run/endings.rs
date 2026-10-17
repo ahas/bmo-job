@@ -1,6 +1,7 @@
-//! How a job's last answer is judged (docs/runs.md, "How a job ends"): a reply that reported nothing, a Claude
-//! Workflow walked away from, a task left running with the session asked once to settle it, and a change left
-//! open — the graph left behind or a file left uncommitted — with the session asked once to close it.
+//! How a job's last answer is judged (docs/runs.md, "The judgement"): a reply that reported nothing, a
+//! Claude Workflow walked away from, a task left running with the session asked once to settle it, and a
+//! change left open — the graph left behind or a file left uncommitted — with the session asked once to
+//! close it.
 
 use bmo_job::queue::outcomes::{JOB_FAILED, JOB_LIVE_TASKS, JOB_UNCLOSED};
 

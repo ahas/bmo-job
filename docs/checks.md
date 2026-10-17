@@ -23,7 +23,8 @@ test run carries them and a change that breaks a rule fails like any other test.
   - the name of the machine the check runs on, and of the work node the settings name in `[node]`,
     as a whole word in any case;
   - the deployment's names in `[deployment]`: the owner's, the agent's and the sender's, each as a
-    whole word as it is spelled.
+    whole word as it is spelled. A word joined to others by a hyphen, such as a unit's or a header's
+    name, is an identifier and not the name.
   A failure names each file and line, and what it found there.
 - **Where the names come from:** the deployment's own settings file, which is gitignored: the path
   `BMO_JOB_SETTINGS` names, otherwise `settings.toml` at the root. A file that is there and does not

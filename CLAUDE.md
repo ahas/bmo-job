@@ -10,6 +10,9 @@ These rules hold every change to this repository.
   true now, and the code is written to match.
 - A document states what is true now: no change history, no rationale told through an earlier
   design, no pasted source, signature or config fragment, and no file-and-line pins.
+- A document names no file outside this repository. Another unit is named by its name, and what it
+  keeps is its own documents' to state.
+- Every document a comment or a document cites, and every section it cites by name, exists.
 
 ## Boundaries
 
@@ -50,3 +53,11 @@ These rules hold every change to this repository.
    written to a file and the file read.
 
 A change is not done before stage 3 has passed.
+
+## Closing and deploying
+
+- A job commits its own steps and closes once, with `bmo-job job close` (docs/verbs.md, "A job's close"),
+  which lands the branch and records the commit as waiting to go live. It never deploys.
+- bmo-testbed deploys this repository by `testbed.toml`; the service runs as `deploy/bmo-job.service`,
+  `bmo-job serve` out of the deploy tree (docs/deploy.md). A change to what a release holds, the service's
+  unit or its start line changes `testbed.toml`, the unit and docs/deploy.md together.

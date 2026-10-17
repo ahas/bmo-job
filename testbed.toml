@@ -1,5 +1,5 @@
-# How the testbed tests and checks this repository, in the testbed's declaration format. Provisional: no
-# deploy is declared until the service has a binary and a deploy root.
+# How bmo-testbed tests, checks, builds and deploys this repository, in the testbed's declaration format
+# (docs/deploy.md).
 testbed = 0
 name = "bmo-job"
 
@@ -9,3 +9,54 @@ languages = ["cargo"]
 [check]
 quick = ["layout", "dependencies"]
 base_libraries = ["bmo-chat", "bmo-chat-client", "bmo-ui"]
+
+# Each tool under tools/ is checked by its own manifest (docs/tools.md, "The manifest").
+[tools]
+dir = "tools"
+
+# The service's binary and each tool's executable go into a release's bin/.
+[build]
+binaries = ["bmo-job", "todo-tool", "launch-tool", "state-tool"]
+
+# The service's own deploy tree, and the data root it shares with the services that read its files. The
+# settings stand under the data root as env/bmo-job.toml, and each release links to them as settings.toml, the
+# file the service reads in its working directory (docs/settings.md, "Where the file is").
+[deploy]
+root = "~/.local/share/bmo-job"
+link = "deploy"
+data_root = "~/.local/share/bmo/data"
+env_links = [{ link = "settings.toml", target = "env/bmo-job.toml" }]
+# The service's user unit, marked bot: the repository's one service, which runs `bmo-job serve`.
+units = ["deploy/*.service"]
+
+# Each tool is placed in its folder's .placed/, the folder the tool host reads: the executable the release's
+# bin/ holds, its manifest and the schemas its entries name (docs/tools.md, "Where a tool is placed").
+[[deploy.step]]
+id = "place-todo"
+phase = "before-flip"
+command = '''
+set -eu
+rm -rf tools/todo/.placed
+mkdir -p tools/todo/.placed
+cp bin/todo-tool tools/todo/tool.toml tools/todo/*.json tools/todo/.placed/
+'''
+
+[[deploy.step]]
+id = "place-launch"
+phase = "before-flip"
+command = '''
+set -eu
+rm -rf tools/launch/.placed
+mkdir -p tools/launch/.placed
+cp bin/launch-tool tools/launch/tool.toml tools/launch/*.json tools/launch/.placed/
+'''
+
+[[deploy.step]]
+id = "place-state"
+phase = "before-flip"
+command = '''
+set -eu
+rm -rf tools/state/.placed
+mkdir -p tools/state/.placed
+cp bin/state-tool tools/state/tool.toml tools/state/*.json tools/state/.placed/
+'''

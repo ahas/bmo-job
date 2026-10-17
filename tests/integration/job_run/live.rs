@@ -1,7 +1,8 @@
-//! A turn that answered with something still running, and a job stopped mid-turn (docs/runs.md, "How a job
-//! ends" and "The turns"): a work order's middle turn is judged by whether it produced its result and never by
-//! the final turn's check of what it left running, a planning step is still asked for its shape, a job that
-//! left its dev server up is asked once to settle it, and a stop is the stop rather than the work failing.
+//! A turn that answered with something still running, and a job stopped mid-turn (docs/runs.md, "The
+//! judgement" and "The turns"): a work order's middle turn is judged by whether it produced its result and
+//! never by the final turn's check of what it left running, a planning step is still asked for its shape, a
+//! job that left its dev server up is asked once to settle it, and a stop is the stop rather than the work
+//! failing.
 
 use std::path::Path;
 

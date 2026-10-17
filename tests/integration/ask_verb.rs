@@ -1,6 +1,7 @@
-//! A job's question to the owner (docs/verbs.md, "A job's question"): the refusals, the facts the owner's
-//! chat is told at each step, and the wait itself on a stand of the test's own, the facts queued through the
-//! bmo-receiver stand-in and the owner's answers, stops and talk written onto the row as the server writes them.
+//! A job's question to the owner (docs/verbs.md, "A job's question to the owner"): the refusals, the facts
+//! the owner's chat is told at each step, and the wait itself on a stand of the test's own, the facts
+//! queued through the bmo-receiver stand-in and the owner's answers, stops and talk written onto the row as
+//! the server writes them.
 
 use std::time::Duration;
 

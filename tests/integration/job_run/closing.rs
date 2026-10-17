@@ -1,7 +1,7 @@
-//! A job that answered with its own work still open (docs/runs.md, "How a job ends"): a Claude Workflow walked
-//! away from or never heard from again, a room's silence marker for an answer, a change left in the checkout,
-//! a scratch file, an aside ahead of the report, a graph left behind, and the one turn the session is asked to
-//! close it in. Each scenario is one run, and each case reads one side of it.
+//! A job that answered with its own work still open (docs/runs.md, "The judgement"): a Claude Workflow
+//! walked away from or never heard from again, a room's silence marker for an answer, a change left in the
+//! checkout, a scratch file, an aside ahead of the report, a graph left behind, and the one turn the
+//! session is asked to close it in. Each scenario is one run, and each case reads one side of it.
 
 use std::path::PathBuf;
 

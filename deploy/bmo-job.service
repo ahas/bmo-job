@@ -1,0 +1,21 @@
+# The service's user unit (docs/deploy.md). A deployment links it from the deploy tree and restarts it as the
+# repository's one service; it runs the release binary as `bmo-job serve` in the release, whose settings.toml
+# each release links to the data root's env/bmo-job.toml.
+[Unit]
+Description=bmo-job: the TODO, work orders and the job queue
+After=network-online.target
+# Without its settings the service does not stand, so the unit does not start where the data root holds none.
+ConditionPathExists=%h/.local/share/bmo/data/env/bmo-job.toml
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/bmo-job/deploy
+ExecStart=%h/.local/share/bmo-job/deploy/bin/bmo-job serve
+Restart=always
+RestartSec=2
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+# Linked, enabled, restarted and watched by every deployment.
+X-BMO-Deploy=bot
