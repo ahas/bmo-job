@@ -74,9 +74,20 @@ pub struct Fake {
   pub notices: Mutex<Vec<(i64, Notice)>>,
   pub launch_held: Mutex<Vec<LaunchHeld>>,
   pub cancelled: Mutex<Vec<String>>,
+  /// The names whose cancels were dropped.
+  pub dropped: Mutex<Vec<String>>,
+  /// Each pool request finished: its token, the outcome and whether it was cancelled.
+  pub finished: Mutex<Vec<(String, String, bool)>>,
   pub states: Mutex<Vec<(i64, InstructionState)>>,
+  /// The rooms whose registration is gone, their work told in the owner's chat.
+  pub removed_rooms: Vec<i64>,
+  /// The rooms answered by others than the one agent every other room is.
+  pub rooms: Vec<(i64, Answerers)>,
+  /// The runs the agency knows.
+  pub runs: Vec<Run>,
   pub last_lines: Mutex<Vec<(i64, LogLine)>>,
-  pub starts: u64,
+  /// How often each run has started, by its name; none named is a run that started once.
+  pub starts: Vec<(String, u64)>,
   pub tiers: Vec<Tier>,
   pub roles: Vec<PoolRole>,
   pub requests: Mutex<Vec<PoolRequest>>,
@@ -103,9 +114,14 @@ impl Default for Fake {
       notices: Mutex::default(),
       launch_held: Mutex::default(),
       cancelled: Mutex::default(),
+      dropped: Mutex::default(),
+      finished: Mutex::default(),
       states: Mutex::default(),
+      removed_rooms: vec![],
+      rooms: vec![],
+      runs: vec![],
       last_lines: Mutex::default(),
-      starts: 0,
+      starts: vec![],
       tiers: vec![],
       roles: vec![],
       requests: Mutex::default(),
@@ -121,6 +137,21 @@ impl Fake {
 
   pub fn notices(&self) -> Vec<(i64, Notice)> {
     locked(&self.notices).clone()
+  }
+
+  /// The executions asked cancelled, in order.
+  pub fn cancelled(&self) -> Vec<String> {
+    locked(&self.cancelled).clone()
+  }
+
+  /// The names whose cancels were dropped, in order.
+  pub fn dropped(&self) -> Vec<String> {
+    locked(&self.dropped).clone()
+  }
+
+  /// The pool requests finished, in order.
+  pub fn finished(&self) -> Vec<(String, String, bool)> {
+    locked(&self.finished).clone()
   }
 
   pub fn pin(&self, worker: &str, provider: &str, model: Option<&str>) {
@@ -191,6 +222,8 @@ impl Units for Fake {
   }
 
   fn drop_cancels<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Vec<String>, Refusal>> {
+    locked(&self.dropped).push(id.to_owned());
+
     ready(vec![id.to_owned()])
   }
 
@@ -209,7 +242,14 @@ impl Units for Fake {
     }])
   }
 
-  fn finish_request<'a>(&'a self, _: &'a str, _: &'a str, _: bool) -> BoxFuture<'a, Result<bool, Refusal>> {
+  fn finish_request<'a>(
+    &'a self,
+    token: &'a str,
+    outcome: &'a str,
+    cancel: bool,
+  ) -> BoxFuture<'a, Result<bool, Refusal>> {
+    locked(&self.finished).push((token.to_owned(), outcome.to_owned(), cancel));
+
     ready(true)
   }
 
@@ -242,27 +282,35 @@ impl Units for Fake {
   }
 
   fn room(&self, chat: i64) -> BoxFuture<'_, Result<Room, Refusal>> {
+    let removed = self.removed_rooms.contains(&chat);
+
     ready(Room {
       chat,
       owner_room: chat == OWNER,
-      registered: true,
-      work_chat: chat,
+      registered: !removed,
+      work_chat: if removed { OWNER } else { chat },
     })
   }
 
-  fn answerers(&self, _: i64) -> BoxFuture<'_, Result<Answerers, Refusal>> {
-    ready(Answerers {
+  fn answerers(&self, chat: i64) -> BoxFuture<'_, Result<Answerers, Refusal>> {
+    let named = self
+      .rooms
+      .iter()
+      .find(|(room, _)| *room == chat)
+      .map(|(_, answerers)| answerers.clone());
+
+    ready(named.unwrap_or_else(|| Answerers {
       default: "agent".into(),
       voice: "agent".into(),
       answerers: vec![Answerer {
         agent: "agent".into(),
         companion: false,
       }],
-    })
+    }))
   }
 
-  fn run(&self, _: i64) -> BoxFuture<'_, Result<Option<Run>, Refusal>> {
-    ready(None)
+  fn run(&self, run: i64) -> BoxFuture<'_, Result<Option<Run>, Refusal>> {
+    ready(self.runs.iter().find(|one| one.id == run).cloned())
   }
 
   fn claude_account_held<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<bool, Refusal>> {
@@ -304,8 +352,8 @@ impl Units for Fake {
     ready(vec![])
   }
 
-  fn run_starts<'a>(&'a self, _: &'a str, _: &'a str) -> BoxFuture<'a, Result<u64, Refusal>> {
-    ready(self.starts)
+  fn run_starts<'a>(&'a self, _: &'a str, run: &'a str) -> BoxFuture<'a, Result<u64, Refusal>> {
+    ready(self.starts.iter().find(|(name, _)| name == run).map_or(1, |(_, starts)| *starts))
   }
 
   fn job_last_line(&self, job: i64) -> BoxFuture<'_, Result<Option<LogLine>, Refusal>> {

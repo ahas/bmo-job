@@ -48,9 +48,10 @@ impl WriteTarget for Structure {
   }
 }
 
-/// The brain's directory (docs/settings.md, `[host] brain`), named by its absolute root.
+/// The brain's directory (docs/settings.md, `[host] brain`), named by its absolute root and by every way a
+/// command may spell that root under the home.
 pub struct Brain {
-  pub root: String,
+  pub roots: Vec<String>,
 }
 
 impl WriteTarget for Brain {
@@ -59,7 +60,7 @@ impl WriteTarget for Brain {
   }
 
   fn names(&self, text: &str) -> bool {
-    !self.root.is_empty() && text.contains(&self.root)
+    self.roots.iter().any(|root| !root.is_empty() && text.contains(root.as_str()))
   }
 
   fn git_writers(&self) -> &'static [&'static str] {
@@ -325,12 +326,17 @@ pub fn structure_file_refusal(path: &str) -> Option<String> {
     .then(|| format!("it edits {STRUCTURE_DOCUMENT}"))
 }
 
-/// Why this command writes into the brain, or nothing.
-pub fn brain_command_write(command: &str, root: &str) -> Option<String> {
+/// Why this command writes into the brain, or nothing: the brain at `root`, spelled as it stands or under
+/// `home`.
+pub fn brain_command_write(command: &str, root: &str, home: &str) -> Option<String> {
+  if root.is_empty() {
+    return None;
+  }
+
   write_reason(
     command,
     &Brain {
-      root: root.to_owned(),
+      roots: spellings(root, home),
     },
   )
 }

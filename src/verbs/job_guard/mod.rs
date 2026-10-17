@@ -179,17 +179,25 @@ async fn checkouts_of(db: &DatabaseConnection, run_name: &str) -> Option<JobChec
 /// Who may change the structure document: a job whose item the owner himself requested and whose own words
 /// name the document.
 pub async fn structure_edit_approved(db: &DatabaseConnection, run_name: &str, owner: i64) -> bool {
-  one(
+  let items = all(
     db,
-    r#"SELECT 1 AS "named" FROM "jobs" j JOIN "todos" t ON t."id" = j."todo_id"
-       WHERE j."unit" = $1 AND t."requester_id" = $2 AND (POSITION($3 IN t."title") > 0 OR POSITION($3 IN t."instruction") > 0)
-       LIMIT 1"#,
-    vec![run_name.into(), owner.into(), STRUCTURE_DOCUMENT.into()],
+    r#"SELECT t."title", t."instruction" FROM "jobs" j JOIN "todos" t ON t."id" = j."todo_id"
+       WHERE j."unit" = $1 AND t."requester_id" = $2"#,
+    vec![run_name.into(), owner.into()],
   )
   .await
-  .ok()
-  .flatten()
-  .is_some()
+  .unwrap_or_default();
+
+  // The words are searched here rather than in the statement, so every backend reads them alike.
+  items.iter().any(|item| {
+    ["title", "instruction"].iter().any(|part| {
+      item
+        .try_get::<Option<String>>("", part)
+        .ok()
+        .flatten()
+        .is_some_and(|words| words.contains(STRUCTURE_DOCUMENT))
+    })
+  })
 }
 
 async fn live_claude_opening(db: &DatabaseConnection, run_name: &str) -> Option<i64> {
@@ -370,7 +378,7 @@ async fn judged(hooked: &Hooked<'_>, text: &str) -> Result<Option<String>, Strin
     .map(|root| root.to_string_lossy().into_owned())
     .unwrap_or_default();
   let brain_write = match (&command, &input.path) {
-    (Some(command), _) => brain_command_write(command, &brain),
+    (Some(command), _) => brain_command_write(command, &brain, home),
     (None, Some(path)) if file_edit && brain_file_write(path, &brain) => Some("it edits the brain".into()),
     _ => None,
   };
