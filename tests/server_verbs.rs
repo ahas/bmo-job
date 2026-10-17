@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use support::server::{Served, code};
 
 fn took(served: &Served) -> Vec<(&'static str, String)> {
-  served.verbs.took()
+  served.verbs().took()
 }
 
 #[tokio::test]
@@ -266,7 +266,7 @@ async fn a_verbs_refusal_is_answered_as_it_stands() {
   let served = Served::start().await;
   let refusal: Refusal = JobError::from(TodoRefusal::JobCannotUnhold).into();
 
-  served.verbs.refuse_next(refusal);
+  served.verbs().refuse_next(refusal);
 
   let (status, body) = served.post("/todo", json!({ "action": "release", "id": 5 })).await;
 
@@ -398,7 +398,7 @@ async fn a_worker_is_added_changed_removed_and_placed() {
     ("add_worker", r#"WorkerAdd { name: "bench", label: None, path: Some("/w/bench"), preamble: None, dev_command: None }"#.to_owned()),
     (
       "update_worker",
-      r#"bench WorkerUpdate { label: None, path: None, preamble: None, dev_command: Some(None), downgrade_heal: None, keepalive_stopped: None, pinned_provider: Some("auto"), support_count: Some(2), support_keepalive: None }"#.to_owned()
+      r#"bench WorkerUpdate { label: None, path: None, preamble: None, dev_command: Some(None), keepalive_stopped: None, pinned_provider: Some("auto"), support_count: Some(2), support_keepalive: None }"#.to_owned()
     ),
     ("remove_worker", "bench".to_owned()),
     ("change_node", r#"AddCheckout { name: "bench", node: "far", path: None }"#.to_owned()),

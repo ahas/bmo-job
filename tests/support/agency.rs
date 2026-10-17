@@ -36,6 +36,7 @@ fn routes() -> Router<Shared> {
     .route("/workers/{worker}/pin", put(take).delete(take))
     .route("/workers/{worker}/keepalive-pause", put(take).delete(take))
     .route("/workers/{worker}/context-tokens", put(take))
+    .route("/workers/{worker}/words", post(take))
     .route("/providers", get(take))
     .route("/tiers", get(take))
     .route("/routes/resolve", post(take))

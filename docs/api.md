@@ -228,6 +228,7 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 | `order_step_holds` | 409 | `id`, `why` (an order hold) | a run of the item's work order holds its own item where it may not |
 | `not_held` | 409 | `id` | a hold is let go of an item that is not held |
 | `middle_step_closes` | 403 | | a middle step of a work order closes its item, which the order's final turn closes |
+| `reorder_stale` | 409 | | an order of the queue names other items than the open ones, as one read before the queue moved does |
 
 #### A job's question: `JobAskRefusal`
 
@@ -316,6 +317,12 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | `unit_not_started` | 500 | `job` | the job's unit did not start, and its row was closed as an error |
 | `prompt_not_written` | 500 | `why` | the job's text could not be written to the file its unit is handed |
 | `checkout_held` | 409 | `cwd`, `[holders]` | the checkout is at work already; each holder is `worker`, `job`, `item?`, `unit` and `borrowed` (true where the job borrowed the checkout) |
+| `checkout_held_by_order` | 409 | `cwd`, `[orders]` (items) | the checkout is held by the work orders of those items, and no other checkout of the worker is free |
+| `launch_item_at_work` | 409 | `item`, `[holders]` | the item launched is at work already, so it is not launched a second time |
+| `launch_beyond_count` | 409 | `worker`, `base` | the worker launched on is a support worker beyond its base's count |
+| `launch_held_by_machine` | 409 | `[held]` | the machine has no room for another job; `held` is why, as bmo-agency says it |
+| `requester_lacks` | 409 | `item`, `user`, `grant?` | the item's requester lacks the grant named, or, with none named, a Claude account of their own turned on |
+| `cowork_needs_item` | 400 | | a co-work is launched of no item |
 
 #### Branch records: `BranchSplitRefusal`
 
@@ -1147,9 +1154,11 @@ deploy that takes it lets go, or the owner on purpose (docs/schema.md, "The keys
 | `POST /task` | `chat`, `prompt` (words), `model?`, `item?`, `purpose?`, `worker?`, `cowork`, `started_by?` | a task answer |
 
 - A job is launched on a worker: the worker the launch names, or the one the item is assigned to, in a
-  free checkout of it; a co-work item starts its work order instead.
+  free checkout of it (docs/queue.md, "Launching a job"); a co-work item starts its work order instead,
+  through the order's own `start`, and a stopped or finished order is refused as that action refuses it.
 - **A task answer** is a `TaskAnswer`, and a launch naming no room or nothing to do is refused
-  `task_needs_room_and_work`.
+  `task_needs_room_and_work`; a worker no row names is refused `no_worker`.
+- An item a job is launched on is news on the event stream.
 
 ### The TODO
 
@@ -1210,10 +1219,18 @@ deploy that takes it lets go, or the owner on purpose (docs/schema.md, "The keys
 | `GET /workers/{name}` | | a worker |
 
 - **Adding** takes `label?`, `path?`, `preamble?` and `dev_command?`; a worker given no path is given a
-  directory of its own.
+  directory of its own under `[host] worker_homes` (docs/settings.md), and is refused `path_empty` where
+  no such directory is set.
 - **Updating** takes `label?`, `path?`, `preamble?`, `dev_command?` (an empty string clears either of
-  the last two), `downgrade_heal?`, `keepalive_stopped?`, `pinned_provider?` (`auto`, a provider or
-  `provider::model`), `support_count?` and `support_keepalive?`.
+  the last two), `keepalive_stopped?`, `pinned_provider?` (`auto`, a provider or `provider::model`),
+  `support_count?` and `support_keepalive?`. The pin and the keepalive are set through bmo-agency
+  ("Workers' runtime"); a worker's bench is made ready there once it is added or its dev command
+  changes, and a base's support rows are settled once its count, label or path changes.
+- **A checkout on a node** is added to a base standing on this machine, on a node of kind `ssh` whose
+  role, where it has one, carries `jobs`, under the name `<base>-<node>` and at the path given or the
+  base's own folder name followed by the node's beside it; it is removed only while no job holds it.
+  **Placing** a worker of its own on a node takes a path written there, starting with `/` or `~/`, and
+  bringing one back takes a path on this machine.
 - **A worker:** `name`, `label?`, `cwd?`, `icon?`, `builtin`, `preamble?`, `dev_command?`,
   `support_count`, `support_keepalive`, `support_of?`, `support_slot?`, `node?`, `role?`,
   `resting_since?` and `created_at`, as `workers` keeps it. A name no worker has is refused `no_worker`.
@@ -1225,8 +1242,9 @@ deploy that takes it lets go, or the owner on purpose (docs/schema.md, "The keys
 | `POST /worker-word` | `text` (words, or empty with files), `worker?` | 204 |
 
 - A word the owner said to one worker rather than to the agent: it launches nothing, its files are
-  written under the worker's workbench and named at the end of the words, and the words are offered to
-  the worker's own session. It comes as JSON, or as a form whose files stand under `file`; more files
+  written under the worker's workbench, as bmo-agency places it, and named at the end of the words, and
+  the words are handed to bmo-agency for the worker's own session ("Workers' runtime"). A worker no row
+  names is refused `no_worker`. It comes as JSON, or as a form whose files stand under `file`; more files
   than `queue.word_files` (docs/policy.md) are refused `too_many_files`, an empty file `file_empty`,
   and a file larger than `queue.word_file_bytes` `file_too_large`. A worker not given is the built-in
   worker.
@@ -1509,7 +1527,11 @@ whether its keepalive is paused, and the context it last carried.
 | Pause its keepalive | `PUT /workers/{worker}/keepalive-pause` | `at` | 204 |
 | Resume its keepalive | `DELETE /workers/{worker}/keepalive-pause` | | 204 |
 | Record its context | `PUT /workers/{worker}/context-tokens` | `tokens` | 204 |
+| Say words to it | `POST /workers/{worker}/words` | `text` | 204 |
 
+- **Words said to a worker** are the owner's to it rather than to the agent: bmo-agency writes them
+  down with their line in the worker's log and offers them to the worker's session at once, and a work
+  turn that hears words takes them in while it runs.
 - **A pin:** `provider` and `model?`; a pin with no model leaves the model to the route.
 - **The pin read is the one in force:** a support worker with no pin of its own is answered its base
   worker's.

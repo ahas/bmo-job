@@ -98,7 +98,7 @@ async fn the_owners_pause_and_a_deployments_hold_are_read_taken_and_let_go() {
   let resumed = r#"Moment { moment: "resumed", repeat: true, rides_ms: None }"#.to_owned();
 
   assert_eq!(
-    served.verbs.took(),
+    served.verbs().took(),
     [
       ("tell_queue", resumed.clone()),
       ("tell_queue", resumed.clone()),

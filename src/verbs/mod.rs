@@ -1,11 +1,13 @@
 //! The service's verbs as the server is built on them (docs/api.md, "Routes"): one trait to an area, each
-//! taking the typed request its routes read and answering what its routes answer. The verb code carries
-//! them; `Unbuilt` stands for a build that carries none, answering every verb `not_built`. Beside them stand
+//! taking the typed request its routes read and answering what its routes answer. `Built` carries them over
+//! the ported queue, and is what the binary serves on; `Unbuilt` stands for a build that carries none,
+//! answering every verb `not_built`. Beside them stand
 //! the verbs a job runs from its own shell and a person runs at one (docs/verbs.md), each on the stand.
 
 pub mod ask;
 pub mod borrow;
 pub mod branch_split;
+pub mod built;
 pub mod checkout_setup;
 pub mod cowork_timing;
 pub mod job;
@@ -41,6 +43,7 @@ use std::future::{Ready, ready};
 use job_base::Refusal;
 use job_codes::{ControlRefusal, JobError};
 
+pub use built::{Built, BuiltError};
 pub use jobs::{JobEnded, Moment, Telling};
 pub use pool::{Board, PoolBoard};
 pub use questions::{Questions, Settling};

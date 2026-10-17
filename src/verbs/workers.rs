@@ -33,7 +33,6 @@ pub struct WorkerUpdate {
   pub path: Option<String>,
   pub preamble: Option<Option<String>>,
   pub dev_command: Option<Option<String>>,
-  pub downgrade_heal: Option<bool>,
   pub keepalive_stopped: Option<bool>,
   /// `auto`, a provider or `provider::model`.
   pub pinned_provider: Option<String>,

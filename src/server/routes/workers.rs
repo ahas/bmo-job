@@ -105,7 +105,6 @@ fn update(asked: &Value) -> Result<WorkerUpdate, Refusal> {
     path: fields.words_or_none("path")?,
     preamble: bench_text(asked, "preamble"),
     dev_command: bench_text(asked, "dev_command"),
-    downgrade_heal: fields.boolean_or_none("downgrade_heal")?,
     keepalive_stopped: fields.boolean_or_none("keepalive_stopped")?,
     pinned_provider: fields.words_or_none("pinned_provider")?,
     support_count: fields.whole_or_none("support_count")?,

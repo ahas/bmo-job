@@ -118,8 +118,9 @@ directories it writes in, and the checkout the built-in worker works in. Every p
 | `tree` | The directory whose `bin/` holds the platform's command line, which a builder turn of a work order adds steps through |
 | `testbed_logs` | The directory bmo-testbed writes the logs of the runs it carries in, which a job's own commands may read and write unasked; it may be left out |
 | `brain` | The directory the brain's documents stand in, a write into which by a job holds the brain's editors off (docs/verbs.md, "The shell hook"); it may be left out, and then no write is read as the brain's |
+| `worker_homes` | The directory a worker added with no path is given a folder of its own under, named by the worker; it may be left out, and then a worker is added with a path alone |
 
-Every key but `runner_environment`, `testbed_logs` and `brain` is required where the section stands. A path that is not absolute,
+Every key but `runner_environment`, `testbed_logs`, `brain` and `worker_homes` is required where the section stands. A path that is not absolute,
 and a wait that is not above 0, is refused when the file is loaded. The environment the user's systemd
 manager is reached on is the service's own process environment, not a setting.
 

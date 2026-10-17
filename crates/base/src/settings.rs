@@ -127,6 +127,8 @@ pub struct Host {
   pub testbed_logs: Option<AbsolutePath>,
   /// The directory the brain's documents stand in, where one is given.
   pub brain: Option<AbsolutePath>,
+  /// The directory a worker added with no path is given its own folder under, where one is given.
+  pub worker_homes: Option<AbsolutePath>,
 }
 
 /// An absolute path on the machine the service runs on.

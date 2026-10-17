@@ -33,6 +33,29 @@ command line reads its words into these verbs and prints what they answer.
   code 0, 1 where it refused or failed, 2 where its words did not read, or the code of the command it
   ran.
 
+## The server's verbs
+
+The binary `bmo-job` serves its routes on one type that carries every trait the server is built on
+(docs/api.md, "Routes"), and starts the work-order runner beside it (docs/queue.md, "The work-order
+runner").
+
+- **It stands on the queue's ground** built from the settings, the policy and the closing's reader, the
+  deployment's names, and the server's own event stream, so the news it publishes reaches the screens
+  listening: `queue_moved` where a verb moved the queue, `order_changed` where it changed an order's body.
+- **The owner as a sender** is asked of bmo-receiver when a TODO action or the judgement of whose work
+  a launched item is first needs it, and kept from then on.
+- **The TODO actions** go through the TODO's verbs where one is theirs (docs/rows.md), the closing among
+  them; its hands are the server's own: the screens told on the stream, the queue's standing told at
+  once, words added told in the owner's chat, and an item stopped by the item stop below.
+- **An item stop** holds the item as stopped with the owner's reason inside its order's lock, stops a
+  work order of it, marks every run of it stopped, gives back the pool places still waited for, and asks
+  the runs to end after it has answered; the queue's standing is told at once.
+- **A work order's change** is made inside the order's lock on the body read there, saved, and told on
+  the stream where the body moved; a change that freed the order's worker tells the queue's standing
+  once the lock is let go.
+- **A stop of everything** asks the units of the open jobs that still stand first, then the open
+  executions that stand under none of them and are no co-worker, so the turn that asked is stopped last.
+
 ## A job's question to the owner
 
 `job ask` puts a question to the owner from the job's shell and waits on it there (docs/queue.md, "A

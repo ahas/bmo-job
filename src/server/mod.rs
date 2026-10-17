@@ -65,11 +65,20 @@ pub enum StartError {
 
 impl<V: Verbs> Server<V> {
   /// The server over a database the migrations have run on, with the units its settings name and the
-  /// verbs it is built on.
+  /// verbs it is built on, on an event stream of its own.
   pub fn new(db: DatabaseConnection, settings: &Settings, verbs: V) -> Result<Self, StartError> {
+    Self::on(db, settings, Events::new(), verbs)
+  }
+
+  /// The server on the event stream given, which the verbs it is built on publish their news on.
+  pub fn on(
+    db: DatabaseConnection,
+    settings: &Settings,
+    events: Events,
+    verbs: V,
+  ) -> Result<Self, StartError> {
     let units = settings.units.as_ref().ok_or(StartError::NoUnits)?;
     let receiver = ReceiverClient::new(units.receiver.url().clone())?;
-    let events = Events::new();
 
     Ok(Self {
       talking: Talking {

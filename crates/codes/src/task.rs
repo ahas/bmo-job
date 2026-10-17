@@ -59,6 +59,36 @@ pub enum TaskRefusal {
     cwd: String,
     holders: Vec<CheckoutHolder>,
   },
+  #[error(
+    "the checkout {cwd} is held by the work orders of {}, and no other checkout of the worker is free",
+    listed(&orders.iter().map(|item| format!("#{item}")).collect::<Vec<_>>())
+  )]
+  CheckoutHeldByOrder { cwd: String, orders: Vec<i64> },
+  #[error("#{item} is at work already ({}), so it is not launched a second time", listed(holders))]
+  LaunchItemAtWork {
+    item: i64,
+    holders: Vec<CheckoutHolder>,
+  },
+  #[error(
+    "{worker} is a support worker beyond {base}'s count, so nothing is launched on it; launch on {base}"
+  )]
+  LaunchBeyondCount { worker: String, base: String },
+  #[error(
+    "the machine has no room for another job ({}), and the queue is told again once it has",
+    listed(held)
+  )]
+  LaunchHeldByMachine { held: Vec<String> },
+  #[error(
+    "#{item}'s requester, user {user}, {}",
+    grant.as_ref().map_or_else(|| "has no Claude account of their own turned on to run it".to_owned(), |grant| format!("does not hold {grant}"))
+  )]
+  RequesterLacks {
+    item: i64,
+    user: String,
+    grant: Option<String>,
+  },
+  #[error("a co-work runs an item's work order, and this launch names no item")]
+  CoworkNeedsItem,
   #[error("there is no runner {runner}; the runners are {}", listed(runners))]
   RunnerUnknown { runner: String, runners: Vec<String> },
   #[error("a depth is one of {}", listed(depths))]
@@ -87,7 +117,8 @@ impl Refused for TaskRefusal {
       | Self::ItemlessNeedsWhy
       | Self::SessionLaunchesItem { .. }
       | Self::RunnerUnknown { .. }
-      | Self::RunnerDepthWrong { .. } => StatusCode::BAD_REQUEST,
+      | Self::RunnerDepthWrong { .. }
+      | Self::CoworkNeedsItem => StatusCode::BAD_REQUEST,
       Self::RunnerNotLaunched { .. } | Self::UnitNotStarted { .. } | Self::PromptNotWritten { .. } => {
         StatusCode::INTERNAL_SERVER_ERROR
       }
@@ -99,7 +130,12 @@ impl Refused for TaskRefusal {
       | Self::LaunchItemUnapproved { .. }
       | Self::LaunchItemOtherWorker { .. }
       | Self::LaunchWaits { .. }
-      | Self::CheckoutHeld { .. } => StatusCode::CONFLICT,
+      | Self::CheckoutHeld { .. }
+      | Self::CheckoutHeldByOrder { .. }
+      | Self::LaunchItemAtWork { .. }
+      | Self::LaunchBeyondCount { .. }
+      | Self::LaunchHeldByMachine { .. }
+      | Self::RequesterLacks { .. } => StatusCode::CONFLICT,
     }
   }
 }

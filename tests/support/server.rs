@@ -2,13 +2,18 @@
 //! migrations have run on, beside the stand-ins of the units it calls, and built on verbs that record each
 //! call and answer it from a set answer.
 
+use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
+use bmo_job::events::Events;
+use bmo_job::queue::ground::QueueGround;
 use bmo_job::server::{self, Server};
 use bmo_job::verbs::{
-  Board, Done, JobEnded, Moment, NodeChange, NodeCheckout, OrderAction, PoolBoard, Questions, RunStops,
-  RunnerLaunch, Runners, Settling, Stop, TaskLaunch, Tasks, Telling, TodoAction, TodoChanged, Todos,
-  WorkOrders, WorkerAdd, WorkerAdded, WorkerUpdate, WorkerWord, WorkerWords, Workers,
+  Board, Built, Done, JobEnded, Moment, NodeChange, NodeCheckout, OrderAction, PoolBoard, Questions,
+  RunStops, RunnerLaunch, Runners, Settling, Stop, TaskLaunch, Tasks, Telling, TodoAction, TodoChanged,
+  Todos, Verbs, WorkOrders, WorkerAdd, WorkerAdded, WorkerUpdate, WorkerWord, WorkerWords, Workers,
 };
 use job_base::{Refusal, Settings, run};
 use job_codes::job_questions::QuestionClock;
@@ -23,7 +28,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use url::Url;
 
-use super::{agency, gate, receiver};
+use super::{agency, gate, receiver, testbed};
 
 /// One call the verbs took: the verb and what it was handed, as Rust writes it out.
 pub type Took = (&'static str, String);
@@ -253,34 +258,126 @@ brain_token = "/dev/null"
   )
 }
 
+/// The host a server on the ported verbs stands on: every directory under the scratch one, bmo-testbed's
+/// stand-in, and every other program one that does nothing and succeeds.
+pub fn host_text(scratch: &Path, testbed: &Path) -> String {
+  let at = |name: &str| {
+    let path = scratch.join(name);
+
+    std::fs::create_dir_all(&path).expect("a scratch folder is made");
+    path.display().to_string()
+  };
+
+  format!(
+    r#"
+[host]
+source = "{source}"
+testbed = "{testbed}"
+systemctl = "{absent}"
+systemd_run = "{done}"
+runner = "{done}"
+runner_directory = "{scratch}"
+runner_path = "/usr/bin:/bin"
+locks = "{locks}"
+prompts = "{prompts}"
+lock_wait_seconds = 1
+launcher = "{done}"
+launcher_directory = "{scratch}"
+documents = "{documents}"
+tree = "{scratch}"
+worker_homes = "{homes}"
+"#,
+    source = at("source"),
+    testbed = testbed.display(),
+    done = DONE,
+    absent = scratch.join("no-systemctl").display(),
+    scratch = scratch.display(),
+    locks = at("locks"),
+    prompts = at("prompts"),
+    documents = at("documents"),
+    homes = at("homes"),
+  )
+}
+
+/// A program that does nothing and succeeds, standing for every program the host starts.
+pub const DONE: &str = "/usr/bin/true";
+
 /// A server running on loopback, stopped when it is dropped.
-pub struct Served {
+pub struct Served<V: Verbs = Fake> {
   pub base: Url,
   pub http: reqwest::Client,
-  pub server: Arc<Server<Fake>>,
-  pub verbs: Fake,
+  pub server: Arc<Server<V>>,
   pub agency: agency::Stub,
   pub gate: gate::Stub,
   pub receiver: receiver::Stub,
+  pub testbed: testbed::Stand,
+  /// The scratch directory the database and the host stand in.
+  pub scratch: TempDir,
   stop: Option<oneshot::Sender<()>>,
   serving: JoinHandle<std::io::Result<()>>,
-  _scratch: TempDir,
 }
 
 impl Served {
-  /// A server over a fresh scratch database.
+  /// A server on the verbs that record their calls, over a fresh scratch database.
   pub async fn start() -> Self {
+    Self::on(false, |db, settings, _| {
+      Server::new(db, settings, Fake::default()).expect("the server is made")
+    })
+    .await
+  }
+
+  /// The verbs that record their calls.
+  pub fn verbs(&self) -> &Fake {
+    &self.server.verbs
+  }
+}
+
+impl Served<Built> {
+  /// A server on the ported verbs, over a fresh scratch database and a host in the scratch directory whose
+  /// user manager stands, its stops given no while to settle.
+  pub async fn ported() -> Self {
+    Self::on(true, |db, settings, scratch| {
+      let run = scratch.join("run");
+
+      std::fs::create_dir_all(&run).expect("the runtime folder is made");
+      std::fs::write(run.join("bus"), "").expect("the bus stands");
+
+      let environment = BTreeMap::from([("XDG_RUNTIME_DIR".to_owned(), run.display().to_string())]);
+      let ground = QueueGround::of(settings, environment).expect("the queue's ground is built");
+      let events = Events::new();
+      let mut verbs = Built::on(db.clone(), ground, settings, events.clone()).expect("the verbs are built");
+
+      verbs.settle = Duration::ZERO;
+      Server::on(db, settings, events, verbs).expect("the server is made")
+    })
+    .await
+  }
+
+  /// The ported verbs.
+  pub fn verbs(&self) -> &Built {
+    &self.server.verbs
+  }
+}
+
+impl<V: Verbs> Served<V> {
+  async fn on(host: bool, make: impl FnOnce(DatabaseConnection, &Settings, &Path) -> Server<V>) -> Self {
     let scratch = tempfile::tempdir().expect("a scratch directory");
     let url = format!("sqlite://{}?mode=rwc", scratch.path().join("job.db").display());
     let (agency, gate, receiver) =
       (agency::Stub::start().await, gate::Stub::start().await, receiver::Stub::start().await);
-    let settings = settings(&url, &agency.address(), &gate.address(), &receiver.address());
+    let testbed = testbed::Stand::new();
+    let mut text = settings_text(&url, &agency.address(), &gate.address(), &receiver.address());
+
+    if host {
+      text.push_str(&host_text(scratch.path(), &testbed.program()));
+    }
+
+    let settings = Settings::read(&text).expect("the test settings read");
     let db = settings.database.url.connect(2).await.expect("the scratch database opens");
 
     Migrator::up(&db, None).await.expect("the migrations run up");
 
-    let verbs = Fake::default();
-    let server = Arc::new(Server::new(db, &settings, verbs.clone()).expect("the server is made"));
+    let server = Arc::new(make(db, &settings, scratch.path()));
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a loopback port is free");
     let base = Url::parse(&format!("http://{}/", listener.local_addr().expect("the port is bound")))
       .expect("the address reads");
@@ -293,13 +390,13 @@ impl Served {
       base,
       http: reqwest::Client::new(),
       server,
-      verbs,
       agency,
       gate,
       receiver,
+      testbed,
+      scratch,
       stop: Some(stop),
       serving,
-      _scratch: scratch,
     }
   }
 
@@ -347,7 +444,7 @@ impl Served {
   }
 }
 
-impl Drop for Served {
+impl<V: Verbs> Drop for Served<V> {
   fn drop(&mut self) {
     if let Some(stop) = self.stop.take() {
       let _ = stop.send(());

@@ -1,12 +1,14 @@
 //! The service's server (docs/api.md, "Routes"): the settings read, the database migrated up, the routes
-//! served on `[server] listen` until the process is told to stop, and the service declared to bmo-receiver
-//! as a holder of rooms' rows.
+//! served on `[server] listen` over the service's verbs until the process is told to stop, the work-order
+//! runner started beside them, and the service declared to bmo-receiver as a holder of rooms' rows.
 
 use std::process::ExitCode;
 use std::sync::Arc;
 
+use bmo_job::events::Events;
+use bmo_job::order_run::standing::{Standing, stand};
 use bmo_job::server::{self, Server};
-use bmo_job::verbs::Unbuilt;
+use bmo_job::verbs::Built;
 use job_base::Settings;
 use job_receiver::Receiver;
 use migration::{Migrator, MigratorTrait};
@@ -34,7 +36,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
   Migrator::up(&db, None).await?;
 
-  let server = Arc::new(Server::new(db, &settings, Unbuilt)?);
+  let events = Events::new();
+  let verbs = Built::of(db.clone(), &settings, events.clone())?;
+
+  stand(Standing {
+    queue: verbs.ground.clone(),
+    db: db.clone(),
+    policy: verbs.policy.clone(),
+    events: events.clone(),
+  });
+
+  let server = Arc::new(Server::on(db, &settings, events, verbs)?);
   let listener = TcpListener::bind(standing.listen).await?;
   let holder = server::holder(standing.address.url().to_string());
   let unit = standing.unit.to_string();

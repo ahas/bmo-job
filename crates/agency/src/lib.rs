@@ -147,6 +147,9 @@ pub trait Agency: Send + Sync {
   /// Records the context a worker carried last.
   fn record_context(&self, worker: &str, tokens: u64) -> impl Future<Output = Answer<()>> + Send;
 
+  /// Says the owner's words to a worker, for its session.
+  fn say_to_worker(&self, worker: &str, text: &str) -> impl Future<Output = Answer<()>> + Send;
+
   /// Lists the providers.
   fn providers(&self) -> impl Future<Output = Answer<Vec<Provider>>> + Send;
 

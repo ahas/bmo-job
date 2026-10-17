@@ -96,6 +96,8 @@ pub struct QueueGround {
   pub tree: PathBuf,
   /// The directory bmo-testbed writes its runs' logs in, where one is named.
   pub testbed_logs: Option<PathBuf>,
+  /// The directory a worker added with no path is given its own folder under, where one is named.
+  pub worker_homes: Option<PathBuf>,
   /// The terms the owner has set aside, read once out of the wording document the settings name.
   pub banned: Vec<BannedTerm>,
 }
@@ -144,6 +146,7 @@ impl QueueGround {
       documents: host.documents.to_path_buf(),
       tree: host.tree.to_path_buf(),
       testbed_logs: host.testbed_logs.as_deref().map(PathBuf::from),
+      worker_homes: host.worker_homes.as_deref().map(PathBuf::from),
       banned: set_aside_terms(settings),
     })
   }

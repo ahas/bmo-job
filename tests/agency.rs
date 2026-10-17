@@ -745,6 +745,19 @@ async fn record_context_puts_the_tokens() {
   );
 }
 
+#[tokio::test]
+async fn say_to_worker_posts_the_words() {
+  let stub = Stub::start().await;
+
+  stub.answer_empty("POST /workers/{worker}/words", 204);
+  stub.client().say_to_worker("worker-2", "look at the logs").await.unwrap();
+  stub.took(
+    "POST /workers/{worker}/words",
+    "/workers/worker-2/words",
+    Some(json!({ "text": "look at the logs" })),
+  );
+}
+
 // Routes, tiers and pins.
 
 #[tokio::test]

@@ -111,6 +111,7 @@ fn the_checked_in_example_loads_with_neutral_names() {
   assert_eq!(host.lock_wait_seconds.duration(), std::time::Duration::from_secs(20));
   assert_eq!(host.runner_environment.as_deref(), Some(Path::new("/srv/job/job.env")));
   assert_eq!(host.testbed_logs.as_deref(), Some(Path::new("/srv/job/testbed-logs")));
+  assert_eq!(host.worker_homes.as_deref(), Some(Path::new("/srv/job/worker-homes")));
 }
 
 #[test]
@@ -150,6 +151,15 @@ fn the_host_is_read_where_given_with_absolute_paths_and_a_wait_above_nothing() {
   assert_eq!(&*host.locks, Path::new("/l"));
   assert_eq!(host.runner_environment, None, "the environment file may be left out");
   assert_eq!(host.testbed_logs, None, "the testbed's log folder may be left out");
+  assert_eq!(host.worker_homes, None, "the workers' own folders may be left out");
+  assert_eq!(
+    read(&format!("{HOST}worker_homes = \"/h\"\n"))
+      .unwrap()
+      .host
+      .and_then(|host| host.worker_homes)
+      .as_deref(),
+    Some(Path::new("/h"))
+  );
   assert_eq!(host.lock_wait_seconds.duration(), std::time::Duration::from_secs(5));
   assert!(
     read(&HOST.replace("\"/l\"", "\"locks\""))

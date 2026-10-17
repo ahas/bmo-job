@@ -401,6 +401,14 @@ impl Agency for AgencyClient {
     self.done("record_context", request).await
   }
 
+  async fn say_to_worker(&self, worker: &str, text: &str) -> Answer<()> {
+    let request = self
+      .request(Method::POST, &["workers", worker, "words"], &[])
+      .json(&json!({ "text": text }));
+
+    self.done("say_to_worker", request).await
+  }
+
   async fn providers(&self) -> Answer<Vec<Provider>> {
     self.answer("providers", self.request(Method::GET, &["providers"], &[])).await
   }

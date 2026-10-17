@@ -165,6 +165,8 @@ pub enum TodoRefusal {
   NotHeld { id: i64 },
   #[error("a middle step of a work order does not close its item; the order's final turn closes it")]
   MiddleStepCloses,
+  #[error("the order names other items than the open ones, as an order read before the queue moved does")]
+  ReorderStale,
 }
 
 coded!(TodoRefusal);
@@ -173,7 +175,8 @@ impl Refused for TodoRefusal {
   fn status(&self) -> StatusCode {
     match self {
       Self::JobCannotUnhold | Self::BriefAgentOnly | Self::MiddleStepCloses => StatusCode::FORBIDDEN,
-      Self::NoWaitingCommits { .. }
+      Self::ReorderStale
+      | Self::NoWaitingCommits { .. }
       | Self::CommitNotOnMain { .. }
       | Self::CommitAlreadyLive { .. }
       | Self::NoDeployHold
