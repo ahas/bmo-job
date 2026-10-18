@@ -28,11 +28,18 @@ pub struct Call {
   pub authorization: Option<String>,
 }
 
-/// What a route answers: a status, and a JSON body where it has one.
+/// What a route answers: a status, and a body where it has one.
 #[derive(Clone)]
 struct Fixture {
   status: StatusCode,
-  body: Option<Value>,
+  body: Option<Said>,
+}
+
+/// A fixture's body: JSON, or a server-sent event stream written out whole, which ends where the text does.
+#[derive(Clone)]
+enum Said {
+  Json(Value),
+  Events(String),
 }
 
 #[derive(Default)]
@@ -81,8 +88,12 @@ pub async fn take(
   match fixture {
     Some(Fixture {
       status,
-      body: Some(body),
+      body: Some(Said::Json(body)),
     }) => (status, Json(body)).into_response(),
+    Some(Fixture {
+      status,
+      body: Some(Said::Events(text)),
+    }) => (status, [(header::CONTENT_TYPE, "text/event-stream")], text).into_response(),
     Some(Fixture { status, body: None }) => status.into_response(),
     None => {
       let said = json!({ "error": format!("No fixture is set for {route}."), "code": "no_fixture" });
@@ -122,7 +133,12 @@ impl Stub {
 
   /// Sets `route` to answer `status` with `body`.
   pub fn answer(&self, route: &str, status: u16, body: Value) {
-    self.set(route, status, Some(body));
+    self.set(route, status, Some(Said::Json(body)));
+  }
+
+  /// Sets `route` to answer 200 with a server-sent event stream of `text`, which ends where it does.
+  pub fn answer_events(&self, route: &str, text: &str) {
+    self.set(route, 200, Some(Said::Events(text.to_owned())));
   }
 
   /// Sets `route` to answer `status` with no body.
@@ -130,7 +146,7 @@ impl Stub {
     self.set(route, status, None);
   }
 
-  fn set(&self, route: &str, status: u16, body: Option<Value>) {
+  fn set(&self, route: &str, status: u16, body: Option<Said>) {
     let status = StatusCode::from_u16(status).expect("a fixture's status is a status");
 
     self.book().fixtures.insert(route.to_owned(), Fixture { status, body });

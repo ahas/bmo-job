@@ -4,6 +4,7 @@ mod events;
 mod health;
 mod holdings;
 mod holds;
+mod items;
 mod jobs;
 mod pool;
 mod questions;
@@ -63,6 +64,7 @@ pub fn all<V: Verbs>() -> Router<Arc<Server<V>>> {
     .merge(words::routes())
     .merge(sessions::routes())
     .merge(readings::routes())
+    .merge(items::routes())
     .merge(holdings::routes())
     .merge(events::routes())
 }

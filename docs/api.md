@@ -245,6 +245,7 @@ receiver. The crate `job-codes` holds them, one Rust module to an area and in it
 | `question_talk_number` | 400 | | a talk names no question by number |
 | `question_takes_no_talk` | 409 | `id` | the question takes no talk |
 | `question_talk_say` | 400 | | a talk has no words of its own |
+| `question_talk_settled` | 409 | `id` | a talk is written on a question already settled |
 | `question_banned_terms` | 400 | `[terms]` | the words use terms the owner has set aside |
 | `question_outside_hosting` | 400 | `[addresses]` | the words hand the owner a page hosted outside the deployment's own archive |
 | `question_absent` | 404 | `id` | there is no such question |
@@ -459,6 +460,7 @@ Each code is the unit's name, and the sentence names the call and how it failed.
 | `question_resumed` | `paused_left?`, `due_at?` | the question's clock was started again |
 | `question_paused_already` | `paused_left?`, `due_at?` | the clock was already stopped |
 | `question_not_paused` | `paused_left?`, `due_at?` | the clock was not stopped |
+| `question_talked` | `paused_left?`, `due_at?` | the owner's talk was written on the question and its clock stopped |
 
 #### Launching a job: `TaskAnswer`
 
@@ -1035,9 +1037,9 @@ What the service serves, on the address `[server] listen` binds and other units 
   what its verb answers. The verbs of the TODO, the work orders, a job's launch and its end, the
   questions, run stops, runners, workers, a worker's word and the co-worker pool board are the
   service's own verb code, each behind a trait the server is built on; the build that carries none for
-  a verb answers its routes `not_built`. The queue's holds, the readings, the work a worker session
-  holds, a room's holdings, the talk about an item and the event stream are served by the server
-  itself.
+  a verb answers its routes `not_built`. The queue's holds, the readings, the open items, a room's open
+  questions, the work a worker session holds, a room's holdings, the talk about an item and the event
+  stream are served by the server itself.
 
 ### Health
 
@@ -1112,13 +1114,26 @@ deploy that takes it lets go, or the owner on purpose (docs/schema.md, "The keys
 
 | Route | Request | Answer |
 |---|---|---|
+| `GET /questions/open?chat=` | | a list of open questions |
 | `POST /question` | `id`, and `chosen` (an option's number) or `answer` (words) | a question answer |
 | `POST /question-pause` | `id`, `paused` | a question answer |
+| `POST /question-talk` | `id`, `say` (words) | a question answer |
 
-- **An answer** settles the question with one of its options or with the owner's own words, never both.
-  The chat and the console settle the same row with the same conditional write, so whichever lands
-  first is what the job carries on with, and the one that lost is answered what it was settled on.
+- **The open questions** of a room are the questions asked in it that nothing has settled and whose wait
+  has not run out, the one asked last first. bmo-receiver reads them to take the owner's plain message
+  in his chat as the answer to the question waited on.
+- **An open question:** `id`, `[options]` in the order they were asked, and `talks`: whether the owner
+  may talk it over with the asker rather than only choose.
+- **An answer** settles the question with one of its options, by its number counted from zero, or with
+  the owner's own words, never both. The chat and the console settle the same row with the same
+  conditional write, so whichever lands first is what the job carries on with, and the one that lost is
+  answered what it was settled on.
 - **Stopping a question's clock** keeps what was left of its wait; **starting it again** gives that back.
+- **A talk** is a line of the owner's words written on an open question that takes talk, for the asker
+  to hear. It stops the question's clock as a line of talk does (docs/queue.md, "A job's question") and
+  is answered `question_talked` with where the clock then stands. A talk naming no question by number
+  is refused `question_talk_number`, one with no words `question_talk_say`, one on a question that takes
+  none `question_takes_no_talk`, and one on a question already settled `question_talk_settled`.
 - **A question answer** is a `QuestionAnswer`; a question that does not exist is refused
   `question_absent`, and an option it does not have `question_answer_wrong`.
 
@@ -1301,6 +1316,19 @@ sends only what changed and a fold forgets what it folded away.
   none (docs/reading.md, "A work order").
 - No such item is refused `item_absent`, and no such task `task_absent`.
 
+### The open items
+
+| Route | Request | Answer |
+|---|---|---|
+| `GET /items?open=1` | | `items`: a list of open items |
+
+- **The open items** are every item not finished, merged or set aside on a hold, oldest first.
+  bmo-receiver reads them to show an agent the work standing under the other agents.
+- **An open item:** `id`, `approved`, `status`, `title`, and `worker?`: the worker the item is
+  assigned to, where it is.
+- `open` is a flag, set bare or with any value but `false` or `0`, and must be set: the open items are
+  the one listing the route gives, and a request without it is refused `field_wrong`.
+
 ### A room's holdings
 
 | Route | Request | Answer |
@@ -1344,8 +1372,9 @@ HTTP to the address it is given.
 
 - **The address** is the base of every path below, a plain `http:` address of bmo-agency on the
   machine. An address of any other kind is refused when the client is made.
-- **A body is JSON, both ways,** with snake_case keys. A time is epoch milliseconds, a count and a
-  token count are whole numbers, and a field written with a question mark may be null.
+- **A body is JSON, both ways,** with snake_case keys, but for the machine's room, whose keys are
+  camelCase. A time is epoch milliseconds, but for the run ledger's, which are epoch seconds; a count and
+  a token count are whole numbers, and a field written with a question mark may be null.
 - **A path segment is an id as it stands,** percent-encoded where it needs to be.
 - **An answer with no body is 204.** An answer with a body is 200, or 201 where the call creates
   something.
@@ -1403,9 +1432,10 @@ service's.
   record is kept under), `mapping` (`model`, `effort?`, `tier?`, `answer_tokens?`), `resume` (an object
   holding `kind`: `auto`, `fresh`, or `session` with `id`), `cwd`, `name` (the run's name), `title`
   (what a person watching reads over the turn), `thread?`, `job?` (none for a research run's turn),
-  `chat`, `unit?`, `user?`, `work_key`, `hears_words` (whether words said to the worker are pushed
-  into the turn), and `variables` (an object of the variables the program the turn starts is started
-  with beside its own; empty where there are none).
+  `item?` (the item that job works, which bmo-agency names with the job behind the worker's place),
+  `chat`, `unit?`, `user?`, `work_key`, `hears_words` (whether words said to the worker are pushed into
+  the turn), and `variables` (an object of the variables the program the turn starts is started with
+  beside its own; empty where there are none).
 - **The program a turn starts** carries `BMO_RUN_NAME`, the turn's `name`, and `BMO_TASK_LOCKED=1`
   where the turn has a job, so the verbs it runs know whose job they work for (docs/verbs.md, "Where a
   verb stands").
@@ -1471,8 +1501,11 @@ A run is one entry of the run ledger: an agent's unit started, how deep it was, 
 | Close a run | `POST /runs/{id}/close` | `finished_at`, `outcome`, `context_tokens?` | 204 |
 | Read a run | `GET /runs/{id}` | | a run |
 
-- **A run's opening:** `agent`, `chat_id?`, `unit`, `depth`, `cap_ms?`, `started_at`, `started_by?`,
-  `search_id?`.
+- **A run's times,** `started_at` and `finished_at`, are epoch seconds both ways, as the ledger keeps
+  them and as bmo-receiver compares a run's start against a companion's reset.
+- **A run's opening:** `agent`, `chat_id?`, `unit`, `depth`, `cap_ms?` (milliseconds), `started_at`,
+  `started_by?`, `search_id?`: the number of the search the run carries, as bmo-artifact numbers its
+  searches.
 - **A run:** `id`, `agent`, `chat_id?`, `unit`, `depth`, `started_at`, `finished_at?`, `outcome?`,
   `context_tokens?`.
 - A run already closed keeps its closing, and is refused with 409.
@@ -1655,14 +1688,21 @@ as the tiers' capacity allows.
 | Call | Method and path | Request | Answer |
 |---|---|---|---|
 | Read the room on the machine | `GET /machine/room` | | the room |
-| Tell launches are held | `PUT /machine/launch-held` | `at`, `held` | 204 |
+| Tell launches are held | `POST /machine/launch-held` | `at`, `held` | `ok` |
+| Hear the room return | `GET /events?kinds=machine-room-returned` | | a server-sent event stream |
 
-- **The room:** `held` (why launches are held now, empty where there is room), `jobs`,
-  `browser_jobs`, `browsers`, and `details`: an object of every other reading of the machine,
-  handed on as it stands.
+- **The room:** `held` (why launches are held now, each an English sentence, empty where there is
+  room), `jobs` (the jobs at work on the machine), `browserJobs` (those whose place runs a browser) and
+  `browsers` (the browser main processes running).
 - **Launches held:** the service records them under its own setting `machine_launch_held` and tells
-  bmo-agency the reasons. bmo-agency watches the machine, and once the room returns it forgets the
-  notice and tells the queue through the service's own API. A notice with an empty `held` withdraws it.
+  bmo-agency when it held, in epoch milliseconds, and on what. A notice with an empty `held` withdraws
+  it. bmo-agency reads the room while a notice stands, and once nothing holds a launch it lets the
+  notice go and publishes `machine-room-returned`.
+- **The room returned:** the service listens to bmo-agency's stream for `machine-room-returned`, its
+  data `at` and `held`, from the moment it starts. On each it forgets `machine_launch_held` and tells
+  the agent how the queue stands at the moment `machine_room_returned`, again where it stood the same.
+  A stream that cannot be opened or that ends is opened again a few seconds later; what was published
+  while none was open is heard by nobody, and the queue's next moment tells it.
 
 #### Places
 

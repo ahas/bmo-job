@@ -10,6 +10,7 @@ pub mod instructions;
 pub mod job_start;
 pub mod jobs;
 pub mod launches;
+pub mod open_items;
 pub mod outcomes;
 pub mod overtime;
 pub mod paths;

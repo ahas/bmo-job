@@ -56,8 +56,9 @@ pub enum ResearchVerb {
     depth: u32,
     #[arg(long, allow_hyphen_values = true)]
     started_by: Option<String>,
+    /// The number of the search the run carries, as bmo-artifact numbers its searches.
     #[arg(long)]
-    search_id: Option<String>,
+    search_id: Option<i64>,
     /// Leaves the entry open on an answer, for `research close`.
     #[arg(long)]
     leave_open: bool,

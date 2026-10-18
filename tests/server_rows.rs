@@ -197,6 +197,84 @@ async fn a_rooms_holdings_name_its_open_items_and_waiting_questions() {
 }
 
 #[tokio::test]
+async fn a_rooms_open_questions_are_the_unsettled_ones_still_waiting_the_one_asked_last_first() {
+  let served = Served::start().await;
+  let far = 99_999_999_999_999_i64;
+
+  for (chat, options, due, settled, talks) in [
+    (-100, "a\nb", far, None, 1),
+    (-100, "c\nd\ne", far, None, 0),
+    (-100, "f\ng", far, Some(5), 1),
+    (-100, "h\ni", 2, None, 1),
+    (-200, "j\nk", far, None, 1),
+  ] {
+    served
+      .seed(
+        r#"INSERT INTO "job_questions" ("todo_id", "chat_id", "question", "options", "recommended", "why", "asked_at", "due_at", "settled_at", "talks")
+           VALUES (1, $1, 'Which?', $2, 0, 'Yours to say.', 1, $3, $4, $5)"#,
+        vec![chat.into(), options.into(), due.into(), settled.into(), talks.into()],
+      )
+      .await;
+  }
+
+  assert_eq!(
+    served.get("/questions/open?chat=-100").await,
+    (
+      200,
+      json!([
+        { "id": 2, "options": ["c", "d", "e"], "talks": false },
+        { "id": 1, "options": ["a", "b"], "talks": true },
+      ])
+    )
+  );
+  assert_eq!(served.get("/questions/open?chat=-300").await, (200, json!([])));
+
+  let (status, body) = served.get("/questions/open").await;
+
+  assert_eq!((status, code(&body)), (400, "field_wrong"));
+}
+
+#[tokio::test]
+async fn the_open_items_are_those_not_finished_merged_or_held_oldest_first_with_their_workers() {
+  let served = Served::start().await;
+
+  item(&served, 3, "Waiting", -100).await;
+  item(&served, 1, "Given out", -100).await;
+  item(&served, 2, "Finished", -100).await;
+  item(&served, 4, "Merged", -100).await;
+  item(&served, 5, "Held", -100).await;
+  item(&served, 6, "Not approved", -100).await;
+
+  for change in [
+    r#"UPDATE "todos" SET "worker" = 'worker-a', "status" = 'running' WHERE "id" = 1"#,
+    r#"UPDATE "todos" SET "done" = 1 WHERE "id" = 2"#,
+    r#"UPDATE "todos" SET "merged_into" = 3 WHERE "id" = 4"#,
+    r#"UPDATE "todos" SET "held_at" = 5 WHERE "id" = 5"#,
+    r#"UPDATE "todos" SET "approved" = 0 WHERE "id" = 6"#,
+  ] {
+    served.seed(change, vec![]).await;
+  }
+
+  assert_eq!(
+    served.get("/items?open=1").await,
+    (
+      200,
+      json!({ "items": [
+        { "id": 1, "approved": true, "status": "running", "title": "Given out", "worker": "worker-a" },
+        { "id": 3, "approved": true, "status": "waiting", "title": "Waiting", "worker": null },
+        { "id": 6, "approved": false, "status": "waiting", "title": "Not approved", "worker": null },
+      ] })
+    )
+  );
+
+  for asked in ["/items", "/items?open=0"] {
+    let (status, body) = served.get(asked).await;
+
+    assert_eq!((status, code(&body)), (400, "field_wrong"), "{asked}");
+  }
+}
+
+#[tokio::test]
 async fn the_readings_read_the_queue_an_item_a_rooms_jobs_and_a_work_order() {
   let served = Served::start().await;
 

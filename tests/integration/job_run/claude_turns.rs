@@ -43,6 +43,12 @@ async fn the_agent_s_change_that_no_working_turn_took_is_asked_over_in_a_round_o
     .unwrap();
 
   assert!(ran.ended(JOB_DONE, true), "{ran:?}");
+  // Each turn names its job and the item the job works, for bmo-agency to name behind the worker's place.
+  assert!(
+    bench.agent.asked().iter().all(|asked| asked.job.is_some() && asked.item == Some(5)),
+    "{:?}",
+    bench.agent.asked()
+  );
   assert!(delivered.is_some());
   assert!(bench.agent.asides().is_empty());
   assert!(

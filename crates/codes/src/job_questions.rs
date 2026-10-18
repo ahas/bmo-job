@@ -99,7 +99,7 @@ pub enum PaneOption {
   Leave,
 }
 
-/// What the owner's answer to a question, or a stop or start of its clock, came to.
+/// What the owner's answer to a question, a stop or start of its clock, or his talk on it came to.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, IntoStaticStr, VariantNames)]
 #[serde(tag = "code", rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
@@ -113,6 +113,7 @@ pub enum QuestionAnswer {
   QuestionResumed(QuestionClock),
   QuestionPausedAlready(QuestionClock),
   QuestionNotPaused(QuestionClock),
+  QuestionTalked(QuestionClock),
 }
 
 coded!(QuestionAnswer);

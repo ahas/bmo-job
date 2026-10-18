@@ -18,10 +18,12 @@ pub mod workers;
 
 use std::future::Future;
 
+use futures_util::stream::BoxStream;
+
 pub use client::AgencyClient;
 pub use executions::Execution;
 pub use log::{JobLines, LogLine, LogNote, ToolCall, ToolResult};
-pub use machine::{LaunchHeld, Room};
+pub use machine::{LaunchHeld, Room, RoomReturned};
 pub use nodes::{Node, SshReach, WorkMachine};
 pub use places::{BranchSlots, Slot, Workbench};
 pub use pool::{
@@ -67,6 +69,10 @@ pub enum AgencyError {
 
 /// What a call on bmo-agency comes back with.
 pub type Answer<T> = Result<T, AgencyError>;
+
+/// Each time bmo-agency says the machine's room returned, for as long as its stream stays open; a failure
+/// reading it ends the stream.
+pub type RoomReturns = BoxStream<'static, Answer<RoomReturned>>;
 
 /// Every call the service makes on bmo-agency. A read of one thing by its id answers `None` where
 /// bmo-agency has no such thing.
@@ -247,6 +253,10 @@ pub trait Agency: Send + Sync {
 
   /// Tells bmo-agency launches are held, and why.
   fn tell_launch_held(&self, notice: &LaunchHeld) -> impl Future<Output = Answer<()>> + Send;
+
+  /// Hears bmo-agency say the machine's room returned, each time from the moment the stream opens until
+  /// it ends.
+  fn room_returns(&self) -> impl Future<Output = Answer<RoomReturns>> + Send;
 
   /// Reads a worker's workbench.
   fn workbench(&self, worker: &str) -> impl Future<Output = Answer<Workbench>> + Send;

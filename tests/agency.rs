@@ -5,12 +5,13 @@ mod support;
 
 use std::path::PathBuf;
 
+use futures_util::StreamExt;
 use job_agency::{
   Agency, AgencyClient, AgencyError, BranchSlots, Context, Delivery, Execution, JobLines, LaunchHeld,
   LogLine, Mapping, Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, PoolRole, PoolRoom,
-  PoolState, Provider, Reservation, ReservationAsking, ReservationState, Room, RouteAsk, Run, RunClosing,
-  RunOpening, Scope, Session, SessionId, SessionState, Slot, SshReach, Start, Tier, ToolCall, ToolResult,
-  TurnRecord, TurnRecordKind, WorkMachine, Workbench, WorkerRuntime,
+  PoolState, Provider, Reservation, ReservationAsking, ReservationState, Room, RoomReturned, RouteAsk, Run,
+  RunClosing, RunOpening, Scope, Session, SessionId, SessionState, Slot, SshReach, Start, Tier, ToolCall,
+  ToolResult, TurnRecord, TurnRecordKind, WorkMachine, Workbench, WorkerRuntime,
 };
 use serde_json::{Map, Value, json};
 use support::agency::Stub;
@@ -376,7 +377,7 @@ async fn open_run_posts_the_opening_and_reads_the_id() {
     cap_ms: Some(60_000),
     started_at: 4_000,
     started_by: None,
-    search_id: Some("search-1".into()),
+    search_id: Some(12),
   };
   let id = stub.client().open_run(&opening).await.unwrap();
 
@@ -392,7 +393,7 @@ async fn open_run_posts_the_opening_and_reads_the_id() {
       "cap_ms": 60_000,
       "started_at": 4_000,
       "started_by": null,
-      "search_id": "search-1"
+      "search_id": 12
     })),
   );
 }
@@ -1243,19 +1244,13 @@ async fn resting_reads_the_agents_rest() {
 // The machine's room.
 
 #[tokio::test]
-async fn machine_room_reads_the_room_with_its_details_as_they_stand() {
+async fn machine_room_reads_the_room_by_its_camel_case_keys() {
   let stub = Stub::start().await;
 
   stub.answer(
     "GET /machine/room",
     200,
-    json!({
-      "held": ["memory"],
-      "jobs": 3,
-      "browser_jobs": 1,
-      "browsers": 2,
-      "details": { "testbed": { "busy": true } }
-    }),
+    json!({ "held": ["memory"], "jobs": 3, "browserJobs": 1, "browsers": 2 }),
   );
 
   let room = stub.client().machine_room().await.unwrap();
@@ -1267,26 +1262,80 @@ async fn machine_room_reads_the_room_with_its_details_as_they_stand() {
       jobs: 3,
       browser_jobs: 1,
       browsers: 2,
-      details: object(json!({ "testbed": { "busy": true } })),
     }
   );
   stub.took("GET /machine/room", "/machine/room", None);
 }
 
 #[tokio::test]
-async fn tell_launch_held_puts_the_notice() {
+async fn tell_launch_held_posts_the_notice_and_takes_its_ok() {
   let stub = Stub::start().await;
   let notice = LaunchHeld {
     at: 8_000,
     held: vec!["memory".into()],
   };
 
-  stub.answer_empty("PUT /machine/launch-held", 204);
+  stub.answer("POST /machine/launch-held", 200, json!({ "ok": true }));
   stub.client().tell_launch_held(&notice).await.unwrap();
   stub.took(
-    "PUT /machine/launch-held",
+    "POST /machine/launch-held",
     "/machine/launch-held",
     Some(json!({ "at": 8_000, "held": ["memory"] })),
+  );
+}
+
+#[tokio::test]
+async fn room_returns_hears_only_the_room_returning_until_the_stream_ends() {
+  let stub = Stub::start().await;
+
+  stub.answer_events(
+    "GET /events",
+    concat!(
+      ": the line is open\n\n",
+      "event: machine-room-returned\ndata: {\"at\":8000,\"held\":[\"memory\"]}\n\n",
+      "event: nodes-moved\ndata: {}\n\n",
+      "event: machine-room-returned\ndata: {\"at\":9000,\"held\":[]}\n\n",
+    ),
+  );
+
+  let heard: Vec<RoomReturned> = stub
+    .client()
+    .room_returns()
+    .await
+    .unwrap()
+    .map(|returned| returned.unwrap())
+    .collect()
+    .await;
+
+  assert_eq!(
+    heard,
+    [
+      RoomReturned {
+        at: 8_000,
+        held: vec!["memory".into()],
+      },
+      RoomReturned {
+        at: 9_000,
+        held: vec![],
+      },
+    ]
+  );
+  stub.took("GET /events", "/events?kinds=machine-room-returned", None);
+}
+
+#[tokio::test]
+async fn room_returns_hands_on_a_refused_stream() {
+  let stub = Stub::start().await;
+
+  stub.answer("GET /events", 503, json!({ "error": "Not now.", "code": "not-now" }));
+
+  let Err(failed) = stub.client().room_returns().await else {
+    panic!("a refused stream is a failure");
+  };
+
+  assert!(
+    matches!(&failed, AgencyError::Refused { call: "room_returns", status: 503, code, .. } if code == "not-now"),
+    "{failed}"
   );
 }
 

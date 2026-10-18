@@ -178,7 +178,8 @@ impl Tasks for Built {
     }
 
     // Room on the machine, asked once the item is owed no refusal of its own: a launch the machine has no
-    // room for is written down and bmo-agency told, which tells the queue again once there is room.
+    // room for is written down and bmo-agency told, and the queue is told again once it says the room
+    // returned.
     let held = units.machine_room().await?.held;
 
     if !held.is_empty() {

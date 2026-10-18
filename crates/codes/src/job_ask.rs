@@ -32,6 +32,8 @@ pub enum JobAskRefusal {
   QuestionTakesNoTalk { id: i64 },
   #[error("the talk has no words of its own")]
   QuestionTalkSay,
+  #[error("question {id} is settled already and takes no more talk")]
+  QuestionTalkSettled { id: i64 },
   #[error("the words use terms the owner has set aside: {}", listed(.terms))]
   QuestionBannedTerms { terms: Vec<String> },
   #[error("the words hand the owner pages hosted outside the deployment's own archive: {}", listed(.addresses))]
@@ -47,7 +49,7 @@ coded!(JobAskRefusal);
 impl Refused for JobAskRefusal {
   fn status(&self) -> StatusCode {
     match self {
-      Self::QuestionTakesNoTalk { .. } => StatusCode::CONFLICT,
+      Self::QuestionTakesNoTalk { .. } | Self::QuestionTalkSettled { .. } => StatusCode::CONFLICT,
       Self::QuestionAbsent { .. } => StatusCode::NOT_FOUND,
       _ => StatusCode::BAD_REQUEST,
     }

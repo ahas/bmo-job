@@ -11,7 +11,8 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::response::{IntoResponse, Response};
-use job_agency::AgencyClient;
+use futures_util::StreamExt;
+use job_agency::{Agency, AgencyClient};
 use job_base::{Refusal, Settings};
 use job_codes::{ControlRefusal, JobError};
 use job_gate::GateClient;
@@ -23,11 +24,19 @@ use tokio::net::TcpListener;
 
 use crate::events::Events;
 use crate::now_ms;
+use crate::queue::launches::MACHINE_LAUNCH_HELD_KEY;
+use crate::queue::settings;
 use crate::talk::{Talking, Talks};
-use crate::verbs::Verbs;
+use crate::verbs::{Moment, Verbs};
 
 /// How often the service declares itself a holder again until bmo-receiver takes it.
 const DECLARE_AGAIN: Duration = Duration::from_secs(60);
+
+/// How long the service waits to open bmo-agency's event stream again once it could not or it ended.
+const LISTEN_AGAIN: Duration = Duration::from_secs(5);
+
+/// The moment the queue is told at when the machine's room returned.
+pub const ROOM_RETURNED: &str = "machine_room_returned";
 
 /// Everything a route stands on.
 pub struct Server<V> {
@@ -148,6 +157,41 @@ pub async fn declare_holder(receiver: ReceiverClient, unit: String, holder: Hold
 
     tokio::time::sleep(DECLARE_AGAIN).await;
   }
+}
+
+/// bmo-agency's word that the machine's room returned, heard for as long as the process runs: its stream
+/// opened again a few seconds after it could not be opened or it ended (docs/api.md, "The machine's room").
+pub async fn hear_room_returns<V: Verbs>(server: Arc<Server<V>>) {
+  loop {
+    if let Err(failed) = room_returns(&server).await {
+      eprintln!("bmo-job: the machine's room returning is not heard: {failed}");
+    }
+
+    tokio::time::sleep(LISTEN_AGAIN).await;
+  }
+}
+
+/// One stream of bmo-agency's word that the machine's room returned, heard until it ends: each time, the
+/// held launch the service wrote down forgotten and the queue told again where it stood the same.
+pub async fn room_returns<V: Verbs>(server: &Server<V>) -> Result<(), Refusal> {
+  let mut returns = server.agency.room_returns().await.map_err(units::agency)?;
+
+  while let Some(returned) = returns.next().await {
+    returned.map_err(units::agency)?;
+    settings::forget(&server.db, MACHINE_LAUNCH_HELD_KEY).await?;
+
+    let moment = Moment {
+      moment: ROOM_RETURNED.to_owned(),
+      repeat: true,
+      rides_ms: None,
+    };
+
+    if let Err(failed) = server.verbs.tell_queue(moment).await {
+      eprintln!("bmo-job: the queue is not told the machine's room returned: {failed}");
+    }
+  }
+
+  Ok(())
 }
 
 /// Where the settings stand the server.

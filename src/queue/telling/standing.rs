@@ -128,8 +128,8 @@ impl Teller<'_> {
 
   /// Every base worker as it stands, each written down or off the waiting record on the way. Nothing is
   /// read while the queue is held, while what is running cannot be asked, or while the machine has no room
-  /// for another job, whose hold is written down and told to bmo-agency, which tells the queue again once
-  /// the room is back.
+  /// for another job, whose hold is written down and told to bmo-agency; the queue is told again once
+  /// bmo-agency says the room returned.
   pub(super) async fn standings<'w>(&self, known: &'w [Worker], now: i64) -> Result<Look<'w>, Refusal> {
     if holds::queue_held(self.db).await? {
       self.forget_all_waiting(known).await?;

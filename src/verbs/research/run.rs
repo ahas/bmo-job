@@ -24,9 +24,9 @@ use super::{
   owner as research_owner, reclaim_leases, reserve_places,
 };
 use crate::job_run::verdict::live_task_names;
-use crate::now_ms;
 use crate::queue::units::agency_failed;
 use crate::verbs::stand::{Answer, Stand, VerbError};
+use crate::{now_ms, now_seconds};
 
 // How often a running turn is read again.
 const POLL: Duration = Duration::from_secs(1);
@@ -161,6 +161,7 @@ pub async fn carry_turn(
     title: carry.title.clone(),
     thread: None,
     job: None,
+    item: None,
     chat: carry.chat,
     unit: carry.unit.map(str::to_owned),
     user: None,
@@ -242,7 +243,8 @@ pub struct Opening {
   pub depth: u32,
   pub cap_ms: Option<i64>,
   pub started_by: Option<String>,
-  pub search_id: Option<String>,
+  /// The number of the search the run carries, as bmo-artifact numbers its searches.
+  pub search_id: Option<i64>,
 }
 
 /// One run as its runner starts it: its room and ledger entry, and how its pieces are named.
@@ -273,9 +275,9 @@ impl<'s> Research<'s> {
       unit: unit.to_owned(),
       depth: opening.depth,
       cap_ms: opening.cap_ms,
-      started_at: now_ms(),
+      started_at: now_seconds(),
       started_by: opening.started_by.clone(),
-      search_id: opening.search_id.clone(),
+      search_id: opening.search_id,
     };
     let run_id = stand.ground.agency.open_run(&asked).await.map_err(agency_failed)?;
 
@@ -384,7 +386,7 @@ impl<'s> Research<'s> {
     self.closed = true;
 
     let closing = RunClosing {
-      finished_at: now_ms(),
+      finished_at: now_seconds(),
       outcome: outcome.to_owned(),
       context_tokens: self.context_tokens,
     };
@@ -585,7 +587,7 @@ pub async fn close_run(
   }
 
   let closing = RunClosing {
-    finished_at: now_ms(),
+    finished_at: now_seconds(),
     outcome: outcome.to_owned(),
     context_tokens,
   };

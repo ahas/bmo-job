@@ -53,6 +53,8 @@ pub struct TurnAsking {
   pub thread: Option<String>,
   /// The job the turn is of; none for a research run's turn.
   pub job: Option<i64>,
+  /// The item that job works, so bmo-agency names the job and its item behind the worker's place.
+  pub item: Option<i64>,
   pub chat: i64,
   pub unit: Option<String>,
   pub user: Option<String>,

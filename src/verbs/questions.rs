@@ -1,5 +1,5 @@
-//! A job's question answered by the owner, and its clock stopped and started again (docs/api.md,
-//! "Questions").
+//! A job's question answered or talked over by the owner, and its clock stopped and started again
+//! (docs/api.md, "Questions").
 
 use std::future::Future;
 
@@ -27,6 +27,9 @@ pub trait Questions {
 
   /// The question's clock stopped, or started again.
   fn pause_question(&self, id: i64, paused: bool) -> impl Future<Output = Done<QuestionAnswer>> + Send;
+
+  /// A line of the owner's talk written on an open question that takes talk, its clock stopped for it.
+  fn talk_question(&self, id: i64, say: String) -> impl Future<Output = Done<QuestionAnswer>> + Send;
 }
 
 impl Questions for Unbuilt {
@@ -36,5 +39,9 @@ impl Questions for Unbuilt {
 
   fn pause_question(&self, _: i64, _: bool) -> impl Future<Output = Done<QuestionAnswer>> + Send {
     Self::refused("pause_question")
+  }
+
+  fn talk_question(&self, _: i64, _: String) -> impl Future<Output = Done<QuestionAnswer>> + Send {
+    Self::refused("talk_question")
   }
 }

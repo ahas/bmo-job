@@ -21,7 +21,6 @@ use job_testbed::{Pending, Relinked};
 use job_web::{Checked, ObjectCheck};
 use migration::{Migrator, MigratorTrait};
 use sea_orm::DatabaseConnection;
-use serde_json::Map;
 use tempfile::TempDir;
 
 /// The owner's private chat.
@@ -338,7 +337,6 @@ impl Units for Fake {
       jobs: 0,
       browser_jobs: 0,
       browsers: 0,
-      details: Map::new(),
     })
   }
 

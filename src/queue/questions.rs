@@ -22,6 +22,9 @@ pub const SETTLED_BY_DEADLINE: &str = "deadline";
 /// Who says a line of talk that is the asking job's.
 pub const TALK_BY_JOB: &str = "job";
 
+/// Who says a line of talk that is the owner's.
+pub const TALK_BY_OWNER: &str = "owner";
+
 /// What a question was settled on: one of its options by number from 0, or the owner's own words.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Answer {
@@ -236,6 +239,20 @@ pub async fn question(db: &impl ConnectionTrait, id: i64) -> Result<Option<Quest
   let row = one(db, r#"SELECT * FROM "job_questions" WHERE "id" = $1"#, vec![id.into()]).await?;
 
   Ok(row.as_ref().map(Question::of).transpose()?)
+}
+
+/// The questions asked in a room that nothing has settled and whose wait has not run out at `now`, the one
+/// asked last first.
+pub async fn open_in(db: &impl ConnectionTrait, chat: i64, now: i64) -> Result<Vec<Question>, Refusal> {
+  let rows = all(
+    db,
+    r#"SELECT * FROM "job_questions" WHERE "chat_id" = $1 AND "settled_at" IS NULL AND "due_at" > $2
+       ORDER BY "id" DESC"#,
+    vec![chat.into(), now.into()],
+  )
+  .await?;
+
+  Ok(rows.iter().map(Question::of).collect::<Result<_, _>>()?)
 }
 
 /// The owner's answer written at `now`, where nothing settled the question first.

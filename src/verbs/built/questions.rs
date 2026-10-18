@@ -1,5 +1,5 @@
-//! A job's question answered by the owner, and its clock stopped and started again (docs/api.md,
-//! "Questions"). The chat and the console settle the same row with the same conditional write, so the write
+//! A job's question answered or talked over by the owner, and its clock stopped and started again
+//! (docs/api.md, "Questions"). The chat and the console settle the same row with the same conditional write, so the write
 //! itself decides who settled it.
 
 use job_codes::job_questions::QuestionClock;
@@ -8,7 +8,7 @@ use job_codes::{JobAskRefusal, JobError, QuestionAnswer};
 use super::Built;
 use crate::Refusal;
 use crate::now_ms;
-use crate::queue::questions::{self, Answer, Question};
+use crate::queue::questions::{self, Answer, Question, TALK_BY_OWNER};
 use crate::verbs::{Done, Questions, Settling};
 
 fn absent(id: i64) -> Refusal {
@@ -83,5 +83,23 @@ impl Questions for Built {
     } else {
       QuestionAnswer::QuestionResumed(clock(&after))
     })
+  }
+
+  async fn talk_question(&self, id: i64, say: String) -> Done<QuestionAnswer> {
+    let question = self.question(id).await?;
+
+    if !question.talks {
+      return Err(JobError::from(JobAskRefusal::QuestionTakesNoTalk { id }).into());
+    }
+
+    let hold_ms = self.policy.queue.question_stop_seconds * 1000;
+
+    if !questions::talk(&self.db, id, TALK_BY_OWNER, &say, hold_ms, now_ms()).await? {
+      return Err(JobError::from(JobAskRefusal::QuestionTalkSettled { id }).into());
+    }
+
+    self.events.queue_moved(None);
+
+    Ok(QuestionAnswer::QuestionTalked(clock(&self.question(id).await?)))
   }
 }

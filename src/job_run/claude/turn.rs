@@ -231,6 +231,7 @@ impl<'a> ClaudeRoad<'a> {
       title: asked.title.clone(),
       thread: self.todo_id.map(|todo| format!("todo:{todo}")),
       job: Some(self.job_id),
+      item: self.todo_id,
       chat: self.chat_id,
       unit: (!self.unit.is_empty()).then(|| self.unit.clone()),
       user: self.user.clone(),

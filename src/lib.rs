@@ -11,4 +11,6 @@ pub mod server;
 pub mod talk;
 pub mod verbs;
 
-pub use job_base::{Refusal, RefusalBody, Settings, all, database, now_ms, one, run, settings};
+pub use job_base::{
+  Refusal, RefusalBody, Settings, all, database, now_ms, now_seconds, one, run, settings,
+};

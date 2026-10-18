@@ -354,10 +354,10 @@ do about any of them is the agent's (docs/queue.md, "The sweep").
 ## The job queue's routes
 
 - **The queue's routes are this service's own,** served by `bmo-job serve` (docs/api.md, "Routes"): the
-  TODO's actions, a job's question answered and its clock, the queue's pause and a deployment's hold, a
-  job's end and the report it left waiting, the queue told at a moment a verb saw move it, a runner
-  started, a job launched, a work order changed, a run stopped, a word to a worker and a worker added,
-  changed or removed. What the service decides there is the checks of the request, the rows read and
+  TODO's actions, a job's question answered, talked over and its clock, the queue's pause and a
+  deployment's hold, a job's end and the report it left waiting, the queue told at a moment a verb saw
+  move it, a runner started, a job launched, a work order changed, a run stopped, a word to a worker
+  and a worker added, changed or removed. What the service decides there is the checks of the request, the rows read and
   written, and every refusal with its status and its code.
 - **The queue's telling is this service's own** (docs/queue.md): a job's end with what it means for the
   item, a report delivered on its roads, the queue's standing at a moment that moved it, the sweep on its

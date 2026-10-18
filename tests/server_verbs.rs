@@ -4,6 +4,8 @@
 
 mod support;
 
+use bmo_job::queue::settings;
+use bmo_job::server;
 use job_base::Refusal;
 use job_codes::{JobError, TodoRefusal};
 use serde_json::{Value, json};
@@ -130,6 +132,55 @@ async fn a_question_is_answered_by_option_or_words_and_never_both() {
       ("pause_question", "3 true".to_owned()),
     ]
   );
+}
+
+#[tokio::test]
+async fn a_talk_on_a_question_names_it_by_number_and_carries_words_of_its_own() {
+  let served = Served::start().await;
+
+  assert_eq!(
+    served.post("/question-talk", json!({ "id": 3, "say": " Why that one? " })).await,
+    (200, json!({ "code": "question_talked", "paused_left": 60_000, "due_at": 90_000 }))
+  );
+
+  for (wrong, refused) in [
+    (json!({ "say": "Why?" }), (400, "question_talk_number")),
+    (json!({ "id": 3 }), (400, "question_talk_say")),
+    (json!({ "id": 3, "say": "  " }), (400, "question_talk_say")),
+    (json!({ "id": "three", "say": "Why?" }), (400, "field_wrong")),
+  ] {
+    let (status, body) = served.post("/question-talk", wrong.clone()).await;
+
+    assert_eq!((status, code(&body)), refused, "{wrong}");
+  }
+
+  assert_eq!(took(&served), [("talk_question", r#"3 "Why that one?""#.to_owned())]);
+}
+
+#[tokio::test]
+async fn the_machine_s_room_returning_forgets_the_held_launch_and_tells_the_queue_again() {
+  let served = Served::start().await;
+  let returned = "event: machine-room-returned\ndata: {\"at\":8000,\"held\":[\"memory\"]}\n\n";
+
+  served
+    .seed(
+      r#"INSERT INTO "settings" ("key", "value") VALUES ('machine_launch_held', '{"at":8000,"held":["memory"]}')"#,
+      vec![],
+    )
+    .await;
+  served.agency.answer_events("GET /events", returned);
+
+  server::room_returns(&served.server).await.unwrap();
+
+  assert_eq!(
+    took(&served),
+    [(
+      "tell_queue",
+      r#"Moment { moment: "machine_room_returned", repeat: true, rides_ms: None }"#.to_owned()
+    )]
+  );
+  assert_eq!(settings::get(&served.server.db, "machine_launch_held").await.unwrap(), None);
+  assert_eq!(served.agency.calls()[0].target, "/events?kinds=machine-room-returned");
 }
 
 #[tokio::test]

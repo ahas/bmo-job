@@ -71,8 +71,9 @@ calls"). A profile is the launcher's copy as JSON, read back for the key it is f
   [--demand <demand>] [--run <run>] [--depth <n>] [--started-by <who>] [--search-id <id>] [--leave-open]`
   carries the run on the prompt read from standard input, in the directory it is run in. It prints one
   line of JSON: `run`, `outcome` (`done`, `stopped`, or `open` where it was asked to leave the entry
-  open), `context_tokens` and `text`. `--run` names the entry its launcher opened, and `--depth` is the
-  number the ledger records.
+  open), `context_tokens` and `text`. `--run` names the entry its launcher opened, `--depth` is the
+  number the ledger records, and `--search-id` the number of the search the run carries, as bmo-artifact
+  numbers its searches.
 - `research close --run <run> --outcome <outcome> [--context-tokens <n>]` gives back every place the run
   holds and closes its entry; an entry already closed keeps its closing and is refused.
 - `research branch --owner <owner> --source <search|browse> --role <role> --chat <chat> --index <n>

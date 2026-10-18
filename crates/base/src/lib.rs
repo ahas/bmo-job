@@ -17,3 +17,8 @@ pub use settings::{
 pub fn now_ms() -> i64 {
   chrono::Utc::now().timestamp_millis()
 }
+
+/// Now, in the epoch seconds bmo-agency's run ledger keeps.
+pub fn now_seconds() -> i64 {
+  chrono::Utc::now().timestamp()
+}

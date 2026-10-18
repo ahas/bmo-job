@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 
 use bmo_job::cli::NOUNS;
+use bmo_job::now_seconds;
 use bmo_job::verbs::Built;
 use serde_json::{Value, json};
 use support::server::{Served, host_text, settings_text};
@@ -416,6 +417,8 @@ async fn research_run_carries_a_run_from_its_ledger_entry_to_its_closing_and_ref
     "2",
     "--profile",
     &profile,
+    "--search-id",
+    "7",
   ];
 
   world.research_answers(json!({ "capacity": 4, "active": 0, "reserved": 0, "waiting": 0 }));
@@ -429,7 +432,11 @@ async fn research_run_carries_a_run_from_its_ledger_entry_to_its_closing_and_ref
     }),
   );
 
+  let before = now_seconds();
   let ran = world.run_fed(&words, "Find what the question asks.\n").await;
+  let after = now_seconds();
+  // The ledger's times are epoch seconds.
+  let in_seconds = |at: &Value| at.as_i64().is_some_and(|at| (before..=after).contains(&at));
 
   assert_eq!(ran.status.code(), Some(0), "{}", said(&ran));
   assert_eq!(
@@ -443,6 +450,8 @@ async fn research_run_carries_a_run_from_its_ledger_entry_to_its_closing_and_ref
     (&opened["agent"], &opened["unit"], &opened["depth"]),
     (&json!("search"), &json!("bmo-search-1"), &json!(2))
   );
+  assert!(in_seconds(&opened["started_at"]), "{opened}");
+  assert_eq!(opened["search_id"], 7);
   assert_eq!(world.agency_took("POST /pool/reservations")[0]["owner"], "search-run:42");
 
   let turn = &world.agency_took("POST /work-turns")[0];
@@ -457,7 +466,10 @@ async fn research_run_carries_a_run_from_its_ledger_entry_to_its_closing_and_ref
     .to_owned();
 
   assert!(prompt.starts_with("Find what the question asks.\n\nThis was asked at "), "{prompt}");
-  assert_eq!(world.agency_took("POST /runs/{id}/close")[0]["outcome"], "done");
+  let closed = &world.agency_took("POST /runs/{id}/close")[0];
+
+  assert_eq!(closed["outcome"], "done");
+  assert!(in_seconds(&closed["finished_at"]), "{closed}");
 
   // A profile copied for another key is refused before anything is opened.
   let basic = profile.replace("search:thorough", "search:basic");

@@ -120,6 +120,15 @@ impl Questions for Fake {
 
     self.call("pause_question", format!("{id} {paused}"), answer)
   }
+
+  async fn talk_question(&self, id: i64, say: String) -> Done<QuestionAnswer> {
+    let clock = QuestionClock {
+      paused_left: Some(60_000),
+      due_at: Some(90_000),
+    };
+
+    self.call("talk_question", format!("{id} {say:?}"), QuestionAnswer::QuestionTalked(clock))
+  }
 }
 
 impl RunStops for Fake {

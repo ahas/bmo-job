@@ -162,7 +162,9 @@ A launch the judgement let go is started by the user's service manager as a unit
   path: arguments stand in the process list for anyone on the machine to read.
 - **An item's brief** becomes the text its job was launched with.
 - **Where the machine is short of room** bmo-agency says why; the queue writes it under
-  `machine_launch_held` and tells bmo-agency, which tells the queue again once the room is back.
+  `machine_launch_held` and tells bmo-agency. Once the room is back bmo-agency says so on its event
+  stream, and the service forgets the hold and tells the queue again (docs/api.md, "The machine's
+  room").
 
 ## Whose work a job is
 
@@ -213,7 +215,9 @@ moment it exists.
 - **The clock** may be stopped by the owner for `queue.question_stop_seconds` and started again counting
   what it had. A line of talk over a question stops its clock the same way and moves its end to a hold of
   that length from the line; the owner's lines wait until the asker hears them, the job's are heard as
-  said.
+  said. A line is written only on a question still open, and the owner's only on one that takes talk.
+- **A room's open questions** are those nothing has settled whose wait has not run out, the one asked
+  last first: the one asked last is the one the owner's next plain message in his chat answers.
 - **The asker waits** by reading the row until something settles it or the owner talks, and may stop its
   own wait, settling the question with words of its own.
 - **What the room is told** at each step is a `QuestionFact`.

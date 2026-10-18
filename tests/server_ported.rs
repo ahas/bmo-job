@@ -6,6 +6,7 @@ mod support;
 
 use std::path::Path;
 
+use bmo_job::all;
 use bmo_job::verbs::Built;
 use serde_json::{Value, json};
 use support::server::{Served, code};
@@ -25,7 +26,7 @@ async fn served() -> Served<Built> {
     ("GET /tiers", json!([])),
     ("GET /pool/roles", json!([])),
     ("GET /pool/requests", json!([])),
-    ("GET /machine/room", json!({ "held": [], "jobs": 0, "browser_jobs": 0, "browsers": 0 })),
+    ("GET /machine/room", json!({ "held": [], "jobs": 0, "browserJobs": 0, "browsers": 0 })),
     ("DELETE /executions/{id}/cancel", json!({ "dropped": [] })),
     ("GET /places/workbench/{worker}", json!({ "root": bench, "scratches": [] })),
     ("GET /agents/{agent}/rest", json!({ "resting": false })),
@@ -197,6 +198,57 @@ async fn a_question_s_clock_is_stopped_and_one_that_does_not_exist_is_refused() 
   assert!(body["paused_left"].as_i64().is_some_and(|left| left > 0), "{body}");
   assert_eq!(
     refused(&served.post("/question-pause", json!({ "id": 9, "paused": true })).await),
+    (404, "question_absent")
+  );
+}
+
+#[tokio::test]
+async fn the_owner_s_talk_is_written_for_the_asker_with_the_clock_stopped_and_refused_where_none_is_taken()
+{
+  let served = served().await;
+
+  question(&served).await;
+  served.seed(r#"UPDATE "job_questions" SET "talks" = 1 WHERE "id" = 1"#, vec![]).await;
+
+  let (status, body) = served.post("/question-talk", json!({ "id": 1, "say": "Why that one?" })).await;
+
+  assert_eq!((status, body["code"].as_str()), (200, Some("question_talked")), "{body}");
+  assert!(body["paused_left"].as_i64().is_some_and(|left| left > 0), "{body}");
+
+  let said = all(
+    served.db(),
+    r#"SELECT "by", "text", "heard_at" FROM "question_talk" WHERE "question_id" = 1"#,
+    vec![],
+  )
+  .await
+  .unwrap();
+  let said: Vec<(String, String, Option<i64>)> = said
+    .iter()
+    .map(|row| {
+      (
+        row.try_get("", "by").unwrap(),
+        row.try_get("", "text").unwrap(),
+        row.try_get("", "heard_at").unwrap(),
+      )
+    })
+    .collect();
+
+  // The owner's line waits for the asker to hear it.
+  assert_eq!(said, [("owner".to_owned(), "Why that one?".to_owned(), None)]);
+
+  // A question that takes no talk, one settled already, and one that does not exist are each refused.
+  question(&served).await;
+  assert_eq!(
+    refused(&served.post("/question-talk", json!({ "id": 2, "say": "Why?" })).await),
+    (409, "question_takes_no_talk")
+  );
+  assert_eq!(served.post("/question", json!({ "id": 1, "chosen": 0 })).await.0, 200);
+  assert_eq!(
+    refused(&served.post("/question-talk", json!({ "id": 1, "say": "And now?" })).await),
+    (409, "question_talk_settled")
+  );
+  assert_eq!(
+    refused(&served.post("/question-talk", json!({ "id": 9, "say": "Why?" })).await),
     (404, "question_absent")
   );
 }

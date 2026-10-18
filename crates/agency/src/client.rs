@@ -1,18 +1,23 @@
 //! The port's HTTP client: each call made on the method and path the API document gives it, its body
 //! written and its answer read as JSON.
 
+use futures_util::StreamExt;
 use reqwest::{Client, Method, RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use sse_stream::SseStream;
 use url::Url;
 
 use crate::{
   Agency, AgencyError, Answer, BranchSlots, Delivery, Execution, JobLines, LaunchHeld, LogLine, Mapping,
   Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, PoolRole, PoolRoom, Provider,
-  Reservation, ReservationAsking, Room, RouteAsk, Run, RunClosing, RunOpening, Session, SessionId,
-  SessionState, SshReach, Start, Tier, TurnRecord, WorkMachine, Workbench, WorkerRuntime,
+  Reservation, ReservationAsking, Room, RoomReturns, RouteAsk, Run, RunClosing, RunOpening, Session,
+  SessionId, SessionState, SshReach, Start, Tier, TurnRecord, WorkMachine, Workbench, WorkerRuntime,
 };
+
+/// The kind of event bmo-agency publishes once a held launch's notice is let go for the room returned.
+const ROOM_RETURNED: &str = "machine-room-returned";
 use crate::{
   AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LogNote, Prepared, Reply, SessionAnswered,
   SessionKept, TurnAsking, WorkTurn,
@@ -540,9 +545,47 @@ impl Agency for AgencyClient {
   }
 
   async fn tell_launch_held(&self, notice: &LaunchHeld) -> Answer<()> {
-    let request = self.request(Method::PUT, &["machine", "launch-held"], &[]).json(notice);
+    let request = self.request(Method::POST, &["machine", "launch-held"], &[]).json(notice);
 
     self.done("tell_launch_held", request).await
+  }
+
+  async fn room_returns(&self) -> Answer<RoomReturns> {
+    const CALL: &str = "room_returns";
+
+    let request = self.request(Method::GET, &["events"], &[("kinds", ROOM_RETURNED)]);
+    let response = self.send(CALL, request).await?;
+    let status = response.status();
+
+    if !status.is_success() {
+      let body = response.bytes().await.map_err(unreachable(CALL))?;
+
+      return Err(refused(CALL, status, &body));
+    }
+
+    // Only the kind asked for is read; a comment between events, or a kind the stream carries beside it,
+    // says nothing of the room.
+    let returns =
+      SseStream::from_bytes_stream(response.bytes_stream()).filter_map(move |read| async move {
+        match read {
+          Err(error) => Some(Err(AgencyError::Unreachable {
+            call: CALL,
+            error: error.to_string(),
+          })),
+          Ok(sse) if sse.event.as_deref() == Some(ROOM_RETURNED) => {
+            let data = sse.data.unwrap_or_default();
+
+            Some(serde_json::from_str(&data).map_err(|error| AgencyError::Malformed {
+              call: CALL,
+              status: status.as_u16(),
+              error: error.to_string(),
+            }))
+          }
+          Ok(_) => None,
+        }
+      });
+
+    Ok(returns.boxed())
   }
 
   async fn workbench(&self, worker: &str) -> Answer<Workbench> {
