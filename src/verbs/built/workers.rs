@@ -380,7 +380,7 @@ impl Workers for Built {
     }
 
     match update.keepalive_stopped {
-      Some(true) => agency.pause_keepalive(&name, now_ms()).await.map_err(agency_failed)?,
+      Some(true) => agency.pause_keepalive(&name).await.map_err(agency_failed)?,
       Some(false) => agency.resume_keepalive(&name).await.map_err(agency_failed)?,
       None => {}
     }

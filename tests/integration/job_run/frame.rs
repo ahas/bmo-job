@@ -114,14 +114,12 @@ async fn a_work_order_s_middle_turn_ends_with_its_answer_for_the_order_to_read()
       "GET /providers",
       json!([{ "name": "claude-code", "enabled": true, "registered": false, "coworker": true, "lines": ["worker"] }]),
     ),
-    (
-      "GET /workers/{worker}/runtime",
-      json!({ "worker": WORKER, "pin": null, "keepalive_paused_at": null, "context_tokens": null }),
-    ),
-    ("GET /agents/{agent}/rest", json!({ "resting": false })),
+    ("GET /agents", json!({ "agents": [{ "name": WORKER, "kind": "worker" }], "roles": [] })),
+    ("GET /rest", json!({ "resting": false, "until": null, "kind": null })),
+    ("POST /worker", json!({ "ok": true })),
     (
       "POST /routes/resolve",
-      json!({ "provider": "claude-code", "tier": "Frontier", "model": "claude-opus-5", "effort": null, "answer_tokens": null }),
+      json!({ "provider": "claude-code", "tier": "Frontier", "model": "claude-opus-5", "effort": null, "answerTokens": null }),
     ),
     ("POST /workers/{worker}/sessions/reset", json!({ "carried": false })),
     (
@@ -144,7 +142,6 @@ async fn a_work_order_s_middle_turn_ends_with_its_answer_for_the_order_to_read()
 
   for route in [
     "POST /workers/{worker}/bench",
-    "DELETE /workers/{worker}/keepalive-pause",
     "POST /log/notes",
     "POST /workers/{worker}/runs",
     "POST /workers/{worker}/usage",
@@ -211,7 +208,7 @@ async fn a_work_order_s_middle_turn_ends_with_its_answer_for_the_order_to_read()
   );
   let answered = &body("POST /workers/{worker}/sessions/record")["answered"];
 
-  assert_eq!((&answered["mode"], &answered["session_id"]), (&json!("claude-code"), &json!(session)));
+  assert_eq!((&answered["mode"], &answered["sessionId"]), (&json!("claude-code"), &json!(session)));
   // A middle turn hands nothing over.
   assert!(
     !calls.iter().any(|call| call.route == "POST /workers/{worker}/sessions/handover"),

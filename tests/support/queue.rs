@@ -226,7 +226,7 @@ impl Units for Fake {
     ready(vec![id.to_owned()])
   }
 
-  fn agent_resting(&self) -> BoxFuture<'_, Result<bool, Refusal>> {
+  fn deployment_resting(&self) -> BoxFuture<'_, Result<bool, Refusal>> {
     ready(self.resting)
   }
 
@@ -426,7 +426,7 @@ impl Units for Fake {
     ready(open)
   }
 
-  fn lease_place<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<PoolRequest, Refusal>> {
+  fn lease_place<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<Option<PoolRequest>, Refusal>> {
     let leased = locked(&self.requests).iter_mut().find(|held| held.token == token).map(|held| {
       if held.state == PoolState::Waiting {
         held.state = PoolState::Active;
@@ -437,7 +437,9 @@ impl Units for Fake {
     });
 
     Box::pin(async move {
-      leased.ok_or_else(|| Refusal::absent("no_pool_request", "there is no such pool request"))
+      leased
+        .map(Some)
+        .ok_or_else(|| Refusal::absent("no_pool_request", "there is no such pool request"))
     })
   }
 

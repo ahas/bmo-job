@@ -133,13 +133,14 @@ impl Bench {
       ("GET /pool/requests", json!([])),
       ("GET /machine/room", json!({ "held": [], "jobs": 0, "browserJobs": 0, "browsers": 0 })),
       ("DELETE /executions/{id}/cancel", json!({ "dropped": [] })),
-      ("GET /agents/{agent}/rest", json!({ "resting": false })),
+      ("GET /rest", json!({ "resting": false, "until": null, "kind": null })),
+      ("POST /runs/stop", json!({ "ok": true })),
       ("GET /nodes", json!([])),
     ] {
       served.agency.answer(route, 200, body);
     }
 
-    for route in ["POST /executions/{id}/cancel", "POST /workers/{worker}/bench", "POST /turn-records"] {
+    for route in ["POST /workers/{worker}/bench", "POST /turn-records"] {
       served.agency.answer_empty(route, 204);
     }
 

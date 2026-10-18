@@ -145,8 +145,8 @@ pub async fn research_branch(stand: &Stand, branch: &Branch, stopping: Arc<Atomi
 
   loop {
     match agency.lease_place(&request.token).await {
-      Ok(leased) if leased.state == PoolState::Active => break,
-      Ok(leased) if leased.state == PoolState::Ended => {
+      Ok(Some(leased)) if leased.state == PoolState::Active => break,
+      Ok(Some(leased)) if leased.state == PoolState::Ended => {
         return failed(branch.index, "the pool request was ended before it got a place");
       }
       Ok(_) => {}

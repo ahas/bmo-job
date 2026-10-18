@@ -114,7 +114,6 @@ async fn a_stopped_run_s_cancels_are_taken_back_through_the_agency_as_it_answers
     web: &web,
     testbed: &testbed,
     gate: &gate,
-    agent_key: "agent",
   };
 
   agency.answer("DELETE /executions/{id}/cancel", 200, json!({ "dropped": ["bmo-task-1", "child"] }));

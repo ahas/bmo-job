@@ -6,16 +6,17 @@ use futures_util::stream::BoxStream;
 use reqwest::{Client, Method, RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
-use serde_json::json;
+use serde_json::{Map, Value, json};
 use sse_stream::SseStream;
 use url::Url;
 
+use crate::workers::{AgentRow, runtime_of};
 use crate::{
   Agency, AgencyError, Answer, AsideOutcome, BranchSlots, Delivery, Execution, Handover, JobDocuments,
   JobLines, LaunchHeld, LogLine, LogNote, Mapping, Node, Pin, PinChoice, PlaceWrite, PoolAsking,
   PoolRequest, PoolRole, PoolRoom, Provider, Reply, Reservation, ReservationAsking, Room, RoomReturns,
   RouteAsk, Run, RunClosing, RunOpening, Session, SessionAnswered, SessionId, SessionKept, SessionState,
-  SshReach, Start, Tier, Turn, TurnEvent, TurnEvents, TurnRecord, WorkMachine, Workbench, WorkerRuntime,
+  SshReach, Start, Tier, Turn, TurnEvent, TurnEvents, TurnRecord, Workbench, WorkerRuntime,
 };
 
 /// The kind of event bmo-agency publishes once a held launch's notice is let go for the room returned.
@@ -26,6 +27,43 @@ const TURN_STARTED: &str = "turn-started";
 
 /// The kind of event bmo-agency publishes as a turn put into a session ends.
 const TURN_ENDED: &str = "turn-ended";
+
+/// The code bmo-agency refuses a read by an id with where it keeps nothing there, as the base chat library
+/// names it. Any other 404, a path it serves no route on among them, is a refusal.
+const NOTHING_HELD: &str = "nothing-held";
+
+/// The code a session operation is refused with where bmo-agency keeps no such session.
+const UNKNOWN_SESSION: &str = "unknown-session";
+
+/// The kind of the line a run's log opens each start of the run with.
+const START_LINE: &str = "start";
+
+/// The most lines a read of a run's log answers at once.
+const RUN_LOG_PAGE: usize = 500;
+
+/// The field of a worker's row its pin is changed by.
+const PINNED_PROVIDER: &str = "pinnedProvider";
+
+/// The choice of a provider that leaves a worker to its walk, unpinned.
+const UNPINNED: &str = "auto";
+
+/// The field of a worker's row its keepalive is stopped and started by.
+const KEEPALIVE_STOPPED: &str = "keepaliveStopped";
+
+/// The kind of the rest a full window writes on a login.
+const LIMIT_REST: &str = "limit";
+
+/// The source bmo-agency enqueues a builder turn's place under; any other request is a branch's seat.
+const TURN_SOURCE: &str = "turn";
+
+/// The source bmo-agency enqueues a branch's seat under.
+const COWORK_SOURCE: &str = "cowork";
+
+/// The state a tile of the pool's board stands in while its request is let in.
+const WORKING_TILE: &str = "working";
+
+/// The state a tile of the pool's board stands in while a reservation holds it.
+const HELD_TILE: &str = "held";
 
 /// The calls on bmo-agency, made over HTTP to the address given.
 #[derive(Clone, Debug)]
@@ -53,26 +91,60 @@ struct Opened {
 }
 
 #[derive(Deserialize)]
-struct Counted {
-  count: u64,
-}
-
-#[derive(Deserialize)]
 struct Dropped {
   dropped: Vec<String>,
 }
 
 #[derive(Deserialize)]
-struct Finished {
-  finished: bool,
+struct Admitted {
+  request: Option<PoolRequest>,
 }
 
 #[derive(Deserialize)]
-struct Released {
-  released: bool,
+struct Reservations {
+  reservations: Vec<Reservation>,
 }
 
 #[derive(Deserialize)]
+struct Agents {
+  agents: Vec<AgentRow>,
+}
+
+/// One line of a run's log, as far as counting its starts reads it.
+#[derive(Deserialize)]
+struct RunLine {
+  id: i64,
+  agent: String,
+  kind: String,
+}
+
+#[derive(Deserialize)]
+struct RunLines {
+  lines: Vec<RunLine>,
+}
+
+/// What the pool's board holds of one provider's tier: its places' tiles and the requests waiting on them.
+#[derive(Deserialize)]
+struct Bucket {
+  provider: String,
+  tier: String,
+  capacity: i64,
+  tiles: Vec<Tile>,
+  waiting: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+struct Tile {
+  state: String,
+}
+
+#[derive(Deserialize)]
+struct Board {
+  buckets: Vec<Bucket>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Cache {
   ttl_ms: Option<i64>,
 }
@@ -95,11 +167,6 @@ struct Rest {
 #[derive(Deserialize)]
 struct Homes {
   homes: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct Placed {
-  machine: Option<WorkMachine>,
 }
 
 #[derive(Deserialize)]
@@ -228,19 +295,39 @@ impl AgencyClient {
     read(call, self.send(call, request).await?).await
   }
 
-  /// A read of one thing by its id, where 404 is nothing found.
+  /// A read of one thing by its id, where a 404 refused with the code `nothing` is nothing found.
   async fn found<T: DeserializeOwned>(
     &self,
     call: &'static str,
+    nothing: &str,
     request: RequestBuilder,
   ) -> Answer<Option<T>> {
     let response = self.send(call, request).await?;
+    let status = response.status();
 
-    if response.status() == StatusCode::NOT_FOUND {
-      return Ok(None);
+    if status != StatusCode::NOT_FOUND {
+      return read(call, response).await.map(Some);
     }
 
-    read(call, response).await.map(Some)
+    let body = response.bytes().await.map_err(unreachable(call))?;
+
+    match refused(call, status, &body) {
+      AgencyError::Refused { code, .. } if code == nothing => Ok(None),
+      refusal => Err(refusal),
+    }
+  }
+
+  /// One field of a worker's row changed, as bmo-agency's worker update takes it.
+  async fn update_worker(&self, call: &'static str, worker: &str, field: &str, value: Value) -> Answer<()> {
+    let mut body = Map::new();
+
+    body.insert("action".into(), json!("update"));
+    body.insert("name".into(), json!(worker));
+    body.insert(field.into(), value);
+
+    let _: Value = self.answer(call, self.request(Method::POST, &["worker"], &[]).json(&body)).await?;
+
+    Ok(())
   }
 
   /// A call answered with no body.
@@ -325,7 +412,7 @@ impl Agency for AgencyClient {
   async fn session_state(&self, session: &SessionId) -> Answer<Option<SessionState>> {
     let request = self.request(Method::GET, &["session", "state"], &[("session", &session.0)]);
 
-    self.found("session_state", request).await
+    self.found("session_state", UNKNOWN_SESSION, request).await
   }
 
   async fn interrupt_session(&self, session: &SessionId) -> Answer<()> {
@@ -379,13 +466,16 @@ impl Agency for AgencyClient {
   }
 
   async fn execution(&self, id: &str) -> Answer<Option<Execution>> {
-    self.found("execution", self.request(Method::GET, &["executions", id], &[])).await
+    let request = self.request(Method::GET, &["executions", id], &[]);
+
+    self.found("execution", NOTHING_HELD, request).await
   }
 
   async fn cancel_execution(&self, id: &str) -> Answer<()> {
-    let request = self.request(Method::POST, &["executions", id, "cancel"], &[]);
+    let request = self.request(Method::POST, &["runs", "stop"], &[]).json(&json!({ "run": id }));
+    let _: Value = self.answer("cancel_execution", request).await?;
 
-    self.done("cancel_execution", request).await
+    Ok(())
   }
 
   async fn drop_cancels(&self, id: &str) -> Answer<Vec<String>> {
@@ -412,21 +502,33 @@ impl Agency for AgencyClient {
   async fn run(&self, run: i64) -> Answer<Option<Run>> {
     let run = run.to_string();
 
-    self.found("run", self.request(Method::GET, &["runs", &run], &[])).await
+    self.found("run", NOTHING_HELD, self.request(Method::GET, &["runs", &run], &[])).await
   }
 
   async fn run_starts(&self, agent: &str, run: &str) -> Answer<u64> {
-    let request = self.request(Method::GET, &["log", "starts"], &[("agent", agent), ("run", run)]);
-    let counted: Counted = self.answer("run_starts", request).await?;
+    let mut after = 0;
+    let mut starts = 0;
 
-    Ok(counted.count)
+    loop {
+      let from = after.to_string();
+      let request = self.request(Method::GET, &["run-log"], &[("run", run), ("after", &from)]);
+      let page: RunLines = self.answer("run_starts", request).await?;
+
+      starts +=
+        page.lines.iter().filter(|line| line.kind == START_LINE && line.agent == agent).count() as u64;
+
+      match page.lines.last() {
+        Some(last) if page.lines.len() >= RUN_LOG_PAGE => after = last.id,
+        _ => return Ok(starts),
+      }
+    }
   }
 
   async fn job_last_line(&self, job: i64) -> Answer<Option<LogLine>> {
     let job = job.to_string();
     let request = self.request(Method::GET, &["log", "jobs", &job, "last"], &[]);
 
-    self.found("job_last_line", request).await
+    self.found("job_last_line", NOTHING_HELD, request).await
   }
 
   async fn job_lines(&self, job: i64) -> Answer<JobLines> {
@@ -442,43 +544,25 @@ impl Agency for AgencyClient {
   }
 
   async fn worker_runtime(&self, worker: &str) -> Answer<Option<WorkerRuntime>> {
-    let request = self.request(Method::GET, &["workers", worker, "runtime"], &[]);
+    let listed: Agents = self.answer("worker_runtime", self.request(Method::GET, &["agents"], &[])).await?;
 
-    self.found("worker_runtime", request).await
+    Ok(runtime_of(&listed.agents, worker))
   }
 
   async fn pin_worker(&self, worker: &str, pin: &Pin) -> Answer<()> {
-    let request = self.request(Method::PUT, &["workers", worker, "pin"], &[]).json(pin);
-
-    self.done("pin_worker", request).await
+    self.update_worker("pin_worker", worker, PINNED_PROVIDER, json!(pin.choice())).await
   }
 
   async fn unpin_worker(&self, worker: &str) -> Answer<()> {
-    let request = self.request(Method::DELETE, &["workers", worker, "pin"], &[]);
-
-    self.done("unpin_worker", request).await
+    self.update_worker("unpin_worker", worker, PINNED_PROVIDER, json!(UNPINNED)).await
   }
 
-  async fn pause_keepalive(&self, worker: &str, at: i64) -> Answer<()> {
-    let request = self
-      .request(Method::PUT, &["workers", worker, "keepalive-pause"], &[])
-      .json(&json!({ "at": at }));
-
-    self.done("pause_keepalive", request).await
+  async fn pause_keepalive(&self, worker: &str) -> Answer<()> {
+    self.update_worker("pause_keepalive", worker, KEEPALIVE_STOPPED, json!(true)).await
   }
 
   async fn resume_keepalive(&self, worker: &str) -> Answer<()> {
-    let request = self.request(Method::DELETE, &["workers", worker, "keepalive-pause"], &[]);
-
-    self.done("resume_keepalive", request).await
-  }
-
-  async fn record_context(&self, worker: &str, tokens: u64) -> Answer<()> {
-    let request = self
-      .request(Method::PUT, &["workers", worker, "context-tokens"], &[])
-      .json(&json!({ "tokens": tokens }));
-
-    self.done("record_context", request).await
+    self.update_worker("resume_keepalive", worker, KEEPALIVE_STOPPED, json!(false)).await
   }
 
   async fn say_to_worker(&self, worker: &str, text: &str) -> Answer<()> {
@@ -500,7 +584,7 @@ impl Agency for AgencyClient {
   async fn resolve_route(&self, asked: &RouteAsk) -> Answer<Option<Mapping>> {
     let request = self.request(Method::POST, &["routes", "resolve"], &[]).json(asked);
 
-    self.found("resolve_route", request).await
+    self.found("resolve_route", NOTHING_HELD, request).await
   }
 
   async fn check_pin(&self, value: &str) -> Answer<PinChoice> {
@@ -510,7 +594,18 @@ impl Agency for AgencyClient {
   }
 
   async fn enqueue_request(&self, asking: &PoolAsking) -> Answer<PoolRequest> {
-    let request = self.request(Method::POST, &["pool", "requests"], &[]).json(asking);
+    let source = if asking.turn { TURN_SOURCE } else { COWORK_SOURCE };
+    let request = self.request(Method::POST, &["pool", "enqueue"], &[]).json(&json!({
+      "source": source,
+      "requestKey": asking.request_key,
+      "owner": asking.owner,
+      "role": asking.role,
+      "selection": asking.tier,
+      "tier": asking.tier,
+      "provider": asking.provider,
+      "yielding": asking.yielding,
+      "placeKey": asking.place_key,
+    }));
 
     self.answer("enqueue_request", request).await
   }
@@ -518,7 +613,7 @@ impl Agency for AgencyClient {
   async fn pool_request(&self, token: &str) -> Answer<Option<PoolRequest>> {
     let request = self.request(Method::GET, &["pool", "requests", token], &[]);
 
-    self.found("pool_request", request).await
+    self.found("pool_request", NOTHING_HELD, request).await
   }
 
   async fn open_requests(&self, owner: Option<&str>) -> Answer<Vec<PoolRequest>> {
@@ -528,31 +623,41 @@ impl Agency for AgencyClient {
     self.answer("open_requests", request).await
   }
 
-  async fn lease_place(&self, token: &str) -> Answer<PoolRequest> {
-    let request = self.request(Method::POST, &["pool", "requests", token, "lease"], &[]);
+  async fn lease_place(&self, token: &str) -> Answer<Option<PoolRequest>> {
+    let request = self.request(Method::POST, &["pool", "acquire"], &[]).json(&json!({ "token": token }));
+    let admitted: Admitted = self.answer("lease_place", request).await?;
 
-    self.answer("lease_place", request).await
+    Ok(admitted.request)
   }
 
   async fn bind_child(&self, token: &str, child: &str) -> Answer<PoolRequest> {
     let request = self
-      .request(Method::POST, &["pool", "requests", token, "bind"], &[])
-      .json(&json!({ "child": child }));
+      .request(Method::POST, &["pool", "bind"], &[])
+      .json(&json!({ "token": token, "childId": child }));
 
     self.answer("bind_child", request).await
   }
 
   async fn finish_request(&self, token: &str, outcome: &str, cancel: bool) -> Answer<bool> {
     let request = self
-      .request(Method::POST, &["pool", "requests", token, "finish"], &[])
-      .json(&json!({ "outcome": outcome, "cancel": cancel }));
-    let finished: Finished = self.answer("finish_request", request).await?;
+      .request(Method::POST, &["pool", "finish"], &[])
+      .json(&json!({ "token": token, "outcome": outcome, "cancel": cancel }));
+    let held: Held = self.answer("finish_request", request).await?;
 
-    Ok(finished.finished)
+    Ok(held.held)
   }
 
   async fn reserve_seats(&self, asking: &ReservationAsking) -> Answer<Reservation> {
-    let request = self.request(Method::POST, &["pool", "reservations"], &[]).json(asking);
+    let request = self.request(Method::POST, &["pool", "reserve"], &[]).json(&json!({
+      "reservationKey": asking.reservation_key,
+      "owner": asking.owner,
+      "source": asking.source,
+      "role": asking.role,
+      "selection": asking.tier,
+      "tier": asking.tier,
+      "provider": asking.provider,
+      "count": asking.wanted,
+    }));
 
     self.answer("reserve_seats", request).await
   }
@@ -560,17 +665,18 @@ impl Agency for AgencyClient {
   async fn held_reservations(&self, owner: Option<&str>) -> Answer<Vec<Reservation>> {
     let query: Vec<(&str, &str)> = owner.map(|owner| ("owner", owner)).into_iter().collect();
     let request = self.request(Method::GET, &["pool", "reservations"], &query);
+    let held: Reservations = self.answer("held_reservations", request).await?;
 
-    self.answer("held_reservations", request).await
+    Ok(held.reservations)
   }
 
   async fn release_reservation(&self, token: &str, reason: &str) -> Answer<bool> {
     let request = self
-      .request(Method::POST, &["pool", "reservations", token, "release"], &[])
-      .json(&json!({ "reason": reason }));
-    let released: Released = self.answer("release_reservation", request).await?;
+      .request(Method::POST, &["pool", "reservations", "release"], &[])
+      .json(&json!({ "token": token, "outcome": reason }));
+    let held: Held = self.answer("release_reservation", request).await?;
 
-    Ok(released.released)
+    Ok(held.held)
   }
 
   async fn record_place_write(&self, place: &str, write: &PlaceWrite) -> Answer<()> {
@@ -584,14 +690,9 @@ impl Agency for AgencyClient {
   }
 
   async fn ssh_reach(&self, node: &str) -> Answer<Option<SshReach>> {
-    self.found("ssh_reach", self.request(Method::GET, &["nodes", node, "reach"], &[])).await
-  }
+    let request = self.request(Method::GET, &["nodes", node, "reach"], &[]);
 
-  async fn place_heavy_run(&self) -> Answer<Option<WorkMachine>> {
-    let request = self.request(Method::POST, &["nodes", "heavy-run"], &[]);
-    let placed: Placed = self.answer("place_heavy_run", request).await?;
-
-    Ok(placed.machine)
+    self.found("ssh_reach", NOTHING_HELD, request).await
   }
 
   async fn claude_account_held(&self, user: &str) -> Answer<bool> {
@@ -608,9 +709,8 @@ impl Agency for AgencyClient {
     Ok(homes.homes)
   }
 
-  async fn resting(&self, agent: &str) -> Answer<bool> {
-    let request = self.request(Method::GET, &["agents", agent, "rest"], &[]);
-    let rest: Rest = self.answer("resting", request).await?;
+  async fn resting(&self) -> Answer<bool> {
+    let rest: Rest = self.answer("resting", self.request(Method::GET, &["rest"], &[])).await?;
 
     Ok(rest.resting)
   }
@@ -661,9 +761,23 @@ impl Agency for AgencyClient {
   }
 
   async fn pool_room(&self, provider: &str, tier: &str) -> Answer<PoolRoom> {
-    let request = self.request(Method::GET, &["pool", "room"], &[("provider", provider), ("tier", tier)]);
+    let board: Board = self.answer("pool_room", self.request(Method::GET, &["coworker-pool"], &[])).await?;
+    let Some(bucket) = board.buckets.iter().find(|one| one.provider == provider && one.tier == tier) else {
+      return Ok(PoolRoom {
+        capacity: 0,
+        active: 0,
+        reserved: 0,
+        waiting: 0,
+      });
+    };
+    let standing = |state: &str| bucket.tiles.iter().filter(|tile| tile.state == state).count() as i64;
 
-    self.answer("pool_room", request).await
+    Ok(PoolRoom {
+      capacity: bucket.capacity,
+      active: standing(WORKING_TILE),
+      reserved: standing(HELD_TILE),
+      waiting: bucket.waiting.len() as i64,
+    })
   }
 
   async fn retire_place(&self, pool: &str, slot: i64) -> Answer<()> {
@@ -763,10 +877,11 @@ impl Agency for AgencyClient {
 
   async fn rest_login(&self, account: &str, until: i64) -> Answer<()> {
     let request = self
-      .request(Method::PUT, &["accounts", "claude", account, "rest"], &[])
-      .json(&json!({ "until": until }));
+      .request(Method::POST, &["rest"], &[])
+      .json(&json!({ "until": until / 1000, "kind": LIMIT_REST, "account": account }));
+    let _: Value = self.answer("rest_login", request).await?;
 
-    self.done("rest_login", request).await
+    Ok(())
   }
 
   async fn usage_rest(&self, account: &str, usage: &serde_json::Value) -> Answer<()> {

@@ -14,6 +14,7 @@ pub enum TurnRecordKind {
 
 /// One thing a run wrote down, under the name the run worked under.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TurnRecord {
   pub run: String,
   pub kind: TurnRecordKind,

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// A worker's workbench and the item scratch directories under it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Workbench {
   pub root: PathBuf,
   #[serde(default)]
@@ -15,6 +16,7 @@ pub struct Workbench {
 
 /// One branch slot of a pool.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Slot {
   pub slot: u32,
   pub dir: PathBuf,
@@ -22,6 +24,7 @@ pub struct Slot {
 
 /// A pool's branch slots under their root.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BranchSlots {
   pub root: PathBuf,
   #[serde(default)]

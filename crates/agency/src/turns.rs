@@ -167,6 +167,7 @@ pub struct TurnSpan {
 
 /// What a turn answered.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Reply {
   pub mode: String,
   pub model: Option<String>,
@@ -190,6 +191,7 @@ pub struct Reply {
 
 /// What one model of a run spent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModelSpend {
   pub mode: Option<String>,
   pub model: String,
@@ -202,6 +204,7 @@ pub struct ModelSpend {
 
 /// A background task of the run's own, still running when the turn ended.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LiveTask {
   pub id: String,
   pub description: String,
@@ -209,6 +212,7 @@ pub struct LiveTask {
 
 /// A workflow the run launched, with how it ended where it did.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RunWorkflow {
   pub call: String,
   pub name: String,
@@ -217,6 +221,7 @@ pub struct RunWorkflow {
 
 /// What one model request of a turn spent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RequestUsage {
   pub input_tokens: i64,
   pub output_tokens: i64,
@@ -289,6 +294,7 @@ pub enum TurnFailure {
 
 /// The session a job's last answer came back on, as a worker's records keep it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionAnswered {
   pub mode: String,
   pub session_id: Option<String>,
@@ -315,6 +321,7 @@ pub enum SessionKept {
 
 /// A session handed over: the kept one on the model where none is named, its record dropped after.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Handover {
   pub model: String,
   pub cwd: String,
@@ -326,6 +333,7 @@ pub struct Handover {
 /// What a worker's agent definition gives a job: what it is told of the code graph, the trailer every job is
 /// held to, and the instruction its own handoff note is written by where its folder holds one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JobDocuments {
   pub graph: String,
   pub trailer: String,

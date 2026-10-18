@@ -89,7 +89,7 @@ impl World {
   /// pooled on its tier, a route for it, nothing held in the pool, and every turn answered at once.
   fn research_answers(&self, room: Value) {
     let agency = &self.served.agency;
-    let route = json!({ "provider": "claude-code", "tier": "Simple", "model": "small", "effort": null, "answer_tokens": null });
+    let route = json!({ "provider": "claude-code", "tier": "Simple", "model": "small", "effort": null, "answerTokens": null });
 
     agency.answer(
       "GET /providers",
@@ -101,9 +101,9 @@ impl World {
       200,
       json!([{ "name": "scout", "description": "", "enabled": true, "pooled": true, "tier": "Simple" }]),
     );
-    agency.answer("GET /pool/room", 200, room);
+    agency.answer("GET /coworker-pool", 200, board(&room));
     agency.answer("POST /routes/resolve", 200, route);
-    agency.answer("GET /pool/reservations", 200, json!([]));
+    agency.answer("GET /pool/reservations", 200, json!({ "reservations": [] }));
     agency.answer("GET /pool/requests", 200, json!([]));
     agency.answer("POST /runs", 201, json!({ "id": 42 }));
     agency.answer_empty("POST /runs/{id}/close", 204);
@@ -346,13 +346,33 @@ fn thorough_profile() -> String {
   .to_string()
 }
 
+/// bmo-agency's pool board holding the search line's tier with the room given: its places leased, held and
+/// idle, and the requests waiting on them.
+fn board(room: &Value) -> Value {
+  let count = |field: &str| room[field].as_u64().unwrap_or_default() as usize;
+  let tile = |state: &str| json!({ "state": state, "work": null });
+  let mut tiles = vec![tile("working"); count("active")];
+
+  tiles.extend(vec![tile("held"); count("reserved")]);
+  tiles.resize(count("capacity").max(tiles.len()), tile("idle"));
+
+  json!({
+    "readAt": 1,
+    "buckets": [{
+      "provider": "claude-code", "tier": "Simple", "capacity": count("capacity"), "tiles": tiles,
+      "waiting": vec![json!({}); count("waiting")]
+    }],
+    "workers": []
+  })
+}
+
 /// What bmo-agency answers a pool request with, standing as `state`.
 fn pool_request(state: &str) -> Value {
   json!({
-    "request_key": "search-run:42:branch:1", "owner": "search-run:42", "source": "search", "role": "scout",
-    "work_key": "search", "provider": "claude-code", "model": "small", "effort": null, "tier": "Simple",
-    "yielding": false, "place_key": null, "turn": false, "reservation": null, "token": "request-1",
-    "state": state, "enqueued_at": 1, "leased_at": null, "child": null, "ended_at": null, "outcome": null
+    "requestKey": "search-run:42:branch:1", "owner": "search-run:42", "source": "cowork", "role": "scout",
+    "workKey": "role:scout", "provider": "claude-code", "model": "small", "effort": null, "tier": "Simple",
+    "yielding": false, "placeKey": null, "turn": false, "reservation": null, "token": "request-1",
+    "state": state, "enqueuedAt": 1, "leasedAt": null, "childId": null, "endedAt": null, "outcome": null
   })
 }
 
@@ -414,12 +434,12 @@ async fn research_run_opens_its_ledger_entry_closes_it_on_a_turn_the_session_con
 
   world.research_answers(json!({ "capacity": 4, "active": 0, "reserved": 0, "waiting": 0 }));
   world.served.agency.answer(
-    "POST /pool/reservations",
+    "POST /pool/reserve",
     200,
     json!({
-      "reservation_key": "search-run:42:branches", "owner": "search-run:42", "source": "search", "role": "scout",
+      "reservationKey": "search-run:42:branches", "owner": "search-run:42", "source": "search", "role": "scout",
       "provider": "claude-code", "model": "small", "effort": null, "tier": "Simple", "wanted": 2,
-      "token": "reservation-1", "state": "held", "created_at": 1
+      "token": "reservation-1", "state": "held", "createdAt": 1
     }),
   );
 
@@ -441,7 +461,7 @@ async fn research_run_opens_its_ledger_entry_closes_it_on_a_turn_the_session_con
   );
   assert!(in_seconds(&opened["started_at"]), "{opened}");
   assert_eq!(opened["search_id"], 7);
-  assert_eq!(world.agency_took("POST /pool/reservations")[0]["owner"], "search-run:42");
+  assert_eq!(world.agency_took("POST /pool/reserve")[0]["owner"], "search-run:42");
 
   assert!(world.agency_took("POST /session/start").is_empty());
   assert!(world.agency_took("POST /session/turn").is_empty());
@@ -506,19 +526,13 @@ async fn research_branch_fails_its_angle_in_a_pool_place_and_refuses_one_after_r
   ];
 
   world.research_answers(json!({ "capacity": 4, "active": 0, "reserved": 0, "waiting": 0 }));
-  world.served.agency.answer("POST /pool/requests", 200, pool_request("waiting"));
+  world.served.agency.answer("POST /pool/enqueue", 200, pool_request("waiting"));
   world
     .served
     .agency
-    .answer("POST /pool/requests/{token}/lease", 200, pool_request("active"));
-  world
-    .served
-    .agency
-    .answer("POST /pool/requests/{token}/bind", 200, pool_request("active"));
-  world
-    .served
-    .agency
-    .answer("POST /pool/requests/{token}/finish", 200, json!({ "finished": true }));
+    .answer("POST /pool/acquire", 200, json!({ "request": pool_request("active") }));
+  world.served.agency.answer("POST /pool/bind", 200, pool_request("active"));
+  world.served.agency.answer("POST /pool/finish", 200, json!({ "held": true }));
   world.served.agency.answer_empty("PUT /pool/places/{place}/write", 204);
 
   let ran = world.run_fed(&words, "Which sources agree.\n").await;
@@ -531,7 +545,7 @@ async fn research_branch_fails_its_angle_in_a_pool_place_and_refuses_one_after_r
     out(&ran)
   );
   assert!(world.agency_took("POST /session/turn").is_empty());
-  let finished = &world.agency_took("POST /pool/requests/{token}/finish")[0]["outcome"];
+  let finished = &world.agency_took("POST /pool/finish")[0]["outcome"];
 
   assert!(
     finished.as_str().is_some_and(|outcome| outcome.starts_with("failed: prepare_turn")),
@@ -542,5 +556,5 @@ async fn research_branch_fails_its_angle_in_a_pool_place_and_refuses_one_after_r
 
   assert_eq!(ran.status.code(), Some(0), "{}", said(&ran));
   assert!(out(&ran).starts_with("RESEARCH CLOSED: "), "{}", out(&ran));
-  assert_eq!(world.agency_took("POST /pool/requests").len(), 1);
+  assert_eq!(world.agency_took("POST /pool/enqueue").len(), 1);
 }

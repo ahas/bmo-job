@@ -65,7 +65,7 @@ async fn a_job_whose_worker_stands_on_a_node_with_no_road_ends_as_an_error_with_
   agency.answer(
     "GET /nodes/{name}/reach",
     404,
-    json!({ "error": "There is no such node.", "code": "no_node" }),
+    json!({ "error": "There is no such node.", "code": "nothing-held" }),
   );
   receiver.answer("POST /instructions", 201, json!({ "id": 1 }));
 

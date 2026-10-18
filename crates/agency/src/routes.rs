@@ -6,6 +6,7 @@ use crate::workers::Pin;
 
 /// A provider and the work lines it carries.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Provider {
   pub name: String,
   pub enabled: bool,
@@ -19,6 +20,7 @@ pub struct Provider {
 
 /// A model tier.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Tier {
   pub name: String,
   /// True where a co-worker may run at it.
@@ -27,6 +29,7 @@ pub struct Tier {
 
 /// What a route is resolved for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RouteAsk {
   pub work_key: String,
   pub provider: Option<String>,
@@ -35,6 +38,7 @@ pub struct RouteAsk {
 
 /// The model a route resolved to.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Mapping {
   pub provider: String,
   pub tier: String,

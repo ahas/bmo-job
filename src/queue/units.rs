@@ -35,8 +35,8 @@ pub trait Units: Sync {
   fn cancel_execution<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), Refusal>>;
   /// The cancel asked of an execution and of every one it covers dropped; those dropped.
   fn drop_cancels<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Vec<String>, Refusal>>;
-  /// Whether the deployment's agent rests now.
-  fn agent_resting(&self) -> BoxFuture<'_, Result<bool, Refusal>>;
+  /// Whether the deployment rests now.
+  fn deployment_resting(&self) -> BoxFuture<'_, Result<bool, Refusal>>;
   /// The work nodes.
   fn nodes(&self) -> BoxFuture<'_, Result<Vec<Node>, Refusal>>;
   /// A request for a co-worker's place finished with its outcome, cancelled where it never ran; false
@@ -96,8 +96,8 @@ pub trait Units: Sync {
     &'a self,
     owner: Option<&'a str>,
   ) -> BoxFuture<'a, Result<Vec<PoolRequest>, Refusal>>;
-  /// A request's place leased where its turn has come.
-  fn lease_place<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<PoolRequest, Refusal>>;
+  /// A request let into its place where its turn has come; none while it waits on.
+  fn lease_place<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<Option<PoolRequest>, Refusal>>;
   /// The unit a lease is carried into, bound to it.
   fn bind_child<'a>(
     &'a self,
@@ -189,14 +189,13 @@ pub fn agency_failed(why: impl std::fmt::Display) -> Refusal {
   .into()
 }
 
-/// The calls made over the real ports, the agent's own by its key.
+/// The calls made over the real ports.
 pub struct Ports<'a, A, R, W, T, G> {
   pub agency: &'a A,
   pub receiver: &'a R,
   pub web: &'a W,
   pub testbed: &'a T,
   pub gate: &'a G,
-  pub agent_key: &'a str,
 }
 
 impl<A: Agency, R: Receiver, W: Web, T: Testbed, G: Gate> Units for Ports<'_, A, R, W, T, G> {
@@ -242,8 +241,8 @@ impl<A: Agency, R: Receiver, W: Web, T: Testbed, G: Gate> Units for Ports<'_, A,
     Box::pin(async move { self.agency.drop_cancels(id).await.map_err(agency_failed) })
   }
 
-  fn agent_resting(&self) -> BoxFuture<'_, Result<bool, Refusal>> {
-    Box::pin(async move { self.agency.resting(self.agent_key).await.map_err(agency_failed) })
+  fn deployment_resting(&self) -> BoxFuture<'_, Result<bool, Refusal>> {
+    Box::pin(async move { self.agency.resting().await.map_err(agency_failed) })
   }
 
   fn nodes(&self) -> BoxFuture<'_, Result<Vec<Node>, Refusal>> {
@@ -354,7 +353,7 @@ impl<A: Agency, R: Receiver, W: Web, T: Testbed, G: Gate> Units for Ports<'_, A,
     Box::pin(async move { self.agency.open_requests(owner).await.map_err(agency_failed) })
   }
 
-  fn lease_place<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<PoolRequest, Refusal>> {
+  fn lease_place<'a>(&'a self, token: &'a str) -> BoxFuture<'a, Result<Option<PoolRequest>, Refusal>> {
     Box::pin(async move { self.agency.lease_place(token).await.map_err(agency_failed) })
   }
 

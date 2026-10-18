@@ -25,7 +25,7 @@ pub use client::AgencyClient;
 pub use executions::Execution;
 pub use log::{JobLines, LogLine, LogNote, ToolCall, ToolResult};
 pub use machine::{LaunchHeld, Room, RoomReturned};
-pub use nodes::{Node, SshReach, WorkMachine};
+pub use nodes::{Node, SshReach};
 pub use places::{BranchSlots, Slot, Workbench};
 pub use pool::{
   PlaceWrite, PoolAsking, PoolRequest, PoolRole, PoolRoom, PoolState, Reservation, ReservationAsking,
@@ -127,7 +127,8 @@ pub trait Agency: Send + Sync {
   /// Reads one execution.
   fn execution(&self, id: &str) -> impl Future<Output = Answer<Option<Execution>>> + Send;
 
-  /// Asks an execution cancelled.
+  /// Asks a run stopped by its name, a unit's or an execution's: everything it owns cancelled, and the unit
+  /// stopped where it still stands.
   fn cancel_execution(&self, id: &str) -> impl Future<Output = Answer<()>> + Send;
 
   /// Drops the cancel asked of an execution and of every one it covers, answering those dropped.
@@ -163,14 +164,11 @@ pub trait Agency: Send + Sync {
   /// Takes a worker's own pin away.
   fn unpin_worker(&self, worker: &str) -> impl Future<Output = Answer<()>> + Send;
 
-  /// Pauses a worker's keepalive from `at`.
-  fn pause_keepalive(&self, worker: &str, at: i64) -> impl Future<Output = Answer<()>> + Send;
+  /// Stops a worker's keepalive.
+  fn pause_keepalive(&self, worker: &str) -> impl Future<Output = Answer<()>> + Send;
 
   /// Resumes a worker's keepalive.
   fn resume_keepalive(&self, worker: &str) -> impl Future<Output = Answer<()>> + Send;
-
-  /// Records the context a worker carried last.
-  fn record_context(&self, worker: &str, tokens: u64) -> impl Future<Output = Answer<()>> + Send;
 
   /// Says the owner's words to a worker, for its session.
   fn say_to_worker(&self, worker: &str, text: &str) -> impl Future<Output = Answer<()>> + Send;
@@ -222,8 +220,8 @@ pub trait Agency: Send + Sync {
   /// Lists the pool requests waiting or active, only the owner's where one is named.
   fn open_requests(&self, owner: Option<&str>) -> impl Future<Output = Answer<Vec<PoolRequest>>> + Send;
 
-  /// Leases a pool request its place where the pool has room.
-  fn lease_place(&self, token: &str) -> impl Future<Output = Answer<PoolRequest>> + Send;
+  /// Lets a pool request into its place where its turn has come, `None` while it waits on.
+  fn lease_place(&self, token: &str) -> impl Future<Output = Answer<Option<PoolRequest>>> + Send;
 
   /// Binds the child that runs in a pool request's place.
   fn bind_child(&self, token: &str, child: &str) -> impl Future<Output = Answer<PoolRequest>> + Send;
@@ -255,17 +253,14 @@ pub trait Agency: Send + Sync {
   /// Reads how SSH reaches a node.
   fn ssh_reach(&self, node: &str) -> impl Future<Output = Answer<Option<SshReach>>> + Send;
 
-  /// Places the next heavy run, `None` where no machine has room.
-  fn place_heavy_run(&self) -> impl Future<Output = Answer<Option<WorkMachine>>> + Send;
-
   /// Whether a user holds an enabled Claude account.
   fn claude_account_held(&self, user: &str) -> impl Future<Output = Answer<bool>> + Send;
 
   /// Lists the directories the logins keep their session records under, the machine's own first.
   fn claude_homes(&self) -> impl Future<Output = Answer<Vec<String>>> + Send;
 
-  /// Whether an agent rests now.
-  fn resting(&self, agent: &str) -> impl Future<Output = Answer<bool>> + Send;
+  /// Whether the deployment rests now, which closes Claude Code's road to a job.
+  fn resting(&self) -> impl Future<Output = Answer<bool>> + Send;
 
   /// Reads the room on the machine.
   fn machine_room(&self) -> impl Future<Output = Answer<Room>> + Send;

@@ -361,8 +361,8 @@ async fn a_stop_is_refused_for_an_item_named_otherwise_than_by_number_a_co_worke
   let served = Served::<Built>::ported().await;
   let execution = |id: &str, shared_pane: bool, parent: Option<&str>| {
     json!({
-      "id": id, "parent": parent, "root": parent, "line": null, "shared_pane": shared_pane, "started_at": 1,
-      "ended_at": null, "outcome": null, "cancelled": false, "details": {}
+      "id": id, "parent": parent, "root": parent, "line": null, "sharedPane": shared_pane, "startedAt": 1,
+      "endedAt": null, "outcome": null, "cancelled": false, "details": {}
     })
   };
   let refused = |answer: &(u16, serde_json::Value)| (answer.0, code(&answer.1).to_owned());
@@ -387,7 +387,11 @@ async fn a_stop_is_refused_for_an_item_named_otherwise_than_by_number_a_co_worke
   assert_eq!(refused(&answer), (409, "stop_coworker".into()));
   assert!(answer.1["error"].as_str().unwrap().contains("the run that launched it"), "{}", answer.1);
 
-  served.agency.answer_empty("GET /executions/{id}", 404);
+  served.agency.answer(
+    "GET /executions/{id}",
+    404,
+    json!({ "error": "no such execution", "code": "nothing-held" }),
+  );
   assert_eq!(
     refused(
       &served

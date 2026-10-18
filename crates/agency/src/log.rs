@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// A note written into a run's log beside the lines the run wrote itself.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogNote {
   pub agent: String,
   pub run: String,
@@ -16,6 +17,7 @@ pub struct LogNote {
 
 /// A job's last line.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogLine {
   pub id: i64,
   pub at: i64,
@@ -25,6 +27,7 @@ pub struct LogLine {
 
 /// One top-level tool call.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolCall {
   pub id: i64,
   pub agent: String,
@@ -41,6 +44,7 @@ pub struct ToolCall {
 
 /// One tool result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolResult {
   pub id: i64,
   pub agent: String,
@@ -54,6 +58,7 @@ pub struct ToolResult {
 
 /// What a job's run wrote: its tool calls and results, and how many requests and compactions it made.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JobLines {
   #[serde(default)]
   pub calls: Vec<ToolCall>,

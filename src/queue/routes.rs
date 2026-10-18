@@ -19,7 +19,7 @@ use crate::Refusal;
 /// The work key every job of a worker goes out on.
 pub const JOB_WORK_KEY: &str = "job-worker";
 
-/// The provider that runs as the deployment's agent, whose road is shut while the agent rests.
+/// The provider that runs as the deployment's agent, whose road is shut while the deployment rests.
 pub const CLAUDE_CODE: &str = "claude-code";
 
 /// The prefix of the setting a failure that closed a road is kept under.
@@ -231,7 +231,7 @@ impl<'a, C: ConnectionTrait> Roads<'a, C> {
     }
   }
 
-  /// Whether a selection's road is shut now: its provider off, Claude Code while the agent rests, or a
+  /// Whether a selection's road is shut now: its provider off, Claude Code while the deployment rests, or a
   /// failure that closed it still standing.
   pub async fn route_blocked(&self, selection: &str, now: i64) -> Result<bool, Refusal> {
     let Some(asked) = self.choice(selection) else {
@@ -242,7 +242,7 @@ impl<'a, C: ConnectionTrait> Roads<'a, C> {
       return Ok(true);
     }
 
-    if asked.provider == CLAUDE_CODE && self.units.agent_resting().await? {
+    if asked.provider == CLAUDE_CODE && self.units.deployment_resting().await? {
       return Ok(true);
     }
 

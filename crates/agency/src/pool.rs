@@ -1,10 +1,14 @@
 //! The co-worker pool: requests for a co-worker's place, reservations of seats, and the writes a place
-//! was given.
+//! was given. bmo-agency resolves the provider, model, effort and work key a request or a reservation runs
+//! on itself, from its role, its tier and the provider it names, and answers what it resolved.
 
 use serde::{Deserialize, Serialize};
 
-/// What a pool request is enqueued with.
+/// A pool request's asking: what it is enqueued with, and, as a request answers it, what bmo-agency
+/// resolved it to. Of the asking only the key, the owner, whether it is a turn's, the role, the tier, the
+/// provider, `yielding` and the place key are sent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PoolAsking {
   pub request_key: String,
   pub owner: String,
@@ -26,12 +30,17 @@ pub struct PoolAsking {
 #[serde(rename_all = "snake_case")]
 pub enum PoolState {
   Waiting,
+  /// A reservation's seat, held for its owner's next request.
+  Reserved,
   Active,
+  /// Given back: released, or cancelled where it never ran.
+  #[serde(rename = "released", alias = "cancelled")]
   Ended,
 }
 
 /// A pool request: its asking and where it stands.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PoolRequest {
   #[serde(flatten)]
   pub asking: PoolAsking,
@@ -39,13 +48,17 @@ pub struct PoolRequest {
   pub state: PoolState,
   pub enqueued_at: i64,
   pub leased_at: Option<i64>,
+  /// The unit launched into its place.
+  #[serde(rename = "childId")]
   pub child: Option<String>,
   pub ended_at: Option<i64>,
   pub outcome: Option<String>,
 }
 
-/// What seats are reserved with.
+/// A reservation's asking: what seats are reserved with, and, as a reservation answers it, what bmo-agency
+/// resolved them to. The model and effort are not sent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReservationAsking {
   pub reservation_key: String,
   pub owner: String,
@@ -69,6 +82,7 @@ pub enum ReservationState {
 
 /// A reservation: its asking and where it stands.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Reservation {
   #[serde(flatten)]
   pub asking: ReservationAsking,
@@ -79,6 +93,7 @@ pub struct Reservation {
 
 /// A role the pool knows: what it is, whether it is on and lent as a co-worker, and its default tier.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PoolRole {
   pub name: String,
   pub description: String,
@@ -92,6 +107,7 @@ pub struct PoolRole {
 /// The places one provider's tier holds in the pool: how many there are, and how many are leased,
 /// reserved and asked for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PoolRoom {
   pub capacity: i64,
   pub active: i64,
@@ -101,6 +117,7 @@ pub struct PoolRoom {
 
 /// The provider and model a place's settings were written for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlaceWrite {
   pub provider: String,
   pub model: String,

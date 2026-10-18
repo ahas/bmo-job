@@ -12,7 +12,7 @@ use job_agency::{
   PoolRole, PoolRoom, PoolState, Provider, Reservation, ReservationAsking, ReservationState, Room,
   RoomReturned, RouteAsk, Run, RunClosing, RunOpening, Scope, Session, SessionId, SessionState, Slot,
   SshReach, Start, Tier, ToolCall, ToolResult, Turn, TurnContext, TurnEnded, TurnEvent, TurnOutcome,
-  TurnRecord, TurnRecordKind, TurnStarted, WorkMachine, Workbench, WorkerRuntime,
+  TurnRecord, TurnRecordKind, TurnStarted, Workbench, WorkerRuntime,
 };
 use serde_json::{Map, Value, json};
 use support::agency::{Stub, TOKEN};
@@ -32,9 +32,9 @@ fn execution_json() -> Value {
     "parent": "e-1",
     "root": "e-1",
     "line": "coordinator",
-    "shared_pane": true,
-    "started_at": 1_000,
-    "ended_at": null,
+    "sharedPane": true,
+    "startedAt": 1_000,
+    "endedAt": null,
     "outcome": { "state": "done" },
     "cancelled": true,
     "details": { "pid": 42, "kind": "job" }
@@ -56,21 +56,32 @@ fn execution() -> Execution {
   }
 }
 
-fn pool_asking_json() -> Value {
+/// A pool request as bmo-agency answers it, with the fields of its own beyond those the port reads.
+fn pool_request_json(state: &str, child: Option<&str>) -> Value {
   json!({
-    "request_key": "key-1",
+    "sequence": 7,
+    "token": "t-1",
+    "requestKey": "key-1",
     "owner": "owner-1",
     "source": "research",
     "role": "builder",
-    "work_key": "job-worker",
+    "workKey": "job-worker",
+    "generation": 1,
+    "endedAt": null,
+    "outcome": null,
+    "reservation": "r-1",
     "provider": "provider-a",
     "model": "model-a",
     "effort": "high",
     "tier": "top",
+    "capacity": 4,
+    "state": state,
+    "enqueuedAt": 2_000,
+    "leasedAt": null,
+    "childId": child,
     "yielding": false,
-    "place_key": null,
-    "turn": true,
-    "reservation": "r-1"
+    "placeKey": null,
+    "turn": true
   })
 }
 
@@ -92,22 +103,6 @@ fn pool_asking() -> PoolAsking {
   }
 }
 
-fn pool_request_json(state: &str, child: Option<&str>) -> Value {
-  let mut request = object(pool_asking_json());
-
-  request.extend(object(json!({
-    "token": "t-1",
-    "state": state,
-    "enqueued_at": 2_000,
-    "leased_at": null,
-    "child": child,
-    "ended_at": null,
-    "outcome": null
-  })));
-
-  Value::Object(request)
-}
-
 fn pool_request(state: PoolState, child: Option<&str>) -> PoolRequest {
   PoolRequest {
     asking: pool_asking(),
@@ -119,20 +114,6 @@ fn pool_request(state: PoolState, child: Option<&str>) -> PoolRequest {
     ended_at: None,
     outcome: None,
   }
-}
-
-fn reservation_asking_json() -> Value {
-  json!({
-    "reservation_key": "rk-1",
-    "owner": "owner-1",
-    "source": "research",
-    "role": "builder",
-    "provider": "provider-a",
-    "model": "model-a",
-    "effort": null,
-    "tier": "top",
-    "wanted": 3
-  })
 }
 
 fn reservation_asking() -> ReservationAsking {
@@ -150,11 +131,20 @@ fn reservation_asking() -> ReservationAsking {
 }
 
 fn reservation_json() -> Value {
-  let mut reservation = object(reservation_asking_json());
-
-  reservation.extend(object(json!({ "token": "r-1", "state": "held", "created_at": 3_000 })));
-
-  Value::Object(reservation)
+  json!({
+    "token": "r-1",
+    "reservationKey": "rk-1",
+    "state": "held",
+    "owner": "owner-1",
+    "source": "research",
+    "role": "builder",
+    "provider": "provider-a",
+    "model": "model-a",
+    "effort": null,
+    "tier": "top",
+    "wanted": 3,
+    "createdAt": 3_000
+  })
 }
 
 fn reservation() -> Reservation {
@@ -411,12 +401,12 @@ async fn execution_reads_one_with_its_details_as_they_stand() {
 }
 
 #[tokio::test]
-async fn cancel_execution_posts_the_cancel() {
+async fn cancel_execution_asks_the_run_stopped_by_its_name() {
   let stub = Stub::start().await;
 
-  stub.answer_empty("POST /executions/{id}/cancel", 204);
+  stub.answer("POST /runs/stop", 200, json!({ "ok": true }));
   stub.client().cancel_execution("e-1").await.unwrap();
-  stub.took("POST /executions/{id}/cancel", "/executions/e-1/cancel", None);
+  stub.took("POST /runs/stop", "/runs/stop", Some(json!({ "run": "e-1" })));
 }
 
 #[tokio::test]
@@ -530,15 +520,20 @@ async fn run_reads_one_run() {
 // The agent log.
 
 #[tokio::test]
-async fn run_starts_counts_by_agent_and_run() {
+async fn run_starts_counts_the_agent_s_start_lines_in_the_run_s_log() {
   let stub = Stub::start().await;
+  let line = |id: i64, agent: &str, kind: &str| json!({ "id": id, "agent": agent, "run": "run-17", "at": id, "kind": kind, "text": "", "jobId": null });
 
-  stub.answer("GET /log/starts", 200, json!({ "count": 3 }));
+  stub.answer(
+    "GET /run-log",
+    200,
+    json!({ "lines": [line(1, "agent", "start"), line(2, "agent", "tool"), line(3, "other", "start"), line(4, "agent", "start")] }),
+  );
 
   let count = stub.client().run_starts("agent", "run-17").await.unwrap();
 
-  assert_eq!(count, 3);
-  stub.took("GET /log/starts", "/log/starts?agent=agent&run=run-17", None);
+  assert_eq!(count, 2);
+  stub.took("GET /run-log", "/run-log?run=run-17&after=0", None);
 }
 
 #[tokio::test]
@@ -655,7 +650,7 @@ async fn keep_turn_record_posts_the_record_under_the_runs_name() {
       "run": "job:9",
       "kind": "todo_add",
       "text": "Fix the launcher",
-      "record_id": 41,
+      "recordId": 41,
       "wakes": false,
       "at": 9_000
     })),
@@ -685,7 +680,7 @@ async fn words_appended_are_kept_as_their_own_kind() {
       "run": "chat:-5:1:1",
       "kind": "todo_append",
       "text": "Check the docs too.",
-      "record_id": null,
+      "recordId": null,
       "wakes": false,
       "at": 9_000
     })),
@@ -724,17 +719,25 @@ async fn a_refused_turn_record_is_handed_on() {
 // Workers' runtime.
 
 #[tokio::test]
-async fn worker_runtime_reads_the_pin_pause_and_context() {
+async fn worker_runtime_reads_the_worker_s_row_among_the_agents() {
   let stub = Stub::start().await;
 
   stub.answer(
-    "GET /workers/{worker}/runtime",
+    "GET /agents",
     200,
     json!({
-      "worker": "worker-2",
-      "pin": { "provider": "provider-a", "model": null },
-      "keepalive_paused_at": 6_000,
-      "context_tokens": 40_000
+      "agents": [
+        { "name": "agent", "kind": "chat" },
+        {
+          "name": "worker-2",
+          "kind": "worker",
+          "pinnedProvider": "provider-a",
+          "pinnedModel": null,
+          "keepalivePausedAt": 6_000,
+          "contextTokens": 40_000
+        }
+      ],
+      "roles": []
     }),
   );
 
@@ -752,68 +755,96 @@ async fn worker_runtime_reads_the_pin_pause_and_context() {
       context_tokens: Some(40_000),
     })
   );
-  stub.took("GET /workers/{worker}/runtime", "/workers/worker-2/runtime", None);
+  stub.took("GET /agents", "/agents", None);
+  assert_eq!(stub.client().worker_runtime("worker-9").await.unwrap(), None);
 }
 
 #[tokio::test]
-async fn pin_worker_puts_the_pin() {
+async fn a_support_worker_with_no_pin_of_its_own_is_answered_its_base_s() {
+  let stub = Stub::start().await;
+
+  stub.answer(
+    "GET /agents",
+    200,
+    json!({
+      "agents": [
+        { "name": "worker-2-1", "kind": "worker", "supportOf": "worker-2", "pinnedProvider": null },
+        { "name": "worker-2", "kind": "worker", "pinnedProvider": "provider-a", "pinnedModel": "model-a" }
+      ],
+      "roles": []
+    }),
+  );
+
+  let runtime = stub.client().worker_runtime("worker-2-1").await.unwrap().unwrap();
+
+  assert_eq!(
+    runtime.pin,
+    Some(Pin {
+      provider: "provider-a".into(),
+      model: Some("model-a".into()),
+    })
+  );
+}
+
+#[tokio::test]
+async fn pin_worker_updates_the_worker_s_pinned_provider() {
   let stub = Stub::start().await;
   let pin = Pin {
     provider: "provider-a".into(),
     model: Some("model-a".into()),
   };
 
-  stub.answer_empty("PUT /workers/{worker}/pin", 204);
+  stub.answer("POST /worker", 200, json!({ "ok": true }));
   stub.client().pin_worker("worker-2", &pin).await.unwrap();
   stub.took(
-    "PUT /workers/{worker}/pin",
-    "/workers/worker-2/pin",
-    Some(json!({ "provider": "provider-a", "model": "model-a" })),
+    "POST /worker",
+    "/worker",
+    Some(json!({ "action": "update", "name": "worker-2", "pinnedProvider": "provider-a::model-a" })),
   );
 }
 
 #[tokio::test]
-async fn unpin_worker_deletes_the_pin() {
+async fn unpin_worker_leaves_the_worker_to_its_walk() {
   let stub = Stub::start().await;
 
-  stub.answer_empty("DELETE /workers/{worker}/pin", 204);
+  stub.answer("POST /worker", 200, json!({ "ok": true }));
   stub.client().unpin_worker("worker-2").await.unwrap();
-  stub.took("DELETE /workers/{worker}/pin", "/workers/worker-2/pin", None);
-}
-
-#[tokio::test]
-async fn pause_keepalive_puts_the_time() {
-  let stub = Stub::start().await;
-
-  stub.answer_empty("PUT /workers/{worker}/keepalive-pause", 204);
-  stub.client().pause_keepalive("worker-2", 6_000).await.unwrap();
   stub.took(
-    "PUT /workers/{worker}/keepalive-pause",
-    "/workers/worker-2/keepalive-pause",
-    Some(json!({ "at": 6_000 })),
+    "POST /worker",
+    "/worker",
+    Some(json!({ "action": "update", "name": "worker-2", "pinnedProvider": "auto" })),
   );
 }
 
 #[tokio::test]
-async fn resume_keepalive_deletes_the_pause() {
+async fn pausing_and_resuming_the_keepalive_stop_and_start_it() {
   let stub = Stub::start().await;
 
-  stub.answer_empty("DELETE /workers/{worker}/keepalive-pause", 204);
+  stub.answer("POST /worker", 200, json!({ "ok": true }));
+  stub.client().pause_keepalive("worker-2").await.unwrap();
   stub.client().resume_keepalive("worker-2").await.unwrap();
-  stub.took("DELETE /workers/{worker}/keepalive-pause", "/workers/worker-2/keepalive-pause", None);
+
+  let bodies: Vec<Value> = stub.calls().into_iter().filter_map(|call| call.body).collect();
+
+  assert_eq!(
+    bodies,
+    [
+      json!({ "action": "update", "name": "worker-2", "keepaliveStopped": true }),
+      json!({ "action": "update", "name": "worker-2", "keepaliveStopped": false }),
+    ]
+  );
 }
 
 #[tokio::test]
-async fn record_context_puts_the_tokens() {
+async fn a_worker_update_refused_is_handed_on() {
   let stub = Stub::start().await;
 
-  stub.answer_empty("PUT /workers/{worker}/context-tokens", 204);
-  stub.client().record_context("worker-2", 40_000).await.unwrap();
-  stub.took(
-    "PUT /workers/{worker}/context-tokens",
-    "/workers/worker-2/context-tokens",
-    Some(json!({ "tokens": 40_000 })),
-  );
+  stub.answer("POST /worker", 400, json!({ "error": "No provider answers.", "code": "bad-request" }));
+
+  match stub.client().unpin_worker("worker-2").await {
+    Err(AgencyError::Refused { call, status, .. }) => assert_eq!((call, status), ("unpin_worker", 400)),
+    other => panic!("not handed on as a refusal: {other:?}"),
+  }
 }
 
 #[tokio::test]
@@ -860,7 +891,7 @@ async fn providers_lists_each_with_its_lines() {
 async fn place_cache_reads_the_lifetime_by_model_and_upstream() {
   let stub = Stub::start().await;
 
-  stub.answer("GET /providers/{provider}/cache", 200, json!({ "ttl_ms": 240_000 }));
+  stub.answer("GET /providers/{provider}/cache", 200, json!({ "ttlMs": 240_000 }));
 
   let client = stub.client();
 
@@ -871,7 +902,7 @@ async fn place_cache_reads_the_lifetime_by_model_and_upstream() {
     None,
   );
 
-  stub.answer("GET /providers/{provider}/cache", 200, json!({ "ttl_ms": null }));
+  stub.answer("GET /providers/{provider}/cache", 200, json!({ "ttlMs": null }));
 
   assert_eq!(client.place_cache("provider-a", "model-1", None).await.unwrap(), None);
 }
@@ -900,13 +931,27 @@ async fn pool_roles_lists_each_role_with_its_default_tier() {
 }
 
 #[tokio::test]
-async fn pool_room_asks_by_provider_and_tier() {
+async fn pool_room_reads_the_tier_s_bucket_off_the_pool_s_board() {
   let stub = Stub::start().await;
+  let tile = |state: &str| json!({ "state": state, "work": null });
 
   stub.answer(
-    "GET /pool/room",
+    "GET /coworker-pool",
     200,
-    json!({ "capacity": 4, "active": 1, "reserved": 2, "waiting": 0 }),
+    json!({
+      "readAt": 1,
+      "buckets": [
+        { "provider": "provider-b", "tier": "Light", "capacity": 9, "tiles": [], "waiting": [] },
+        {
+          "provider": "provider-a",
+          "tier": "Light",
+          "capacity": 4,
+          "tiles": [tile("working"), tile("held"), tile("held"), tile("idle")],
+          "waiting": [{ "kind": "cowork" }]
+        }
+      ],
+      "workers": []
+    }),
   );
 
   assert_eq!(
@@ -915,10 +960,19 @@ async fn pool_room_asks_by_provider_and_tier() {
       capacity: 4,
       active: 1,
       reserved: 2,
+      waiting: 1,
+    }
+  );
+  stub.took("GET /coworker-pool", "/coworker-pool", None);
+  assert_eq!(
+    stub.client().pool_room("provider-a", "Heavy").await.unwrap(),
+    PoolRoom {
+      capacity: 0,
+      active: 0,
+      reserved: 0,
       waiting: 0,
     }
   );
-  stub.took("GET /pool/room", "/pool/room?provider=provider-a&tier=Light", None);
 }
 
 #[tokio::test]
@@ -980,7 +1034,7 @@ async fn resolve_route_posts_the_ask_and_reads_the_mapping() {
       "tier": "top",
       "model": "model-a",
       "effort": "high",
-      "answer_tokens": 32_000
+      "answerTokens": 32_000
     }),
   );
 
@@ -1004,7 +1058,7 @@ async fn resolve_route_posts_the_ask_and_reads_the_mapping() {
   stub.took(
     "POST /routes/resolve",
     "/routes/resolve",
-    Some(json!({ "work_key": "job-worker", "provider": null, "tier": "top" })),
+    Some(json!({ "workKey": "job-worker", "provider": null, "tier": "top" })),
   );
 }
 
@@ -1042,15 +1096,43 @@ async fn check_pin_reads_auto() {
 // The co-worker pool.
 
 #[tokio::test]
-async fn enqueue_request_posts_the_asking_and_reads_the_request() {
+async fn enqueue_request_posts_what_agency_resolves_the_request_from() {
   let stub = Stub::start().await;
 
-  stub.answer("POST /pool/requests", 201, pool_request_json("waiting", None));
+  stub.answer("POST /pool/enqueue", 200, pool_request_json("waiting", None));
 
   let request = stub.client().enqueue_request(&pool_asking()).await.unwrap();
 
   assert_eq!(request, pool_request(PoolState::Waiting, None));
-  stub.took("POST /pool/requests", "/pool/requests", Some(pool_asking_json()));
+  stub.took(
+    "POST /pool/enqueue",
+    "/pool/enqueue",
+    Some(json!({
+      "source": "turn",
+      "requestKey": "key-1",
+      "owner": "owner-1",
+      "role": "builder",
+      "selection": "top",
+      "tier": "top",
+      "provider": "provider-a",
+      "yielding": false,
+      "placeKey": null
+    })),
+  );
+}
+
+#[tokio::test]
+async fn a_branch_s_seat_is_enqueued_as_co_work() {
+  let stub = Stub::start().await;
+  let asking = PoolAsking {
+    turn: false,
+    ..pool_asking()
+  };
+
+  stub.answer("POST /pool/enqueue", 200, pool_request_json("waiting", None));
+  stub.client().enqueue_request(&asking).await.unwrap();
+
+  assert_eq!(stub.calls()[0].body.as_ref().unwrap()["source"], "cowork");
 }
 
 #[tokio::test]
@@ -1081,66 +1163,94 @@ async fn open_requests_names_the_owner_only_where_given() {
 }
 
 #[tokio::test]
-async fn lease_place_posts_and_reads_the_request() {
+async fn lease_place_asks_the_request_in_and_reads_it_or_none_while_it_waits() {
   let stub = Stub::start().await;
 
-  stub.answer("POST /pool/requests/{token}/lease", 200, pool_request_json("active", None));
+  stub.answer("POST /pool/acquire", 200, json!({ "request": pool_request_json("active", None) }));
 
   let request = stub.client().lease_place("t-1").await.unwrap();
 
-  assert_eq!(request.state, PoolState::Active);
-  stub.took("POST /pool/requests/{token}/lease", "/pool/requests/t-1/lease", None);
+  assert_eq!(request.map(|request| request.state), Some(PoolState::Active));
+  stub.took("POST /pool/acquire", "/pool/acquire", Some(json!({ "token": "t-1" })));
+
+  stub.answer("POST /pool/acquire", 200, json!({ "request": null }));
+
+  assert_eq!(stub.client().lease_place("t-1").await.unwrap(), None);
 }
 
 #[tokio::test]
-async fn bind_child_posts_the_child() {
+async fn the_pool_s_states_are_read_as_bmo_job_s() {
   let stub = Stub::start().await;
 
-  stub.answer("POST /pool/requests/{token}/bind", 200, pool_request_json("active", Some("child-1")));
+  for (state, read) in [
+    ("reserved", PoolState::Reserved),
+    ("released", PoolState::Ended),
+    ("cancelled", PoolState::Ended),
+  ] {
+    stub.answer("GET /pool/requests/{token}", 200, pool_request_json(state, None));
+
+    assert_eq!(stub.client().pool_request("t-1").await.unwrap().unwrap().state, read);
+  }
+}
+
+#[tokio::test]
+async fn bind_child_posts_the_token_and_the_child() {
+  let stub = Stub::start().await;
+
+  stub.answer("POST /pool/bind", 200, pool_request_json("active", Some("child-1")));
 
   let request = stub.client().bind_child("t-1", "child-1").await.unwrap();
 
   assert_eq!(request, pool_request(PoolState::Active, Some("child-1")));
-  stub.took(
-    "POST /pool/requests/{token}/bind",
-    "/pool/requests/t-1/bind",
-    Some(json!({ "child": "child-1" })),
-  );
+  stub.took("POST /pool/bind", "/pool/bind", Some(json!({ "token": "t-1", "childId": "child-1" })));
 }
 
 #[tokio::test]
-async fn finish_request_posts_the_outcome_and_cancel() {
+async fn finish_request_posts_the_outcome_and_cancel_and_reads_whether_it_was_held() {
   let stub = Stub::start().await;
 
-  stub.answer("POST /pool/requests/{token}/finish", 200, json!({ "finished": false }));
+  stub.answer("POST /pool/finish", 200, json!({ "held": false }));
 
   let finished = stub.client().finish_request("t-1", "closed", true).await.unwrap();
 
   assert!(!finished);
   stub.took(
-    "POST /pool/requests/{token}/finish",
-    "/pool/requests/t-1/finish",
-    Some(json!({ "outcome": "closed", "cancel": true })),
+    "POST /pool/finish",
+    "/pool/finish",
+    Some(json!({ "token": "t-1", "outcome": "closed", "cancel": true })),
   );
 }
 
 #[tokio::test]
-async fn reserve_seats_posts_the_asking_and_reads_the_reservation() {
+async fn reserve_seats_posts_what_agency_resolves_the_seats_from() {
   let stub = Stub::start().await;
 
-  stub.answer("POST /pool/reservations", 201, reservation_json());
+  stub.answer("POST /pool/reserve", 200, reservation_json());
 
   let held = stub.client().reserve_seats(&reservation_asking()).await.unwrap();
 
   assert_eq!(held, reservation());
-  stub.took("POST /pool/reservations", "/pool/reservations", Some(reservation_asking_json()));
+  stub.took(
+    "POST /pool/reserve",
+    "/pool/reserve",
+    Some(json!({
+      "reservationKey": "rk-1",
+      "owner": "owner-1",
+      "source": "research",
+      "role": "builder",
+      "selection": "top",
+      "tier": "top",
+      "provider": "provider-a",
+      "count": 3
+    })),
+  );
 }
 
 #[tokio::test]
 async fn held_reservations_names_the_owner_where_given() {
   let stub = Stub::start().await;
 
-  stub.answer("GET /pool/reservations", 200, json!([reservation_json()]));
+  stub.answer("GET /pool/reservations", 200, json!({ "reservations": [reservation_json()] }));
 
   let held = stub.client().held_reservations(Some("owner-1")).await.unwrap();
 
@@ -1149,18 +1259,18 @@ async fn held_reservations_names_the_owner_where_given() {
 }
 
 #[tokio::test]
-async fn release_reservation_posts_the_reason() {
+async fn release_reservation_posts_the_token_and_the_reason_as_its_outcome() {
   let stub = Stub::start().await;
 
-  stub.answer("POST /pool/reservations/{token}/release", 200, json!({ "released": true }));
+  stub.answer("POST /pool/reservations/release", 200, json!({ "held": true }));
 
   let released = stub.client().release_reservation("r-1", "research ended").await.unwrap();
 
   assert!(released);
   stub.took(
-    "POST /pool/reservations/{token}/release",
-    "/pool/reservations/r-1/release",
-    Some(json!({ "reason": "research ended" })),
+    "POST /pool/reservations/release",
+    "/pool/reservations/release",
+    Some(json!({ "token": "r-1", "outcome": "research ended" })),
   );
 }
 
@@ -1203,7 +1313,7 @@ async fn nodes_lists_each_node() {
       "kind": "ssh",
       "role": null,
       "state": "up",
-      "checked_at": 7_000
+      "checkedAt": 7_000
     }]),
   );
 
@@ -1230,7 +1340,7 @@ async fn ssh_reach_reads_how_ssh_reaches_a_node() {
   stub.answer(
     "GET /nodes/{name}/reach",
     200,
-    json!({ "host": "10.0.0.2", "port": 22, "user": "runner", "key_path": null, "shell": "bash" }),
+    json!({ "host": "10.0.0.2", "port": 22, "user": "runner", "keyPath": null, "shell": "bash" }),
   );
 
   let reach = stub.client().ssh_reach("node-1").await.unwrap();
@@ -1246,33 +1356,6 @@ async fn ssh_reach_reads_how_ssh_reaches_a_node() {
     })
   );
   stub.took("GET /nodes/{name}/reach", "/nodes/node-1/reach", None);
-}
-
-#[tokio::test]
-async fn place_heavy_run_reads_the_machine_or_none() {
-  let stub = Stub::start().await;
-
-  stub.answer(
-    "POST /nodes/heavy-run",
-    200,
-    json!({ "machine": { "name": "node-1", "label": "Node one", "node": "node-1" } }),
-  );
-
-  let placed = stub.client().place_heavy_run().await.unwrap();
-
-  assert_eq!(
-    placed,
-    Some(WorkMachine {
-      name: "node-1".into(),
-      label: "Node one".into(),
-      node: Some("node-1".into()),
-    })
-  );
-  stub.took("POST /nodes/heavy-run", "/nodes/heavy-run", None);
-
-  stub.answer("POST /nodes/heavy-run", 200, json!({ "machine": null }));
-
-  assert_eq!(stub.client().place_heavy_run().await.unwrap(), None);
 }
 
 // Claude accounts.
@@ -1299,16 +1382,16 @@ async fn claude_homes_lists_the_record_homes() {
   stub.took("GET /accounts/claude/homes", "/accounts/claude/homes", None);
 }
 
-// An agent's rest.
+// The deployment's rest.
 
 #[tokio::test]
-async fn resting_reads_the_agents_rest() {
+async fn resting_reads_the_deployment_s_rest() {
   let stub = Stub::start().await;
 
-  stub.answer("GET /agents/{agent}/rest", 200, json!({ "resting": true }));
+  stub.answer("GET /rest", 200, json!({ "resting": true, "until": 1_791_430_000, "kind": "limit" }));
 
-  assert!(stub.client().resting("agent").await.unwrap());
-  stub.took("GET /agents/{agent}/rest", "/agents/agent/rest", None);
+  assert!(stub.client().resting().await.unwrap());
+  stub.took("GET /rest", "/rest", None);
 }
 
 // The machine's room.
@@ -1463,19 +1546,23 @@ async fn branch_slots_reads_the_root_and_slots() {
 #[tokio::test]
 async fn a_read_of_one_thing_that_does_not_exist_is_none() {
   let stub = Stub::start().await;
-  let missing = json!({ "error": "No such thing.", "code": "unknown" });
+  let held = json!({ "error": "Nothing is kept there.", "code": "nothing-held" });
+
+  stub.answer(
+    "GET /session/state",
+    404,
+    json!({ "error": "No such session.", "code": "unknown-session" }),
+  );
 
   for route in [
-    "GET /session/state",
     "GET /executions/{id}",
     "GET /runs/{id}",
     "GET /log/jobs/{job}/last",
-    "GET /workers/{worker}/runtime",
     "POST /routes/resolve",
     "GET /pool/requests/{token}",
     "GET /nodes/{name}/reach",
   ] {
-    stub.answer(route, 404, missing.clone());
+    stub.answer(route, 404, held.clone());
   }
 
   let client = stub.client();
@@ -1489,11 +1576,24 @@ async fn a_read_of_one_thing_that_does_not_exist_is_none() {
   assert_eq!(client.execution("e-9").await.unwrap(), None);
   assert_eq!(client.run(99).await.unwrap(), None);
   assert_eq!(client.job_last_line(99).await.unwrap(), None);
-  assert_eq!(client.worker_runtime("worker-9").await.unwrap(), None);
   assert_eq!(client.resolve_route(&asked).await.unwrap(), None);
   assert_eq!(client.pool_request("t-9").await.unwrap(), None);
   assert_eq!(client.ssh_reach("node-9").await.unwrap(), None);
-  assert_eq!(stub.calls().len(), 8);
+  assert_eq!(stub.calls().len(), 7);
+}
+
+#[tokio::test]
+async fn a_404_with_any_other_code_is_a_refusal_not_nothing_found() {
+  let stub = Stub::start().await;
+
+  stub.answer("GET /executions/{id}", 404, json!({ "error": "not found", "code": "not-found" }));
+
+  let unserved = stub.client().execution("e-9").await.unwrap_err();
+
+  assert!(
+    matches!(&unserved, AgencyError::Refused { call: "execution", status: 404, code, .. } if code == "not-found"),
+    "{unserved}"
+  );
 }
 
 #[tokio::test]
@@ -1604,7 +1704,11 @@ fn an_address_that_is_not_http_is_refused() {
 async fn a_path_segment_is_percent_encoded() {
   let stub = Stub::start().await;
 
-  stub.answer_empty("DELETE /workers/{worker}/pin", 204);
-  stub.client().unpin_worker("a b/c?d").await.unwrap();
-  stub.took("DELETE /workers/{worker}/pin", "/workers/a%20b%2Fc%3Fd/pin", None);
+  stub.answer_empty("POST /workers/{worker}/words", 204);
+  stub.client().say_to_worker("a b/c?d", "hello").await.unwrap();
+  stub.took(
+    "POST /workers/{worker}/words",
+    "/workers/a%20b%2Fc%3Fd/words",
+    Some(json!({ "text": "hello" })),
+  );
 }

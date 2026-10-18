@@ -55,7 +55,7 @@ key names.
   provider order, each model resolved through bmo-agency's routes at the tier asked or at the profile's
   own tier. A worker pinned to a provider and a model walks that one selection; pinned to a provider
   alone, that provider.
-- **A route is blocked** while its provider is off, while the deployment's agent rests where the provider
+- **A route is blocked** while its provider is off, while the deployment rests where the provider
   is `claude-code`, or while a failure that closed it stands: the `job_route_block:` setting of the
   provider, or of the provider and the model where the provider's models are registrations of their own,
   holding an `until` that has not passed.

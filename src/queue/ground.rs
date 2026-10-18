@@ -181,7 +181,6 @@ impl QueueGround {
       web: &self.web,
       testbed: &self.testbed,
       gate: &self.gate,
-      agent_key: &self.agent_key,
     }
   }
 

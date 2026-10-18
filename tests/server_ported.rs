@@ -29,20 +29,17 @@ async fn served() -> Served<Built> {
     ("GET /machine/room", json!({ "held": [], "jobs": 0, "browserJobs": 0, "browsers": 0 })),
     ("DELETE /executions/{id}/cancel", json!({ "dropped": [] })),
     ("GET /places/workbench/{worker}", json!({ "root": bench, "scratches": [] })),
-    ("GET /agents/{agent}/rest", json!({ "resting": false })),
+    ("GET /rest", json!({ "resting": false, "until": null, "kind": null })),
+    ("POST /runs/stop", json!({ "ok": true })),
     (
       "GET /nodes",
-      json!([{ "name": "n1", "label": "Node One", "kind": "ssh", "role": null, "state": "ok", "checked_at": null }]),
+      json!([{ "name": "n1", "label": "Node One", "kind": "ssh", "role": null, "state": "ok", "checkedAt": null }]),
     ),
   ] {
     served.agency.answer(route, 200, body);
   }
 
-  for route in [
-    "POST /executions/{id}/cancel",
-    "POST /workers/{worker}/bench",
-    "POST /workers/{worker}/words",
-  ] {
+  for route in ["POST /workers/{worker}/bench", "POST /workers/{worker}/words"] {
     served.agency.answer_empty(route, 204);
   }
 
@@ -279,8 +276,8 @@ async fn a_unit_s_stop_is_confirmed_once_it_is_gone_and_one_that_ended_is_refuse
 
   // An execution still open once its cancel was asked is asked to stop, not confirmed gone.
   let open = json!({
-    "id": "ex-1", "parent": null, "root": null, "line": null, "shared_pane": false, "started_at": 1,
-    "ended_at": null, "outcome": null, "cancelled": false, "details": {}
+    "id": "ex-1", "parent": null, "root": null, "line": null, "sharedPane": false, "startedAt": 1,
+    "endedAt": null, "outcome": null, "cancelled": false, "details": {}
   });
 
   served.agency.answer("GET /executions", 200, json!([open]));

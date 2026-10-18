@@ -6,6 +6,7 @@ use serde_json::{Map, Value};
 /// One execution. The fields the service decides on are typed; every other field bmo-agency records of
 /// it stands in `details` as it was given.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Execution {
   pub id: String,
   pub parent: Option<String>,

@@ -411,7 +411,7 @@ async fn record_session_posts_the_answered_session_and_reads_what_became_of_it()
     "POST /workers/{worker}/sessions/record",
     "/workers/worker/sessions/record",
     Some(json!({
-      "answered": { "mode": "claude-code", "session_id": "s-2", "account": null, "spend": [], "context_ratio": null, "context_tokens": 1200, "model": "model-a" },
+      "answered": { "mode": "claude-code", "sessionId": "s-2", "account": null, "spend": [], "contextRatio": null, "contextTokens": 1200, "model": "model-a" },
       "cwd": "/srv/checkout",
       "job": 41,
     })),
@@ -536,12 +536,12 @@ async fn model_health_reads_whether_the_engine_answers() {
 async fn a_login_is_rested_until_a_moment_and_by_a_job_s_usage() {
   let stub = Stub::start().await;
 
-  stub.answer_empty("PUT /accounts/claude/{account}/rest", 204);
+  stub.answer("POST /rest", 200, json!({ "silenced": false }));
   stub.client().rest_login("a-1", 1_791_430_000_000).await.unwrap();
   stub.took(
-    "PUT /accounts/claude/{account}/rest",
-    "/accounts/claude/a-1/rest",
-    Some(json!({ "until": 1_791_430_000_000i64 })),
+    "POST /rest",
+    "/rest",
+    Some(json!({ "until": 1_791_430_000, "kind": "limit", "account": "a-1" })),
   );
 
   let stub = Stub::start().await;

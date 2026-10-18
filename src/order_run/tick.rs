@@ -901,7 +901,7 @@ impl<'g, H: Hands> Runner<'g, H> {
 
     let leased = ground.units.lease_place(&request.token).await.map_err(faulted)?;
 
-    Ok((leased.state == PoolState::Active).then_some(leased))
+    Ok(leased.filter(|leased| leased.state == PoolState::Active))
   }
 
   // A pending task let into the pool, composed and launched; whether it was a branch that launched.
