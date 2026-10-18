@@ -1290,6 +1290,9 @@ sends only what changed and a fold forgets what it folded away.
 | `GET /todos/worker-lines?all&pending&held&merged&chat=` | | `[lines]` |
 | `GET /todos/{item}/worker-lines` | | `[lines]` |
 | `GET /rooms/{chat}/jobs?limit=` | | `[jobs]` |
+| `GET /workers/{name}/job?run=` | | `job?` (a job line) |
+| `GET /workers/{name}/job/prompt?run=` | | `prompt?`: `text`, `english?` |
+| `GET /jobs/recent?limit=` | | `[jobs]` (the jobs that have just run) |
 | `GET /work-orders/{item}` | | `order` (the body), `[lines]` |
 | `GET /work-orders/{item}/current` | | `[tasks]` (placed tasks) |
 | `GET /work-orders/{item}/tasks/{task}` | | a placed task |
@@ -1299,6 +1302,18 @@ sends only what changed and a fold forgets what it folded away.
 - **A worker's lines** carry the kept English of what is written in another language, as bmo-gate keeps
   it; what has none stands under the untranslated mark, and so does all of it where bmo-gate does not
   answer.
+- **A job line** is the line a worker's screen keeps for one job, `run` naming the unit of the job the
+  screen was opened at (docs/reading.md, "A worker's job line"): `run` (its unit), `item?`, `title?`
+  (the item's), `purpose?`, `launched_at`, `finished_at?`, `tools` (how many it called) and `[models]`,
+  each `model`, `input_tokens?`, `output_tokens?`, `cache_read_tokens?` and `cache_write_tokens?`. A
+  running job's tools are counted in its run's log at bmo-agency ("The agent log"). A worker with no
+  job answers `job` null, and its prompt `prompt` null.
+- **A job's prompt:** `text`, in the deployment's language where that reading was kept, otherwise as
+  written, and `english?`, the English its worker was handed where it differs.
+- **A job that has just run** (docs/reading.md, "The jobs that have just run"): `id`, `unit`, `chat`,
+  `model?`, `launched_at`, `finished_at?`, `outcome?`, `ok?`, `label` (a job label), `purpose?` and
+  `worker?`. The runner runs the console's live board shows beside them are bmo-agency's run ledger,
+  which bmo-agency lists by no route.
 - **A placed task:** `place` and `task` (the task as the body holds it). A place is an object of `kind`:
   `history`, `stage` or `build` with `at` (and `stage` for a stage's task), or `control`.
 - **The tasks an order is at now:** the present stage's tasks in research, the first build task not
@@ -1557,19 +1572,22 @@ A run is one entry of the run ledger: an agent's unit started, how deep it was, 
 #### The agent log
 
 The log is every line an agent's run wrote: its starts, turns, tool calls and their results. The service
-reads it to count a run's starts and to tell what a job's run has done, and writes a note into it.
+reads it to count a run's starts and its tool calls and to tell what a job's run has done, and writes a
+note into it.
 
 | Call | Method and path | Request | Answer |
 |---|---|---|---|
 | Count a run's starts | `GET /run-log?run={run}&after={id}` | | `lines`: the run's lines after the one given, five hundred at most, each with its `id`, `agent` and `kind` among its fields |
+| Count a run's tool calls | `GET /run-log?run={run}&after={id}` | | as the count of its starts |
 | Read a job's last line | `GET /log/jobs/{job}/last` | | `id`, `at`, `kind`, `name?` |
 | Read a job's lines | `GET /log/jobs/{job}` | | a job's lines |
 | Write a note in a run's log | `POST /log/notes` | `agent`, `run`, `chat?`, `job?`, `text`, `source?`, `state?` | 204 |
 
 - **Counting a run's starts** reads its log a page at a time from the beginning, each page after the
   last line of the one before, until a page holds fewer than five hundred lines, and counts the lines of
-  the kind `start` the agent wrote.
-- **bmo-agency serves the count's read alone.** Its run log is read by the run's name, not by a job's, and
+  the kind `start` the agent wrote. **Counting its tool calls** reads it the same way and counts the
+  lines of the kind `tool` the agent wrote.
+- **bmo-agency serves the counts' read alone.** Its run log is read by the run's name, not by a job's, and
   nothing writes a line into it across its boundary, so the two reads by job and the note are served by
   no route of its yet.
 - **A job's lines:**

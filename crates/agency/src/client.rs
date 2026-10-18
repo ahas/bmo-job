@@ -39,6 +39,9 @@ const UNKNOWN_SESSION: &str = "unknown-session";
 /// The kind of the line a run's log opens each start of the run with.
 const START_LINE: &str = "start";
 
+/// The kind of the line a run's log keeps each tool call under.
+const TOOL_LINE: &str = "tool";
+
 /// The most lines a read of a run's log answers at once.
 const RUN_LOG_PAGE: usize = 500;
 
@@ -320,6 +323,26 @@ impl AgencyClient {
     Ok(())
   }
 
+  /// The lines of `kind` an agent wrote in a run's log, read a page at a time from the beginning, each page
+  /// after the last line of the one before, until a page holds fewer than a page's lines.
+  async fn run_lines(&self, call: &'static str, agent: &str, run: &str, kind: &str) -> Answer<u64> {
+    let mut after = 0;
+    let mut counted = 0;
+
+    loop {
+      let from = after.to_string();
+      let request = self.request(Method::GET, &["run-log"], &[("run", run), ("after", &from)]);
+      let page: RunLines = self.answer(call, request).await?;
+
+      counted += page.lines.iter().filter(|line| line.kind == kind && line.agent == agent).count() as u64;
+
+      match page.lines.last() {
+        Some(last) if page.lines.len() >= RUN_LOG_PAGE => after = last.id,
+        _ => return Ok(counted),
+      }
+    }
+  }
+
   /// A call answered with no body.
   async fn done(&self, call: &'static str, request: RequestBuilder) -> Answer<()> {
     let response = self.send(call, request).await?;
@@ -496,22 +519,11 @@ impl Agency for AgencyClient {
   }
 
   async fn run_starts(&self, agent: &str, run: &str) -> Answer<u64> {
-    let mut after = 0;
-    let mut starts = 0;
+    self.run_lines("run_starts", agent, run, START_LINE).await
+  }
 
-    loop {
-      let from = after.to_string();
-      let request = self.request(Method::GET, &["run-log"], &[("run", run), ("after", &from)]);
-      let page: RunLines = self.answer("run_starts", request).await?;
-
-      starts +=
-        page.lines.iter().filter(|line| line.kind == START_LINE && line.agent == agent).count() as u64;
-
-      match page.lines.last() {
-        Some(last) if page.lines.len() >= RUN_LOG_PAGE => after = last.id,
-        _ => return Ok(starts),
-      }
-    }
+  async fn run_tool_calls(&self, agent: &str, run: &str) -> Answer<u64> {
+    self.run_lines("run_tool_calls", agent, run, TOOL_LINE).await
   }
 
   async fn job_last_line(&self, job: i64) -> Answer<Option<LogLine>> {

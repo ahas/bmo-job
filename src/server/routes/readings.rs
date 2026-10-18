@@ -1,5 +1,6 @@
 //! The readings (docs/api.md, "Readings"; docs/reading.md): the queue and an item as a person reads them
-//! and as a worker reads them, a room's jobs, and a work order with where its tasks stand.
+//! and as a worker reads them, a room's jobs, a worker's job line and its prompt, the jobs that have just
+//! run, and a work order with where its tasks stand.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -35,6 +36,9 @@ pub fn routes<V: Verbs>() -> Router<Arc<Server<V>>> {
     .route("/todos/{item}", get(shown::<V>))
     .route("/todos/{item}/worker-lines", get(shown_for_worker::<V>))
     .route("/rooms/{chat}/jobs", get(jobs::<V>))
+    .route("/workers/{name}/job", get(job_line::<V>))
+    .route("/workers/{name}/job/prompt", get(job_prompt::<V>))
+    .route("/jobs/recent", get(recent::<V>))
     .route("/work-orders/{item}", get(order::<V>))
     .route("/work-orders/{item}/current", get(current::<V>))
     .route("/work-orders/{item}/tasks/{task}", get(task::<V>))
@@ -150,6 +154,53 @@ async fn jobs<V: Verbs>(
   let limit = query.get("limit").and_then(|limit| limit.trim().parse().ok());
 
   body(queue_read::runs::jobs(&state.db, chat, limit).await?)
+}
+
+// The unit of the job a worker's screen was opened at, where it names one.
+fn opened_at(query: &HashMap<String, String>) -> Option<&str> {
+  query.get("run").map(|run| run.trim()).filter(|run| !run.is_empty())
+}
+
+async fn job_line<V: Verbs>(
+  state: State<V>,
+  Path(worker): Path<String>,
+  Query(query): Query<HashMap<String, String>>,
+) -> Answered {
+  let job = match queue_read::runs::worker_job(&state.db, &worker, opened_at(&query)).await? {
+    Some(job) => queue_read::runs::job_line(&state.db, job).await?,
+    None => None,
+  };
+  let job = match job {
+    // A running job has written no spans yet: its tool calls are counted in its run's log.
+    Some(mut line) if line.finished_at.is_none() => {
+      let calls = state.agency.run_tool_calls(&worker, &line.run).await.map_err(units::agency)?;
+
+      line.tools = i64::try_from(calls).unwrap_or(i64::MAX);
+      Some(line)
+    }
+    finished => finished,
+  };
+
+  body(json!({ "job": job }))
+}
+
+async fn job_prompt<V: Verbs>(
+  state: State<V>,
+  Path(worker): Path<String>,
+  Query(query): Query<HashMap<String, String>>,
+) -> Answered {
+  let prompt = match queue_read::runs::worker_job(&state.db, &worker, opened_at(&query)).await? {
+    Some(job) => queue_read::runs::job_prompt(&state.db, job).await?,
+    None => None,
+  };
+
+  body(json!({ "prompt": prompt }))
+}
+
+async fn recent<V: Verbs>(state: State<V>, Query(query): Query<HashMap<String, String>>) -> Answered {
+  let limit = query.get("limit").and_then(|limit| limit.trim().parse().ok());
+
+  body(queue_read::runs::recent_jobs(&state.db, limit).await?)
 }
 
 // An item's work order: the one the database holds, or the draft the item would start from.

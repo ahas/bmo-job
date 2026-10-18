@@ -3,7 +3,8 @@
 The crate `queue-read` reads the queue as the database holds it (docs/schema.md) and never writes it.
 What it reads is answered two ways: to a person as structured values, which the web console or the
 command line lays out in the reader's language, and to a worker as English lines, since a worker reads
-English. A work order and a room's jobs are read here as well.
+English. A work order, a room's jobs, a worker's job line and the jobs that have just run are read here
+as well; what of a running job's line only bmo-agency holds is read there by the server.
 
 ## One read of the database
 
@@ -151,6 +152,31 @@ hundred. Each carries its label (`JobLabel`), or the purpose it was launched for
 its unit, when it was launched and finished and whether it worked; its prompt in the deployment's
 language where that reading was kept, otherwise as written; the English its worker was handed, where it
 differs from the prompt; and its report.
+
+## A worker's job line
+
+A worker's screen keeps a line for one job: the job the screen was opened at, where that job is the
+worker's; otherwise the worker's job still running, the latest; otherwise the worker's last job. The line
+carries the job's unit, its item and the item's title where it has one, the purpose it was launched for,
+when it was launched and when it finished, how many tools it called and what each model spent.
+
+- **What a finished job called and spent** is read off the spans it wrote as it ended (docs/jobs.md,
+  "Where a job's time went"): its tool calls are what its tool spans count, and each model's spend is its
+  usage span, the four kinds of tokens apart, the model that spent most first.
+- **A running job has written no spans yet,** so its tool calls are counted in its run's log at
+  bmo-agency: the worker's lines of the kind `tool` in the run its unit names. What each model has spent
+  so far is bmo-agency's to say while the turn goes, and no route of its answers it, so a running job's
+  line names no model.
+- **Its prompt** is read apart, since it is kilobytes a line read again and again has no use for: the
+  prompt in the deployment's language and the English its worker was handed, as a room's jobs carry them.
+
+## The jobs that have just run
+
+The jobs that have just run are every room's jobs newest first, ten where no number is asked for and
+never more than two hundred. Each carries its number, its unit, its room, the model it was launched on,
+when it was launched and finished, its outcome and whether it worked, its label (`JobLabel`), the purpose
+it was launched for where it has no item, and its worker. The runner runs beside them are bmo-agency's
+run ledger, which the service does not keep.
 
 ## A work order
 

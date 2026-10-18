@@ -367,6 +367,107 @@ async fn the_readings_read_the_queue_an_item_a_rooms_jobs_and_a_work_order() {
   assert_eq!((status, code(&body)), (502, "agency"));
 }
 
+#[tokio::test]
+async fn a_workers_job_line_its_prompt_and_the_jobs_that_have_just_run_are_read() {
+  let served = Served::start().await;
+
+  item(&served, 3, "Make the thing", -100).await;
+  served
+    .seed(
+      r#"INSERT INTO "jobs" ("id", "chat_id", "unit", "launched_at", "finished_at", "ok", "outcome", "model", "prompt",
+                             "prompt_english", "prompt_korean", "todo_id", "purpose", "worker")
+         VALUES (1, -100, 'job-1', 1000, 5000, 1, 'done', 'auto', 'Make it.', 'Make it.', 'The kept reading.', 3,
+                 'Unused', 'builder'),
+                (2, -200, 'job-2', 6000, NULL, NULL, NULL, NULL, 'Look around.', 'Look around.', NULL, NULL,
+                 ' Look around ', 'builder'),
+                (3, -100, 'job-3', 7000, 9000, 0, 'failed', NULL, 'Again.', NULL, NULL, 3, NULL, 'other')"#,
+      vec![],
+    )
+    .await;
+  served
+    .seed(
+      r#"INSERT INTO "job_spans" ("job_id", "todo_id", "kind", "name", "seconds", "times", "tokens", "input_tokens",
+                                  "output_tokens", "cache_read_tokens", "cache_write_tokens")
+         VALUES (1, 3, 'phase', 'run', 3.0, 1, NULL, NULL, NULL, NULL, NULL),
+                (1, 3, 'tool', 'Bash', 2.0, 4, NULL, NULL, NULL, NULL, NULL),
+                (1, 3, 'tool', 'Read', 0.5, 2, NULL, NULL, NULL, NULL, NULL),
+                (1, 3, 'usage', 'model-small', 0.0, 1, 100, 10, 20, 60, 10),
+                (1, 3, 'usage', 'model-large', 0.0, 1, 500, 50, 100, 300, 50)"#,
+      vec![],
+    )
+    .await;
+
+  let line = |id: i64, agent: &str, kind: &str| json!({ "id": id, "agent": agent, "run": "job-2", "at": id, "kind": kind, "text": "", "jobId": 2 });
+
+  served.agency.answer(
+    "GET /run-log",
+    200,
+    json!({ "lines": [line(1, "builder", "start"), line(2, "builder", "tool"), line(3, "other", "tool"), line(4, "builder", "tool")] }),
+  );
+
+  // The job the screen was opened at, where it is the worker's, with what its spans counted.
+  assert_eq!(
+    served.get("/workers/builder/job?run=job-1").await,
+    (
+      200,
+      json!({ "job": {
+        "run": "job-1", "item": 3, "title": "Make the thing", "purpose": "Unused", "launched_at": 1000,
+        "finished_at": 5000, "tools": 6,
+        "models": [
+          { "model": "model-large", "input_tokens": 50, "output_tokens": 100, "cache_read_tokens": 300, "cache_write_tokens": 50 },
+          { "model": "model-small", "input_tokens": 10, "output_tokens": 20, "cache_read_tokens": 60, "cache_write_tokens": 10 },
+        ],
+      } })
+    )
+  );
+
+  // Otherwise the job it runs, its tool calls counted in its run's log and no model named.
+  let running = json!({ "job": {
+    "run": "job-2", "item": null, "title": null, "purpose": "Look around", "launched_at": 6000,
+    "finished_at": null, "tools": 2, "models": [],
+  } });
+
+  assert_eq!(served.get("/workers/builder/job").await, (200, running.clone()));
+  served.agency.took("GET /run-log", "/run-log?run=job-2&after=0", None);
+  assert_eq!(served.get("/workers/builder/job?run=job-3").await, (200, running));
+
+  // Otherwise its last job, and nothing for a worker with none.
+  assert_eq!(served.get("/workers/other/job").await.1["job"]["run"], "job-3");
+  assert_eq!(served.get("/workers/nobody/job").await, (200, json!({ "job": null })));
+
+  assert_eq!(
+    served.get("/workers/builder/job/prompt?run=job-1").await,
+    (200, json!({ "prompt": { "text": "The kept reading.", "english": "Make it." } }))
+  );
+  assert_eq!(
+    served.get("/workers/builder/job/prompt").await,
+    (200, json!({ "prompt": { "text": "Look around.", "english": null } }))
+  );
+  assert_eq!(served.get("/workers/nobody/job/prompt").await, (200, json!({ "prompt": null })));
+
+  assert_eq!(
+    served.get("/jobs/recent?limit=2").await,
+    (
+      200,
+      json!([
+        { "id": 3, "unit": "job-3", "chat": -100, "model": null, "launched_at": 7000, "finished_at": 9000,
+          "outcome": "failed", "ok": false, "label": { "kind": "item", "id": 3, "attempt": 2 }, "purpose": null,
+          "worker": "other" },
+        { "id": 2, "unit": "job-2", "chat": -200, "model": null, "launched_at": 6000, "finished_at": null,
+          "outcome": null, "ok": null, "label": { "kind": "itemless" }, "purpose": "Look around",
+          "worker": "builder" },
+      ])
+    )
+  );
+  assert_eq!(served.get("/jobs/recent").await.1.as_array().map(Vec::len), Some(3));
+
+  served.agency.answer("GET /run-log", 503, json!({ "error": "Down.", "code": "down" }));
+
+  let (status, body) = served.get("/workers/builder/job").await;
+
+  assert_eq!((status, code(&body)), (502, "agency"));
+}
+
 // A field of a server-sent event's frame, by its name.
 fn field<'a>(frame: &'a str, name: &str) -> Option<&'a str> {
   frame

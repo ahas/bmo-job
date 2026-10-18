@@ -538,6 +538,23 @@ async fn run_starts_counts_the_agent_s_start_lines_in_the_run_s_log() {
 }
 
 #[tokio::test]
+async fn run_tool_calls_counts_the_agent_s_tool_lines_in_the_run_s_log() {
+  let stub = Stub::start().await;
+  let line = |id: i64, agent: &str, kind: &str| json!({ "id": id, "agent": agent, "run": "run-17", "at": id, "kind": kind, "text": "", "jobId": null });
+
+  stub.answer(
+    "GET /run-log",
+    200,
+    json!({ "lines": [line(1, "agent", "start"), line(2, "agent", "tool"), line(3, "other", "tool"), line(4, "agent", "tool")] }),
+  );
+
+  let count = stub.client().run_tool_calls("agent", "run-17").await.unwrap();
+
+  assert_eq!(count, 2);
+  stub.took("GET /run-log", "/run-log?run=run-17&after=0", None);
+}
+
+#[tokio::test]
 async fn job_last_line_reads_the_line() {
   let stub = Stub::start().await;
 

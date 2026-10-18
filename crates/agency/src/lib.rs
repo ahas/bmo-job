@@ -146,6 +146,9 @@ pub trait Agency: Send + Sync {
   /// Counts the starts an agent's run has logged.
   fn run_starts(&self, agent: &str, run: &str) -> impl Future<Output = Answer<u64>> + Send;
 
+  /// Counts the tool calls an agent's run has logged.
+  fn run_tool_calls(&self, agent: &str, run: &str) -> impl Future<Output = Answer<u64>> + Send;
+
   /// Reads the last line a job's run logged.
   fn job_last_line(&self, job: i64) -> impl Future<Output = Answer<Option<LogLine>>> + Send;
 

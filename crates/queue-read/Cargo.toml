@@ -1,6 +1,6 @@
 [package]
 name = "queue-read"
-description = "The queue as the database holds it, read: an item to a person and to a worker, its time, a room's jobs and a work order."
+description = "The queue as the database holds it, read: an item to a person and to a worker, its time, a room's jobs, a worker's job line, the jobs that have just run and a work order."
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
