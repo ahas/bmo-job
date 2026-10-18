@@ -76,10 +76,15 @@ on Claude Code, Codex or OpenRouter alone. A run with no road left is refused `j
 - **A turn** is prepared on bmo-agency, which answers the session it continues. The runner then opens the
   earlier results the prompt carries: one the session holds in that very version goes as its marker, the
   rest whole. A session that last answered for another item is told so first. Where the walk moves to
-  another login whose session differs, the prompt is opened again for it.
+  another login whose session differs, the prompt is opened again for it. A co-work branch's turn goes on
+  a session thrown away, in the branch place bmo-agency took for it.
+- **bmo-agency's turn keeps the worker's session:** it carries out a reset the owner asked of the worker's
+  sessions before the turn goes, records the session the turn answered on, and records the turn's usage,
+  so the runner asks none of these.
 - **While it runs,** the changes the agent made to the item's brief and the wind-down line are pushed into it
   through the sanitiser; a question the program stops on is answered by the runner where it is a command
-  that stays inside the job's own places, and put to the owner as a job question otherwise.
+  that stays inside the job's own places, and put to the owner as a job question otherwise ("A command the
+  runner allows itself").
 - **After its answer,** the words added to the item are asked over again, up to three rounds; a report
   left with background tasks running, with its own change open or the graph behind it, with its change
   reaching the graph unanswered for, or with its item left open, is asked once more each.
@@ -115,8 +120,10 @@ stop is told as `job_stopped`; a middle step is told nothing; any other report i
 delivered by the telling at once, and a report no row would keep goes to the agent as it stands. The job
 is then handed off: the servers its turns left listening are swept, and the queue's telling hears the
 ending. A work order's run ends as a job only as its final turn ending done with nothing ahead of it.
-Once the job's last turn has answered, the session it answered on is recorded with bmo-agency, handed
-over with the worker's own note or a summary, and a done job's usage begins the rest it calls for.
+Once the job's last turn has answered, the session it answered on is handed over with the worker's own
+note or a summary where bmo-agency's record still keeps it — where the worker's state, read for the job's
+model, continues that very session — and a done job's usage begins the rest it calls for. A co-work
+branch's session was thrown away and is handed over to nobody.
 
 ## Landing on main
 
@@ -137,3 +144,20 @@ it removes nothing but what lies strictly inside one of them, hands a value this
 only to a program that only reads, and runs nothing as somebody else. A command nothing here can restore
 after is recommended refused; every other question is recommended allowed, and settles there unanswered
 after a minute.
+
+- **The question arrives on the turn's session:** bmo-agency shows it on the session's state while the
+  turn waits, and takes the runner's answer to it; it judges none of it (docs/api.md, "Sessions"). A
+  co-work branch's questions are judged as the worker's are.
+- **A question that is not the job's own work** is put to the owner as a job question, told as a pane's
+  question: allow or refuse for a command, close or leave for a question this reading does not know, the
+  recommendation marked. A job with no item to hang it on is refused at once, since waiting is the one
+  thing such a run must not do.
+- **The settled question is the answer:** allow lets the command go on, refuse and close refuse it, and
+  leave leaves it standing for a person in the pane. Words of the owner's own refuse it with a paragraph
+  naming the owner as the deployment names them, quoting the words, and telling the program not to retry
+  the command as written and to carry on in the same turn; a refusal with no words of the owner's carries
+  bmo-agency's own paragraph.
+- **A question the pane stops asking** before anybody answered it is settled as answered in the pane, and
+  nothing is sent.
+- **A question this reading does not know** has the screen it stood on written to the job's run log when it
+  is first seen, since the refusal of it points the program there.

@@ -42,11 +42,13 @@ how it ends. The verbs are docs/verbs.md, "Research runs".
   and closed there once, with how it ended and the context it ended carrying; the first ending reached is
   the one that closes it.
 - **Its model is carried as a work turn on bmo-agency** on the search line's work key, with no job behind
-  it. The prompt names the moment it was asked in UTC, and the knowledge its words call for is handed as a
-  reference block naming the deployment's agent.
-- **A stop from outside** interrupts the turn's session and keeps what the session tells it had written,
-  so the last result the run wrote is what is handed back; the session contract tells none yet
-  (docs/api.md, "Work turns").
+  it, on a session thrown away (docs/api.md, "Sessions"). The prompt names the moment it was asked in UTC,
+  and the knowledge its words call for is handed as a reference block naming the deployment's agent.
+- **A question its program stops on** is left standing for a person in its pane: nobody answers one for a
+  research run.
+- **A stop from outside** interrupts the turn's session and, once the turn has ended, keeps what bmo-agency
+  reads the turn had written so far, so the last result the run wrote is what is handed back; nothing
+  read is kept as nothing written (docs/api.md, "Work turns").
 - **How it ends:** done, unanswered, stopped by hand, cut at a browse's ceiling, failed, or refused for
   leaving its own work running — a result produced with a background task still live describes work that
   can never finish.

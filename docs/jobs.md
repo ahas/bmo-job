@@ -233,11 +233,13 @@ a repository's support workers and their worktrees are docs/worker-slots.md.
 - **The worker's sessions are bmo-agency's.** Which session a turn continues, the login it goes out on,
   the record kept per model and login, a full session's fold, keeping prefixes warm and a session that
   fell to a lesser model are bmo-agency's to keep (docs/api.md, "Workers' runtime").
-- **What the runner asks of them:** a reset the owner asked carried out before the first turn; the
-  session the job's last answer came back on recorded, which bmo-agency keeps, keeps as full, or drops
-  where it answered on a lesser model; and, once the job's report has gone out, that session handed
-  over with the worker's own note, or a summary bmo-agency writes, for the next job of the same item.
-  A session bmo-agency dropped is never handed over (docs/runs.md, "The ending").
+- **What bmo-agency's turn does of itself:** a reset the owner asked carried out before the turn goes,
+  and the session the turn answered on recorded, which bmo-agency keeps, keeps as full, or drops where it
+  answered on a lesser model.
+- **What the runner asks of them:** once the job's report has gone out, the session the job's last answer
+  came back on handed over with the worker's own note, or a summary bmo-agency writes, for the next job of
+  the same item. A session bmo-agency's record no longer continues for the job's model is never handed
+  over (docs/runs.md, "The ending").
 - **A note belongs to its item:** a handover names the item's thread, so the next job of the same item
   opens on it, and a job of another item opens on no note of it.
 - **The middle turns of a work order are no job's end** and hand nothing over; the handover comes after
