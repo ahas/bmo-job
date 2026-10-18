@@ -1,12 +1,11 @@
 //! The work a worker session holds (docs/api.md, "The work a worker session holds"): the item it last
 //! served and the co-work results it was sent in full, so its next turn sends only what changed and a fold
-//! forgets what it folded away. Branch agents, as `branch_agents` keeps them, are read here too.
+//! forgets what it folded away.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::{Path, Query};
+use axum::extract::Path;
 use axum::routing::{delete, get, put};
 use serde::Serialize;
 
@@ -25,7 +24,6 @@ pub fn routes<V: Verbs>() -> Router<Arc<Server<V>>> {
     .route("/sessions/{session}/item", put(served::<V>))
     .route("/sessions/{session}/results/{result}", put(sent::<V>))
     .route("/sessions/{session}/results", delete(folded::<V>))
-    .route("/branch-agents", get(branch_agents::<V>))
 }
 
 #[derive(Serialize)]
@@ -127,53 +125,4 @@ async fn folded<V: Verbs>(state: State<V>, Path(session): Path<String>) -> Answe
   .await?;
 
   nothing()
-}
-
-/// A branch agent as `branch_agents` keeps it.
-#[derive(Serialize)]
-struct BranchAgent {
-  pool: String,
-  slot: i64,
-  mode: String,
-  model: String,
-  role: String,
-  upstream: String,
-  prefix_digest: String,
-  last_reply_at: i64,
-}
-
-async fn branch_agents<V: Verbs>(
-  state: State<V>,
-  Query(query): Query<HashMap<String, String>>,
-) -> Answered {
-  let columns = r#""pool", "slot", "mode", "model", "role", "upstream", "prefix_digest", "last_reply_at" FROM "branch_agents""#;
-  let order = r#"ORDER BY "pool", "slot", "mode", "model", "upstream""#;
-  let rows = match query.get("pool") {
-    Some(pool) => {
-      all(
-        &state.db,
-        &format!(r#"SELECT {columns} WHERE "pool" = $1 {order}"#),
-        vec![pool.clone().into()],
-      )
-      .await?
-    }
-    None => all(&state.db, &format!("SELECT {columns} {order}"), vec![]).await?,
-  };
-  let agents = rows
-    .iter()
-    .map(|row| {
-      Ok(BranchAgent {
-        pool: row.try_get("", "pool")?,
-        slot: row.try_get("", "slot")?,
-        mode: row.try_get("", "mode")?,
-        model: row.try_get("", "model")?,
-        role: row.try_get("", "role")?,
-        upstream: row.try_get("", "upstream")?,
-        prefix_digest: row.try_get("", "prefix_digest")?,
-        last_reply_at: row.try_get("", "last_reply_at")?,
-      })
-    })
-    .collect::<Result<Vec<_>, job_base::Refusal>>()?;
-
-  body(agents)
 }

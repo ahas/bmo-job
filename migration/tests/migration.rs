@@ -21,8 +21,7 @@ owner_chat = 100
 "#;
 
 /// The tables the migrations make.
-const TABLES: [&str; 20] = [
-  "branch_agents",
+const TABLES: [&str; 19] = [
   "checkout_leases",
   "clock_holds",
   "job_questions",

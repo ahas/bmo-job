@@ -127,20 +127,13 @@ async fn a_sessions_work_is_recorded_read_and_forgotten_by_a_fold() {
 }
 
 #[tokio::test]
-async fn workers_and_branch_agents_are_read_as_their_tables_keep_them() {
+async fn workers_are_read_as_their_table_keeps_them() {
   let served = Served::start().await;
 
   served
     .seed(
       r#"INSERT INTO "workers" ("name", "label", "cwd", "builtin", "support_count", "created_at")
          VALUES ('worker', 'Worker', '/w', 1, 2, 10), ('bench', NULL, '/b', 0, 0, 20)"#,
-      vec![],
-    )
-    .await;
-  served
-    .seed(
-      r#"INSERT INTO "branch_agents" ("pool", "slot", "mode", "model", "role", "last_reply_at")
-         VALUES ('p1', 1, 'claude', 'm', 'scout', 5), ('p2', 2, 'codex', 'n', 'builder', 6)"#,
       vec![],
     )
     .await;
@@ -165,11 +158,6 @@ async fn workers_and_branch_agents_are_read_as_their_tables_keep_them() {
   let (status, body) = served.get("/workers/nobody").await;
 
   assert_eq!((status, code(&body)), (404, "no_worker"));
-  assert_eq!(served.get("/branch-agents").await.1.as_array().map(Vec::len), Some(2));
-  assert_eq!(
-    served.get("/branch-agents?pool=p2").await.1,
-    json!([{ "pool": "p2", "slot": 2, "mode": "codex", "model": "n", "role": "builder", "upstream": "", "prefix_digest": "", "last_reply_at": 6 }])
-  );
 }
 
 #[tokio::test]

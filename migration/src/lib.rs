@@ -26,6 +26,14 @@ impl MigratorTrait for Migrator {
         postgres: (include_str!("todo_talk/postgres.sql"), include_str!("todo_talk/postgres.down.sql")),
         sqlite: (include_str!("todo_talk/sqlite.sql"), include_str!("todo_talk/sqlite.down.sql")),
       }),
+      Box::new(Sql {
+        name: "m20261019_000001_branch_places",
+        postgres: (
+          include_str!("branch_places/postgres.sql"),
+          include_str!("branch_places/postgres.down.sql"),
+        ),
+        sqlite: (include_str!("branch_places/sqlite.sql"), include_str!("branch_places/sqlite.down.sql")),
+      }),
     ]
   }
 }

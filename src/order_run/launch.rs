@@ -141,24 +141,21 @@ async fn launch(
       provider,
       chosen,
     )?;
-
-    // The place is taken before the plan is read, and its number stays on the task: what a branch ran in has
-    // to be known again when its result lands and the list is written.
-    task["slot"] = places::take_slot(ground, order, task, now_ms()).await?.into();
   }
 
-  let worker = task_worker(order, task);
   let checkout = orders::text(order, "cwd").unwrap_or_default().to_owned();
-  let cwd = match task.get("slot").and_then(Value::as_i64) {
-    Some(slot) if branch => {
-      let cwd = places::slot_cwd(ground, order, slot).await?;
+  let cwd = if branch {
+    // The place is taken before the plan is read, and its number stays on the task: what a branch ran in has
+    // to be known again when its result lands and the list is written.
+    let taken = places::take_slot(ground, order, task).await?;
 
-      places::prepare_slot(&checkout, &cwd).await?;
-      cwd.to_string_lossy().into_owned()
-    }
-    _ if branch => return Err("the co-worker task was given no branch place".to_owned()),
-    _ => checkout,
+    task["slot"] = taken.slot.into();
+    places::prepare_slot(ground, &checkout, &taken.cwd).await?;
+    taken.cwd
+  } else {
+    checkout
   };
+  let worker = task_worker(order, task);
   let root = prompt_path.parent().unwrap_or(Path::new("."));
   let baseline_path = root.join("worktree-baseline.json");
   // Written in the shape a baseline is read in, whatever order the body keeps its members in.

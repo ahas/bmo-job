@@ -26,7 +26,7 @@ pub use executions::Execution;
 pub use log::{JobLines, LogLine, LogNote, ToolCall, ToolResult};
 pub use machine::{LaunchHeld, Room, RoomReturned};
 pub use nodes::{Node, SshReach};
-pub use places::{BranchSlots, Slot, Workbench};
+pub use places::{HeldPlace, PlaceAsk, PlaceRecord, PlacesRetirement, TakenPlace, Workbench};
 pub use pool::{
   PlaceWrite, PoolAsking, PoolRequest, PoolRole, PoolRoom, PoolState, Reservation, ReservationAsking,
   ReservationState,
@@ -179,31 +179,23 @@ pub trait Agency: Send + Sync {
   /// Lists the model tiers.
   fn tiers(&self) -> impl Future<Output = Answer<Vec<Tier>>> + Send;
 
-  /// How long a place's prefix is worth counting on for a provider's model, `None` where the provider
-  /// publishes no lifetime.
-  fn place_cache(
-    &self,
-    provider: &str,
-    model: &str,
-    upstream: Option<&str>,
-  ) -> impl Future<Output = Answer<Option<i64>>> + Send;
-
   /// Lists the roles the pool knows.
   fn pool_roles(&self) -> impl Future<Output = Answer<Vec<PoolRole>>> + Send;
 
   /// Reads the places one provider's tier holds in the pool, and how many are taken.
   fn pool_room(&self, provider: &str, tier: &str) -> impl Future<Output = Answer<PoolRoom>> + Send;
 
-  /// Takes down what stands for a branch place.
-  fn retire_place(&self, pool: &str, slot: i64) -> impl Future<Output = Answer<()>> + Send;
+  /// Takes a branch's place in its order's pool of standing checkouts.
+  fn take_place(&self, ask: &PlaceAsk) -> impl Future<Output = Answer<TakenPlace>> + Send;
 
-  /// The prefix a worker's run would open on in a directory now.
-  fn prefix_digest(
-    &self,
-    cwd: &str,
-    model: &str,
-    effort: Option<&str>,
-  ) -> impl Future<Output = Answer<String>> + Send;
+  /// Lays an order's checkout, its head and its open change, into a place's directory.
+  fn prepare_place(&self, source: &str, cwd: &str) -> impl Future<Output = Answer<()>> + Send;
+
+  /// Records what a finished branch left in its place.
+  fn remember_place(&self, record: &PlaceRecord) -> impl Future<Output = Answer<()>> + Send;
+
+  /// Takes down what stands for the places an ended order worked in that no task sits in now.
+  fn retire_places(&self, retirement: &PlacesRetirement) -> impl Future<Output = Answer<()>> + Send;
 
   /// Resolves a route to a model, `None` where no route serves it.
   fn resolve_route(&self, asked: &RouteAsk) -> impl Future<Output = Answer<Option<Mapping>>> + Send;
@@ -274,9 +266,6 @@ pub trait Agency: Send + Sync {
 
   /// Reads a worker's workbench.
   fn workbench(&self, worker: &str) -> impl Future<Output = Answer<Workbench>> + Send;
-
-  /// Reads a pool's branch slots.
-  fn branch_slots(&self, pool: &str) -> impl Future<Output = Answer<BranchSlots>> + Send;
 
   /// Carries out a reset the owner asked of a worker's sessions, answering whether one waited.
   fn carry_out_reset(&self, worker: &str) -> impl Future<Output = Answer<bool>> + Send;

@@ -1265,15 +1265,6 @@ deploy that takes it lets go, or the owner on purpose (docs/schema.md, "The keys
   and a file larger than `queue.word_file_bytes` `file_too_large`. A worker not given is the built-in
   worker.
 
-### Branch agents
-
-| Route | Request | Answer |
-|---|---|---|
-| `GET /branch-agents?pool=` | | `[branch agents]` |
-
-- **A branch agent:** `pool`, `slot`, `mode`, `model`, `role`, `upstream`, `prefix_digest` and
-  `last_reply_at`, as `branch_agents` keeps them; every pool's where none is named.
-
 ### The work a worker session holds
 
 What co-work results a worker session was sent in full and which item it last served, so the next turn
@@ -1674,7 +1665,6 @@ resolves a route and checks a pin only inside the calls that need one, a pool re
 | Call | Method and path | Request | Answer |
 |---|---|---|---|
 | List the providers | `GET /providers` | | a list of `name`, `enabled`, `registered`, `coworker` (true where it lends co-workers), `lines` (the work lines it carries) |
-| Read a provider's cache | `GET /providers/{provider}/cache?model={model}&upstream={upstream}` | | `ttlMs?`: how long a place's prefix is worth counting on for the model, the provider's published lifetime less the pool's margin; none where it publishes none |
 | List the tiers | `GET /tiers` | | a list of `name`, `coworker` (true where a co-worker may run at it) |
 | Resolve a route | `POST /routes/resolve` | `workKey`, `provider?`, `tier` | `provider`, `tier`, `model`, `effort?`, `answerTokens?`; nothing found where no route serves it |
 | Check a pin | `POST /pins/check` | `value` | a pin choice |
@@ -1790,22 +1780,33 @@ service keeps them, each its `node`, `label`, `state` and `detail`, but not thei
 
 #### Places
 
-bmo-agency serves none of these calls yet. It keeps a work order's branch places itself, as its standing
-checkouts: it takes a branch's place (`POST /places/take`), lays the order's checkout into it
-(`POST /places/prepare`), records what a finished branch left there (`POST /places/remember`) and takes
-down what an ended order's places left standing (`POST /places/retire`). The service's own branch places
-(docs/queue.md, "Branch places") make that choice themselves over the calls below.
+bmo-agency keeps a work order's branch places itself, as its standing checkouts, and chooses among them
+(docs/queue.md, "Branch places"). The service names, with each ask, the places its tasks sit in now; it
+keeps no list of places of its own. bmo-agency serves no route yet for reading a worker's workbench.
 
 | Call | Method and path | Request | Answer |
 |---|---|---|---|
 | Read a worker's workbench | `GET /places/workbench/{worker}` | | `root`, `scratches` (the item scratch directories under it) |
-| Read a pool's branch slots | `GET /places/branch-slots/{pool}` | | `root`, `slots`: a list of `slot` and `dir` |
-| Retire a branch place | `DELETE /places/branch-slots/{pool}/{slot}` | | 204: what stands for the place, its program and its workspace, taken down; the place's directory stays |
-| Read a place's prefix | `POST /places/prefix-digest` | `cwd`, `model`, `effort?` | `digest`: the prefix a worker's run would open on in that directory now, as one short word |
+| Take a branch's place | `POST /places/take` | `cwd`, `selection`, `role`, `tier?`, `held` | `slot`, and the place's directory as `cwd` |
+| Lay the checkout into a place | `POST /places/prepare` | `source`, `cwd` | `ok` |
+| Remember what a branch left | `POST /places/remember` | `cwd`, `slot`, `role`, `mode?`, `model?`, `effort?`, `upstream?` | `ok` |
+| Retire an ended order's places | `POST /places/retire` | `cwd`, `used`, `held` | `ok` |
 
-- **A branch place** of a pool is `root/<pool>/<slot>`, the pool named by the service from the
-  repository the checkout belongs to.
-
+- **A held place** is an object of `cwd`, the checkout its order works in, and `slot`, the place's
+  number. `held` is every place a task of a stored order that is active or paused, or of the order in
+  hand, sits in now; bmo-agency counts within the take's or retirement's own pool and drops the rest.
+- **The take** sends the order's checkout as `cwd`, the task's model selection as `selection` (a
+  provider and a model joined by `::`, or a bare Claude model) and the task's `role` and `tier`.
+- **The place's directory** is read as `cwd` beside `slot` in the take's answer. bmo-agency answers
+  `slot` alone and serves no route that names a place's directory, so a branch launch is refused with
+  `bmo-agency named no directory for branch place <slot>` until it answers one.
+- **The preparation** sends the order's checkout as `source` and the place's directory as `cwd`.
+- **The remembering** sends the order's checkout as `cwd`, the task's place and role, and the provider
+  as `mode`, the model, effort and upstream its job answered on, each left out where the job kept none.
+- **The retirement** sends the order's checkout as `cwd` and the numbers of the places the order's tasks
+  worked in as `used`; it is not sent for an order with no checkout or no place.
+- A refused take, preparation or remembering fails the step that asked it; a refused retirement is
+  logged.
 - A path answered is absolute on the machine the service runs on.
 
 ### bmo-receiver

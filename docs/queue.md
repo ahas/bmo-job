@@ -328,16 +328,26 @@ order of their items, read again inside it, and saved before the lock is let go.
 
 ### Branch places
 
-A branch works in a standing place of its repository's pool, which bmo-agency keeps under its branch
-slots: a free place whose row in `branch_agents` still names a cache for its provider and model, the one
-whose answer is oldest first; then a free place with nothing to lose; then a new number. A row is alive
-while the provider's published lifetime, which bmo-agency answers, has not run out since the place last
-answered, and for Claude Code while the prefix the place would open on now, which bmo-agency answers too,
-is the one the row names. A place is busy while a task holding it runs. Places past eight, and places
-rested past a week with no live row, are taken away; pools no worker's checkout names any more go too. A
-place is laid out of its checkout before a branch starts: rewound to the checkout's commit, the
-checkout's open change applied on top and its new files copied in. What stands for a place in bmo-agency
-is retired once the order that used it ends.
+A branch works in a standing checkout of its repository's pool. bmo-agency keeps the places, their list
+and the choice among them; the service hands it, with each ask, the places its tasks sit in now, and
+keeps the number of the place a task took on the task.
+
+- **Which places are taken is the service's to say.** A task's place is held while the task runs or while
+  the job it launched has not finished, read off the stored orders that are active or paused and off the
+  order in hand, so a restart frees nothing by hand. Each held place is sent as the checkout its order
+  works in and the place's number.
+- **Taking a place.** Before a branch is launched, bmo-agency is asked for a place with the order's
+  checkout, the task's model selection, its role, its tier and the held places; it answers the place's
+  number, which stays on the task.
+- **Laying it out.** The place is then laid out of the checkout: bmo-agency rewinds it to the checkout's
+  commit and lays the checkout's open change and its new files on top. The branch is started in the
+  place's directory, which the answer to the take is read for; a take answered with no directory refuses
+  the launch (docs/api.md, "Places").
+- **Remembering it.** When a branch's result lands, what it ran on — the provider, model, effort and
+  upstream of its job — is recorded for its place with its role.
+- **Retiring what an order leaves.** Once an order is no longer active, the places its tasks worked in
+  are handed to bmo-agency with the places still held, and bmo-agency takes down what stands for those
+  nobody sits in. A refused retirement is logged and the order goes on.
 
 ### A checkout held
 

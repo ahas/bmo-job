@@ -35,7 +35,6 @@ PostgreSQL. The `migration` crate makes the tables, and nothing else writes the 
 | `question_talk` | One thing said about a question while it was open |
 | `todo_talk` | One turn of the owner's talk about an item: the item, who said it, `owner` or `agent`, its words and when |
 | `checkout_leases` | The job that holds a worker's checkout |
-| `branch_agents` | A co-work branch agent standing in a pool slot on one road, and when it last answered |
 | `session_work_items` | The item a worker session was last served |
 | `session_work_results` | The version of an earlier co-work result a worker session has been sent in full |
 | `live_claude_openings` | A job's opening of a live Claude session, and what for |
@@ -80,8 +79,8 @@ unit's API and is never a row here.
 Rows another unit owns are reached through that unit's API (docs/api.md), never kept as a copy:
 
 - **bmo-agency:** an agent's session and runtime state, the agent log, executions, runs, the turn
-  records a run wrote down, worker sessions and their resets, the co-worker pool, nodes and Claude
-  accounts.
+  records a run wrote down, worker sessions and their resets, the co-worker pool, the standing branch checkouts and their
+  list, nodes and Claude accounts.
 - **bmo-receiver:** instructions, messages and room answerers.
 - **bmo-brain:** memories.
 - **bmo-gate:** document translations.

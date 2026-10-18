@@ -6,6 +6,7 @@
 mod support;
 
 mod ask_verb;
+mod branch_places;
 mod control;
 mod final_turn;
 mod job_close;

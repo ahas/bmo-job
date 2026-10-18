@@ -7,12 +7,13 @@ use std::path::PathBuf;
 
 use futures_util::StreamExt;
 use job_agency::{
-  Agency, AgencyClient, AgencyError, AsideOutcome, BranchSlots, Context, Delivery, EngineError, Execution,
-  JobLines, LaunchHeld, LogLine, Mapping, Node, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest,
-  PoolRole, PoolRoom, PoolState, Provider, Reservation, ReservationAsking, ReservationState, Room,
-  RoomReturned, RouteAsk, Run, RunClosing, RunOpening, Scope, Session, SessionId, SessionState, Slot,
-  SshReach, Start, Tier, ToolCall, ToolResult, Turn, TurnContext, TurnEnded, TurnEvent, TurnOutcome,
-  TurnRecord, TurnRecordKind, TurnStarted, Workbench, WorkerRuntime,
+  Agency, AgencyClient, AgencyError, AsideOutcome, Context, Delivery, EngineError, Execution, HeldPlace,
+  JobLines, LaunchHeld, LogLine, Mapping, Node, Pin, PinChoice, PlaceAsk, PlaceRecord, PlaceWrite,
+  PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, PoolState, Provider, Reservation,
+  ReservationAsking, ReservationState, Room, RoomReturned, RouteAsk, Run, RunClosing, RunOpening, Scope,
+  Session, SessionId, SessionState, SshReach, Start, TakenPlace, Tier, ToolCall, ToolResult, Turn,
+  TurnContext, TurnEnded, TurnEvent, TurnOutcome, TurnRecord, TurnRecordKind, TurnStarted, Workbench,
+  WorkerRuntime,
 };
 use serde_json::{Map, Value, json};
 use support::agency::{Stub, TOKEN};
@@ -888,26 +889,6 @@ async fn providers_lists_each_with_its_lines() {
 }
 
 #[tokio::test]
-async fn place_cache_reads_the_lifetime_by_model_and_upstream() {
-  let stub = Stub::start().await;
-
-  stub.answer("GET /providers/{provider}/cache", 200, json!({ "ttlMs": 240_000 }));
-
-  let client = stub.client();
-
-  assert_eq!(client.place_cache("provider-a", "model-1", Some("up-1")).await.unwrap(), Some(240_000));
-  stub.took(
-    "GET /providers/{provider}/cache",
-    "/providers/provider-a/cache?model=model-1&upstream=up-1",
-    None,
-  );
-
-  stub.answer("GET /providers/{provider}/cache", 200, json!({ "ttlMs": null }));
-
-  assert_eq!(client.place_cache("provider-a", "model-1", None).await.unwrap(), None);
-}
-
-#[tokio::test]
 async fn pool_roles_lists_each_role_with_its_default_tier() {
   let stub = Stub::start().await;
 
@@ -976,31 +957,123 @@ async fn pool_room_reads_the_tier_s_bucket_off_the_pool_s_board() {
 }
 
 #[tokio::test]
-async fn retire_place_deletes_the_place_by_its_pool_and_number() {
+async fn take_place_posts_the_ask_and_reads_the_slot_and_its_directory() {
+  let stub = Stub::start().await;
+  let ask = PlaceAsk {
+    cwd: "/work/repo".into(),
+    selection: "provider-a::model-1".into(),
+    role: "scout".into(),
+    tier: Some("Light".into()),
+    held: vec![HeldPlace {
+      cwd: "/work/repo".into(),
+      slot: 2,
+    }],
+  };
+
+  stub.answer("POST /places/take", 200, json!({ "slot": 3 }));
+
+  assert_eq!(stub.client().take_place(&ask).await.unwrap(), TakenPlace { slot: 3, cwd: None });
+  stub.took(
+    "POST /places/take",
+    "/places/take",
+    Some(json!({
+      "cwd": "/work/repo",
+      "selection": "provider-a::model-1",
+      "role": "scout",
+      "tier": "Light",
+      "held": [{ "cwd": "/work/repo", "slot": 2 }]
+    })),
+  );
+
   let stub = Stub::start().await;
 
-  stub.answer_empty("DELETE /places/branch-slots/{pool}/{slot}", 204);
-  stub.client().retire_place("pool-1", 3).await.unwrap();
-  stub.took("DELETE /places/branch-slots/{pool}/{slot}", "/places/branch-slots/pool-1/3", None);
+  stub.answer("POST /places/take", 200, json!({ "slot": 3, "cwd": "/places/pool-1/3" }));
+
+  assert_eq!(
+    stub.client().take_place(&PlaceAsk { tier: None, ..ask }).await.unwrap(),
+    TakenPlace {
+      slot: 3,
+      cwd: Some(PathBuf::from("/places/pool-1/3")),
+    }
+  );
+  stub.took(
+    "POST /places/take",
+    "/places/take",
+    Some(json!({
+      "cwd": "/work/repo",
+      "selection": "provider-a::model-1",
+      "role": "scout",
+      "held": [{ "cwd": "/work/repo", "slot": 2 }]
+    })),
+  );
 }
 
 #[tokio::test]
-async fn prefix_digest_posts_the_directory_and_reads_the_digest() {
+async fn prepare_place_posts_the_source_and_the_place() {
   let stub = Stub::start().await;
 
-  stub.answer("POST /places/prefix-digest", 200, json!({ "digest": "abc123" }));
+  stub.answer("POST /places/prepare", 200, json!({ "ok": true }));
+  stub.client().prepare_place("/work/repo", "/places/pool-1/3").await.unwrap();
+  stub.took(
+    "POST /places/prepare",
+    "/places/prepare",
+    Some(json!({ "source": "/work/repo", "cwd": "/places/pool-1/3" })),
+  );
+}
 
-  let digest = stub
+#[tokio::test]
+async fn remember_place_posts_what_the_branch_ran_on_leaving_out_what_it_kept_none_of() {
+  let stub = Stub::start().await;
+
+  stub.answer("POST /places/remember", 200, json!({ "ok": true }));
+  stub
     .client()
-    .prefix_digest("/data/slots/pool-1/1", "model-1", Some("high"))
+    .remember_place(&PlaceRecord {
+      cwd: "/work/repo".into(),
+      slot: 3,
+      role: "scout".into(),
+      mode: Some("provider-a".into()),
+      model: Some("model-1".into()),
+      effort: None,
+      upstream: Some("up-1".into()),
+    })
     .await
     .unwrap();
-
-  assert_eq!(digest, "abc123");
   stub.took(
-    "POST /places/prefix-digest",
-    "/places/prefix-digest",
-    Some(json!({ "cwd": "/data/slots/pool-1/1", "model": "model-1", "effort": "high" })),
+    "POST /places/remember",
+    "/places/remember",
+    Some(json!({
+      "cwd": "/work/repo",
+      "slot": 3,
+      "role": "scout",
+      "mode": "provider-a",
+      "model": "model-1",
+      "upstream": "up-1"
+    })),
+  );
+}
+
+#[tokio::test]
+async fn retire_places_posts_the_used_and_the_held_places() {
+  let stub = Stub::start().await;
+
+  stub.answer("POST /places/retire", 200, json!({ "ok": true }));
+  stub
+    .client()
+    .retire_places(&PlacesRetirement {
+      cwd: "/work/repo".into(),
+      used: vec![1, 3],
+      held: vec![HeldPlace {
+        cwd: "/work/other".into(),
+        slot: 1,
+      }],
+    })
+    .await
+    .unwrap();
+  stub.took(
+    "POST /places/retire",
+    "/places/retire",
+    Some(json!({ "cwd": "/work/repo", "used": [1, 3], "held": [{ "cwd": "/work/other", "slot": 1 }] })),
   );
 }
 
@@ -1514,31 +1587,6 @@ async fn workbench_reads_the_root_and_scratches() {
     }
   );
   stub.took("GET /places/workbench/{worker}", "/places/workbench/worker-2", None);
-}
-
-#[tokio::test]
-async fn branch_slots_reads_the_root_and_slots() {
-  let stub = Stub::start().await;
-
-  stub.answer(
-    "GET /places/branch-slots/{pool}",
-    200,
-    json!({ "root": "/data/slots", "slots": [{ "slot": 1, "dir": "/data/slots/pool-1/1" }] }),
-  );
-
-  let slots = stub.client().branch_slots("pool-1").await.unwrap();
-
-  assert_eq!(
-    slots,
-    BranchSlots {
-      root: PathBuf::from("/data/slots"),
-      slots: vec![Slot {
-        slot: 1,
-        dir: PathBuf::from("/data/slots/pool-1/1"),
-      }],
-    }
-  );
-  stub.took("GET /places/branch-slots/{pool}", "/places/branch-slots/pool-1", None);
 }
 
 // How answers and failures are read.

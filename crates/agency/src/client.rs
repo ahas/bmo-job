@@ -12,11 +12,12 @@ use url::Url;
 
 use crate::workers::{AgentRow, runtime_of};
 use crate::{
-  Agency, AgencyError, Answer, AsideOutcome, BranchSlots, Delivery, Execution, Handover, JobDocuments,
-  JobLines, LaunchHeld, LogLine, LogNote, Mapping, Node, Pin, PinChoice, PlaceWrite, PoolAsking,
-  PoolRequest, PoolRole, PoolRoom, Provider, Reply, Reservation, ReservationAsking, Room, RoomReturns,
-  RouteAsk, Run, RunClosing, RunOpening, Session, SessionAnswered, SessionId, SessionKept, SessionState,
-  SshReach, Start, Tier, Turn, TurnEvent, TurnEvents, TurnRecord, Workbench, WorkerRuntime,
+  Agency, AgencyError, Answer, AsideOutcome, Delivery, Execution, Handover, JobDocuments, JobLines,
+  LaunchHeld, LogLine, LogNote, Mapping, Node, Pin, PinChoice, PlaceAsk, PlaceRecord, PlaceWrite,
+  PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, Provider, Reply, Reservation,
+  ReservationAsking, Room, RoomReturns, RouteAsk, Run, RunClosing, RunOpening, Session, SessionAnswered,
+  SessionId, SessionKept, SessionState, SshReach, Start, TakenPlace, Tier, Turn, TurnEvent, TurnEvents,
+  TurnRecord, Workbench, WorkerRuntime,
 };
 
 /// The kind of event bmo-agency publishes once a held launch's notice is let go for the room returned.
@@ -141,17 +142,6 @@ struct Tile {
 #[derive(Deserialize)]
 struct Board {
   buckets: Vec<Bucket>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Cache {
-  ttl_ms: Option<i64>,
-}
-
-#[derive(Deserialize)]
-struct Digest {
-  digest: String,
 }
 
 #[derive(Deserialize)]
@@ -739,23 +729,6 @@ impl Agency for AgencyClient {
     self.answer("workbench", request).await
   }
 
-  async fn branch_slots(&self, pool: &str) -> Answer<BranchSlots> {
-    let request = self.request(Method::GET, &["places", "branch-slots", pool], &[]);
-
-    self.answer("branch_slots", request).await
-  }
-
-  async fn place_cache(&self, provider: &str, model: &str, upstream: Option<&str>) -> Answer<Option<i64>> {
-    let mut query = vec![("model", model)];
-
-    query.extend(upstream.map(|upstream| ("upstream", upstream)));
-
-    let request = self.request(Method::GET, &["providers", provider, "cache"], &query);
-    let cache: Cache = self.answer("place_cache", request).await?;
-
-    Ok(cache.ttl_ms)
-  }
-
   async fn pool_roles(&self) -> Answer<Vec<PoolRole>> {
     self.answer("pool_roles", self.request(Method::GET, &["pool", "roles"], &[])).await
   }
@@ -780,20 +753,30 @@ impl Agency for AgencyClient {
     })
   }
 
-  async fn retire_place(&self, pool: &str, slot: i64) -> Answer<()> {
-    let slot = slot.to_string();
-    let request = self.request(Method::DELETE, &["places", "branch-slots", pool, &slot], &[]);
-
-    self.done("retire_place", request).await
+  async fn take_place(&self, ask: &PlaceAsk) -> Answer<TakenPlace> {
+    self
+      .answer("take_place", self.request(Method::POST, &["places", "take"], &[]).json(ask))
+      .await
   }
 
-  async fn prefix_digest(&self, cwd: &str, model: &str, effort: Option<&str>) -> Answer<String> {
+  async fn prepare_place(&self, source: &str, cwd: &str) -> Answer<()> {
     let request = self
-      .request(Method::POST, &["places", "prefix-digest"], &[])
-      .json(&json!({ "cwd": cwd, "model": model, "effort": effort }));
-    let digest: Digest = self.answer("prefix_digest", request).await?;
+      .request(Method::POST, &["places", "prepare"], &[])
+      .json(&json!({ "source": source, "cwd": cwd }));
 
-    Ok(digest.digest)
+    self.done("prepare_place", request).await
+  }
+
+  async fn remember_place(&self, record: &PlaceRecord) -> Answer<()> {
+    self
+      .done("remember_place", self.request(Method::POST, &["places", "remember"], &[]).json(record))
+      .await
+  }
+
+  async fn retire_places(&self, retirement: &PlacesRetirement) -> Answer<()> {
+    let request = self.request(Method::POST, &["places", "retire"], &[]).json(retirement);
+
+    self.done("retire_places", request).await
   }
 
   async fn carry_out_reset(&self, worker: &str) -> Answer<bool> {

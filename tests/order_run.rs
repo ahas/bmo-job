@@ -1,16 +1,13 @@
 //! The work-order runner's pieces that stand without a database: what a step is handed, the session word a
-//! step is launched on, the branch places' choice, the checkout hold's readings and commit lines, the pool's
-//! keys, a runaway's verdict and the retries, and what the agent is told of a stopped order.
+//! step is launched on, the checkout hold's readings and commit lines, the pool's keys, a runaway's verdict
+//! and the retries, and what the agent is told of a stopped order.
 
 mod support;
-
-use std::collections::{HashMap, HashSet};
 
 use bmo_job::now_ms;
 use bmo_job::order_run::context::{result_block, result_excerpt, spoken};
 use bmo_job::order_run::hold::{TurnWindow, note, same_checkout, written_in};
 use bmo_job::order_run::launch::session_word;
-use bmo_job::order_run::places::{Agent, CAP, KEEP_MS, Lifetimes, choose, prunable};
 use bmo_job::order_run::pool::{branch_task, reservation_stage, stage_reservation_key};
 use bmo_job::order_run::stops::{retry_model, retry_step, runaway_verdict};
 use bmo_job::order_run::tick::paused_fact;
@@ -56,86 +53,6 @@ fn a_task_is_launched_on_its_session_word() {
     "handover"
   );
   assert_eq!(session_word(&json!({ "role": "scout", "retry": { "freshSession": true } })), "fresh");
-}
-
-fn agent(slot: i64, model: &str, at: i64) -> Agent {
-  Agent {
-    slot,
-    mode: "claude-code".into(),
-    model: model.into(),
-    role: "scout".into(),
-    upstream: String::new(),
-    prefix_digest: "prefix".into(),
-    last_reply_at: at,
-  }
-}
-
-// Five minutes for every model of Claude Code the test names.
-fn lifetimes() -> Lifetimes {
-  HashMap::from([
-    (("claude-code".to_owned(), "opus".to_owned(), String::new()), Some(300_000)),
-    (("claude-code".to_owned(), "sonnet".to_owned(), String::new()), Some(300_000)),
-  ])
-}
-
-#[test]
-fn a_warm_place_is_reused_oldest_first_then_a_cold_one_then_a_new_number() {
-  let now = 10_000_000;
-  let at = now - 60_000;
-  let agents = [agent(2, "opus", at), agent(1, "opus", at - 10_000), agent(3, "sonnet", at)];
-  let busy = HashSet::from([4]);
-  let choice = choose(&agents, &[1, 2, 3], &busy, 4, ("claude-code", "opus"), (now, &lifetimes()), |_| {
-    "prefix".into()
-  });
-
-  assert_eq!(choice.reuse, [1, 2]);
-  assert_eq!(choice.cold, [3]);
-  assert_eq!(choice.opened, [5]);
-  assert!(choice.expired.is_empty());
-}
-
-#[test]
-fn a_row_whose_prefix_moved_dies_like_one_past_its_life() {
-  let now = 10_000_000;
-  let agents = [agent(1, "opus", now - 60_000)];
-  let choice =
-    choose(&agents, &[1], &HashSet::new(), 1, ("claude-code", "opus"), (now, &lifetimes()), |_| {
-      "moved".into()
-    });
-
-  assert!(choice.reuse.is_empty());
-  assert_eq!(choice.cold, [1]);
-  assert_eq!(choice.expired, agents);
-}
-
-#[test]
-fn a_row_of_a_provider_with_no_published_lifetime_is_never_warm() {
-  let now = 10_000_000;
-  let agents = [agent(1, "opus", now - 1000)];
-  let choice = choose(
-    &agents,
-    &[1],
-    &HashSet::new(),
-    1,
-    ("claude-code", "opus"),
-    (now, &Lifetimes::new()),
-    |_| "prefix".into(),
-  );
-
-  assert!(choice.reuse.is_empty());
-  assert_eq!(choice.cold, [1]);
-}
-
-#[test]
-fn a_place_goes_past_the_cap_or_rested_past_the_keep() {
-  let now = 30 * 24 * 60 * 60 * 1000;
-  let old = agent(2, "opus", now - KEEP_MS - 1000);
-  let slots: Vec<i64> = (1..=10).collect();
-
-  assert_eq!(
-    prunable(&[old], &slots, &HashSet::from([9]), now, &lifetimes(), (CAP, KEEP_MS)),
-    [2, 10]
-  );
 }
 
 #[test]

@@ -10,9 +10,9 @@ use bmo_job::queue::units::Units;
 use bmo_job::{Settings, run};
 use futures_util::future::BoxFuture;
 use job_agency::{
-  BranchSlots, Execution, JobLines, LaunchHeld, LogLine, Mapping, Node, PinChoice, PoolAsking, PoolRequest,
-  PoolRole, PoolState, Provider, Reservation, ReservationAsking, ReservationState, Room as MachineRoom,
-  RouteAsk, Run, Tier, Workbench, WorkerRuntime,
+  Execution, JobLines, LaunchHeld, LogLine, Mapping, Node, PinChoice, PlaceAsk, PlaceRecord,
+  PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolState, Provider, Reservation, ReservationAsking,
+  ReservationState, Room as MachineRoom, RouteAsk, Run, TakenPlace, Tier, Workbench, WorkerRuntime,
 };
 use job_base::Refusal;
 use job_policy::Policy;
@@ -91,6 +91,16 @@ pub struct Fake {
   pub roles: Vec<PoolRole>,
   pub requests: Mutex<Vec<PoolRequest>>,
   pub reservations: Mutex<Vec<Reservation>>,
+  /// The place every take answers; a take answered with no directory leaves `cwd` out.
+  pub place: TakenPlace,
+  /// Each place asked for, as it was sent.
+  pub place_asks: Mutex<Vec<PlaceAsk>>,
+  /// Each place laid out: the checkout and the place's directory.
+  pub prepared: Mutex<Vec<(String, String)>>,
+  /// Each finished branch's place recorded.
+  pub remembered: Mutex<Vec<PlaceRecord>>,
+  /// Each ended order's places handed back.
+  pub retired: Mutex<Vec<PlacesRetirement>>,
 }
 
 impl Default for Fake {
@@ -125,6 +135,14 @@ impl Default for Fake {
       roles: vec![],
       requests: Mutex::default(),
       reservations: Mutex::default(),
+      place: TakenPlace {
+        slot: 1,
+        cwd: Some(std::env::temp_dir().join("standing-places").join("1")),
+      },
+      place_asks: Mutex::default(),
+      prepared: Mutex::default(),
+      remembered: Mutex::default(),
+      retired: Mutex::default(),
     }
   }
 }
@@ -516,33 +534,24 @@ impl Units for Fake {
     ready(self.executions.clone())
   }
 
-  fn place_cache<'a>(
-    &'a self,
-    _: &'a str,
-    _: &'a str,
-    _: Option<&'a str>,
-  ) -> BoxFuture<'a, Result<Option<i64>, Refusal>> {
-    ready(None)
+  fn take_place<'a>(&'a self, ask: &'a PlaceAsk) -> BoxFuture<'a, Result<TakenPlace, Refusal>> {
+    locked(&self.place_asks).push(ask.clone());
+    ready(self.place.clone())
   }
 
-  fn prefix_digest<'a>(
-    &'a self,
-    cwd: &'a str,
-    model: &'a str,
-    _: Option<&'a str>,
-  ) -> BoxFuture<'a, Result<String, Refusal>> {
-    ready(format!("{cwd}:{model}"))
-  }
-
-  fn retire_place<'a>(&'a self, _: &'a str, _: i64) -> BoxFuture<'a, Result<(), Refusal>> {
+  fn prepare_place<'a>(&'a self, source: &'a str, cwd: &'a str) -> BoxFuture<'a, Result<(), Refusal>> {
+    locked(&self.prepared).push((source.to_owned(), cwd.to_owned()));
     ready(())
   }
 
-  fn branch_slots<'a>(&'a self, pool: &'a str) -> BoxFuture<'a, Result<BranchSlots, Refusal>> {
-    ready(BranchSlots {
-      root: std::env::temp_dir().join("branch-slots").join(pool),
-      slots: vec![],
-    })
+  fn remember_place<'a>(&'a self, record: &'a PlaceRecord) -> BoxFuture<'a, Result<(), Refusal>> {
+    locked(&self.remembered).push(record.clone());
+    ready(())
+  }
+
+  fn retire_places<'a>(&'a self, retirement: &'a PlacesRetirement) -> BoxFuture<'a, Result<(), Refusal>> {
+    locked(&self.retired).push(retirement.clone());
+    ready(())
   }
 
   fn relink_units<'a>(&'a self, _: &'a std::path::Path) -> BoxFuture<'a, Result<Relinked, Refusal>> {

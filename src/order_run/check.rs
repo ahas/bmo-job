@@ -12,7 +12,6 @@ use super::launch::Spawn;
 use super::tick::{Hands, Runner, paused_fact};
 use super::{Fault, Ground, faulted, places, pool, stops};
 use crate::job_run::plan_check::Roster;
-use crate::now_ms;
 use crate::queue::work_orders::{self as orders, places as order_places, task_at_mut};
 
 fn text<'v>(asked: &'v Value, key: &str) -> Option<&'v str> {
@@ -126,15 +125,20 @@ async fn step(ground: &Ground<'_>, hold: &Hold, asked: &Value) -> Result<Value, 
       let order = read(ground, asked).await?;
       let task = task_of(&order, asked)?;
 
-      Ok(json!(places::take_slot(ground, &order, task, now_ms()).await?))
+      let taken = places::take_slot(ground, &order, task).await?;
+
+      Ok(json!({ "slot": taken.slot, "cwd": taken.cwd }))
     }
     "prepare-slot" => {
       let order = read(ground, asked).await?;
-      let cwd = places::slot_cwd(ground, &order, number(asked, "slot")).await?;
 
-      places::prepare_slot(orders::text(&order, "cwd").unwrap_or_default(), &cwd)
-        .await
-        .map(|()| Value::Null)
+      places::prepare_slot(
+        ground,
+        orders::text(&order, "cwd").unwrap_or_default(),
+        text(asked, "cwd").unwrap_or_default(),
+      )
+      .await
+      .map(|()| Value::Null)
     }
     "remember-slot" => {
       let order = read(ground, asked).await?;
@@ -153,6 +157,11 @@ async fn step(ground: &Ground<'_>, hold: &Hold, asked: &Value) -> Result<Value, 
       )
       .await
       .map(|()| Value::Null)
+    }
+    "retire-places" => {
+      let order = read(ground, asked).await?;
+
+      places::retire_places(ground, &order).await.map(|()| Value::Null)
     }
     "tick" => {
       let hands = Recorded {

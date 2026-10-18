@@ -6,9 +6,9 @@ use std::path::Path;
 
 use futures_util::future::BoxFuture;
 use job_agency::{
-  Agency, AgencyError, BranchSlots, Execution, JobLines, LaunchHeld, LogLine, Mapping, Node, PinChoice,
-  PoolAsking, PoolRequest, PoolRole, Provider, Reservation, ReservationAsking, RouteAsk, Run, Tier,
-  Workbench, WorkerRuntime,
+  Agency, AgencyError, Execution, JobLines, LaunchHeld, LogLine, Mapping, Node, PinChoice, PlaceAsk,
+  PlaceRecord, PlacesRetirement, PoolAsking, PoolRequest, PoolRole, Provider, Reservation,
+  ReservationAsking, RouteAsk, Run, TakenPlace, Tier, Workbench, WorkerRuntime,
 };
 use job_codes::{JobError, ProviderRefusal, UnitRefusal};
 use job_gate::{Gate, GateError};
@@ -122,24 +122,14 @@ pub trait Units: Sync {
   ) -> BoxFuture<'a, Result<bool, Refusal>>;
   /// Every execution, ended or not.
   fn all_executions(&self) -> BoxFuture<'_, Result<Vec<Execution>, Refusal>>;
-  /// How long a place's prefix is worth counting on for a provider's model.
-  fn place_cache<'a>(
-    &'a self,
-    provider: &'a str,
-    model: &'a str,
-    upstream: Option<&'a str>,
-  ) -> BoxFuture<'a, Result<Option<i64>, Refusal>>;
-  /// The prefix a worker's run would open on in a directory now.
-  fn prefix_digest<'a>(
-    &'a self,
-    cwd: &'a str,
-    model: &'a str,
-    effort: Option<&'a str>,
-  ) -> BoxFuture<'a, Result<String, Refusal>>;
-  /// What stands for a branch place taken down.
-  fn retire_place<'a>(&'a self, pool: &'a str, slot: i64) -> BoxFuture<'a, Result<(), Refusal>>;
-  /// A pool's branch places.
-  fn branch_slots<'a>(&'a self, pool: &'a str) -> BoxFuture<'a, Result<BranchSlots, Refusal>>;
+  /// A branch's place taken in its order's pool of standing checkouts.
+  fn take_place<'a>(&'a self, ask: &'a PlaceAsk) -> BoxFuture<'a, Result<TakenPlace, Refusal>>;
+  /// An order's checkout laid into a place's directory.
+  fn prepare_place<'a>(&'a self, source: &'a str, cwd: &'a str) -> BoxFuture<'a, Result<(), Refusal>>;
+  /// What a finished branch left in its place, recorded.
+  fn remember_place<'a>(&'a self, record: &'a PlaceRecord) -> BoxFuture<'a, Result<(), Refusal>>;
+  /// What stands for the places an ended order worked in that no task sits in now, taken down.
+  fn retire_places<'a>(&'a self, retirement: &'a PlacesRetirement) -> BoxFuture<'a, Result<(), Refusal>>;
   /// The installed units linked into a checkout relinked where its files moved.
   fn relink_units<'a>(&'a self, checkout: &'a Path) -> BoxFuture<'a, Result<Relinked, Refusal>>;
   /// Texts put into English, in the order given; a text in English already comes back as it stands.
@@ -391,30 +381,20 @@ impl<A: Agency, R: Receiver, W: Web, T: Testbed, G: Gate> Units for Ports<'_, A,
     Box::pin(async move { self.agency.executions(false).await.map_err(agency_failed) })
   }
 
-  fn place_cache<'a>(
-    &'a self,
-    provider: &'a str,
-    model: &'a str,
-    upstream: Option<&'a str>,
-  ) -> BoxFuture<'a, Result<Option<i64>, Refusal>> {
-    Box::pin(async move { self.agency.place_cache(provider, model, upstream).await.map_err(agency_failed) })
+  fn take_place<'a>(&'a self, ask: &'a PlaceAsk) -> BoxFuture<'a, Result<TakenPlace, Refusal>> {
+    Box::pin(async move { self.agency.take_place(ask).await.map_err(agency_failed) })
   }
 
-  fn prefix_digest<'a>(
-    &'a self,
-    cwd: &'a str,
-    model: &'a str,
-    effort: Option<&'a str>,
-  ) -> BoxFuture<'a, Result<String, Refusal>> {
-    Box::pin(async move { self.agency.prefix_digest(cwd, model, effort).await.map_err(agency_failed) })
+  fn prepare_place<'a>(&'a self, source: &'a str, cwd: &'a str) -> BoxFuture<'a, Result<(), Refusal>> {
+    Box::pin(async move { self.agency.prepare_place(source, cwd).await.map_err(agency_failed) })
   }
 
-  fn retire_place<'a>(&'a self, pool: &'a str, slot: i64) -> BoxFuture<'a, Result<(), Refusal>> {
-    Box::pin(async move { self.agency.retire_place(pool, slot).await.map_err(agency_failed) })
+  fn remember_place<'a>(&'a self, record: &'a PlaceRecord) -> BoxFuture<'a, Result<(), Refusal>> {
+    Box::pin(async move { self.agency.remember_place(record).await.map_err(agency_failed) })
   }
 
-  fn branch_slots<'a>(&'a self, pool: &'a str) -> BoxFuture<'a, Result<BranchSlots, Refusal>> {
-    Box::pin(async move { self.agency.branch_slots(pool).await.map_err(agency_failed) })
+  fn retire_places<'a>(&'a self, retirement: &'a PlacesRetirement) -> BoxFuture<'a, Result<(), Refusal>> {
+    Box::pin(async move { self.agency.retire_places(retirement).await.map_err(agency_failed) })
   }
 
   fn relink_units<'a>(&'a self, checkout: &'a Path) -> BoxFuture<'a, Result<Relinked, Refusal>> {
