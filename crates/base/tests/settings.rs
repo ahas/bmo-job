@@ -196,7 +196,7 @@ fn the_host_is_read_where_given_with_absolute_paths_and_a_wait_above_nothing() {
 fn the_server_and_its_units_are_left_out_by_the_libraries_and_read_where_given() {
   let without = Settings::read(&with_database("sqlite::memory:")).unwrap();
   let server = "[server]\nlisten = \"127.0.0.1:0\"\naddress = \"http://localhost:1/\"\nunit = \"job\"\n";
-  let units = "[units]\nagency = \"http://a\"\ngate = \"http://g\"\nreceiver = \"http://r\"\nweb = \"http://w\"\ngraph = \"http://h\"\nbrain = \"http://b\"\nbrain_token = \"/t\"\n";
+  let units = "[units]\nagency = \"http://a\"\nagency_token = \"/a\"\ngate = \"http://g\"\nreceiver = \"http://r\"\nweb = \"http://w\"\ngraph = \"http://h\"\nbrain = \"http://b\"\nbrain_token = \"/t\"\n";
   let with = Settings::read(&format!("{}\n{server}{units}", with_database("sqlite::memory:"))).unwrap();
   let https = Settings::read(&format!(
     "{}\n{server}{}",

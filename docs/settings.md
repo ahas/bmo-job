@@ -82,6 +82,7 @@ The `http:` address of each unit the server calls on (docs/api.md, "Calls on oth
 | Key | The unit |
 |---|---|
 | `agency` | bmo-agency, whose provider order a reading of an item's model is read against |
+| `agency_token` | The file holding bmo-agency's control token, by its absolute path, read once as the queue's ground is built |
 | `gate` | bmo-gate, whose kept English a worker's reading carries |
 | `receiver` | bmo-receiver, which the server declares itself a holder to and hands an item's talk |
 | `web` | bmo-web, which says whose work an item's job is and whether that user may have it run |
@@ -92,7 +93,7 @@ The `http:` address of each unit the server calls on (docs/api.md, "Calls on oth
 
 Every key of both sections is required where the section stands, but for `siren`. An address that is
 not `http:`, and a token file's path that is not absolute, is refused when the file is loaded; a token
-file that cannot be read builds no ground.
+file that cannot be read builds no ground and starts no server.
 
 ### `[host]`
 

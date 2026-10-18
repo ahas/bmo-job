@@ -257,6 +257,7 @@ unit = "job"
 
 [units]
 agency = "{agency}"
+agency_token = "/dev/null"
 gate = "{gate}"
 receiver = "{receiver}"
 web = "http://127.0.0.1:1/"

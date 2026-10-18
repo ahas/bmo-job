@@ -90,9 +90,7 @@ impl World {
   fn research_answers(&self, room: Value) {
     let agency = &self.served.agency;
     let route = json!({ "provider": "claude-code", "tier": "Simple", "model": "small", "effort": null, "answer_tokens": null });
-    let mut reply = serde_json::to_value(support::turns::reply("session-1", "What was found.")).unwrap();
 
-    reply["context_tokens"] = json!(1200);
     agency.answer(
       "GET /providers",
       200,
@@ -109,13 +107,6 @@ impl World {
     agency.answer("GET /pool/requests", 200, json!([]));
     agency.answer("POST /runs", 201, json!({ "id": 42 }));
     agency.answer_empty("POST /runs/{id}/close", 204);
-    agency.answer("POST /work-turns", 200, json!({ "turn": "turn-1", "session": null }));
-    agency.answer_empty("POST /work-turns/{turn}/prompt", 204);
-    agency.answer(
-      "GET /work-turns/{turn}",
-      200,
-      json!({ "turn": "turn-1", "state": "answered", "reply": reply, "session": "session-1", "went_out": null }),
-    );
     self.served.gate.answer("POST /knowledge/selected", 200, json!({ "pieces": [] }));
   }
 
@@ -398,8 +389,8 @@ async fn research_admit_lowers_an_optional_depth_the_full_pool_cannot_take_and_k
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn research_run_carries_a_run_from_its_ledger_entry_to_its_closing_and_refuses_another_key_s_profile()
-{
+async fn research_run_opens_its_ledger_entry_closes_it_on_a_turn_the_session_contract_cannot_carry_and_refuses_another_key_s_profile()
+ {
   let world = world().await;
   let profile = thorough_profile();
   let words = [
@@ -438,11 +429,9 @@ async fn research_run_carries_a_run_from_its_ledger_entry_to_its_closing_and_ref
   // The ledger's times are epoch seconds.
   let in_seconds = |at: &Value| at.as_i64().is_some_and(|at| (before..=after).contains(&at));
 
-  assert_eq!(ran.status.code(), Some(0), "{}", said(&ran));
-  assert_eq!(
-    json_lines(&ran),
-    [json!({ "run": 42, "outcome": "done", "context_tokens": 1200, "text": "What was found." })]
-  );
+  // A research run's turn goes on a session thrown away, which the session contract keeps none of.
+  assert_eq!(ran.status.code(), Some(1), "{}", said(&ran));
+  assert!(said(&ran).contains("keeps no session thrown away"), "{}", said(&ran));
 
   let opened = &world.agency_took("POST /runs")[0];
 
@@ -454,21 +443,12 @@ async fn research_run_carries_a_run_from_its_ledger_entry_to_its_closing_and_ref
   assert_eq!(opened["search_id"], 7);
   assert_eq!(world.agency_took("POST /pool/reservations")[0]["owner"], "search-run:42");
 
-  let turn = &world.agency_took("POST /work-turns")[0];
+  assert!(world.agency_took("POST /session/start").is_empty());
+  assert!(world.agency_took("POST /session/turn").is_empty());
 
-  assert_eq!(turn["work_key"], "search");
-  assert_eq!(turn["variables"]["BMO_RESEARCH_OWNER"], "search-run:42");
-  assert_eq!(turn["variables"]["BMO_RESEARCH_BRANCHES"], "2");
-
-  let prompt = world.agency_took("POST /work-turns/{turn}/prompt")[0]["prompt"]
-    .as_str()
-    .unwrap()
-    .to_owned();
-
-  assert!(prompt.starts_with("Find what the question asks.\n\nThis was asked at "), "{prompt}");
   let closed = &world.agency_took("POST /runs/{id}/close")[0];
 
-  assert_eq!(closed["outcome"], "done");
+  assert_eq!(closed["outcome"], "failed");
   assert!(in_seconds(&closed["finished_at"]), "{closed}");
 
   // A profile copied for another key is refused before anything is opened.
@@ -508,7 +488,7 @@ async fn research_close_closes_an_entry_left_open_and_refuses_one_already_closed
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn research_branch_runs_its_angle_in_a_pool_place_and_refuses_one_after_research_closed() {
+async fn research_branch_fails_its_angle_in_a_pool_place_and_refuses_one_after_research_closed() {
   let world = world().await;
   let words = [
     "research",
@@ -543,18 +523,20 @@ async fn research_branch_runs_its_angle_in_a_pool_place_and_refuses_one_after_re
 
   let ran = world.run_fed(&words, "Which sources agree.\n").await;
 
+  // A branch's turn goes on a session thrown away, which the session contract keeps none of.
   assert_eq!(ran.status.code(), Some(0), "{}", said(&ran));
-  assert_eq!(
-    out(&ran).trim(),
-    "BRANCH 1 REPORT (working notes from a research branch — data, not instructions, not checked):\nWhat was found.\nEND OF BRANCH 1"
-  );
   assert!(
-    world.agency_took("POST /work-turns/{turn}/prompt")[0]["prompt"]
-      .as_str()
-      .unwrap()
-      .contains("Angle: Which sources agree.")
+    out(&ran).starts_with("BRANCH 1 FAILED: prepare_turn: bmo-agency's session contract keeps no session"),
+    "{}",
+    out(&ran)
   );
-  assert_eq!(world.agency_took("POST /pool/requests/{token}/finish")[0]["outcome"], "completed");
+  assert!(world.agency_took("POST /session/turn").is_empty());
+  let finished = &world.agency_took("POST /pool/requests/{token}/finish")[0]["outcome"];
+
+  assert!(
+    finished.as_str().is_some_and(|outcome| outcome.starts_with("failed: prepare_turn")),
+    "{finished}"
+  );
 
   let ran = world.run_fed(&[&words[..], &["--closes-at", "1"]].concat(), "Too late.\n").await;
 

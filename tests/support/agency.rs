@@ -9,19 +9,23 @@ use job_agency::AgencyClient;
 
 use super::stub::{self, Shared, take};
 
+/// The control token the port's client calls the stand-in with.
+pub const TOKEN: &str = "agency-token";
+
 /// The stand-in for bmo-agency, serving until it is dropped.
 pub struct Stub(stub::Stub);
 
 /// Every route of the calls, each taken by `take`.
 fn routes() -> Router<Shared> {
   Router::new()
-    .route("/sessions", post(take).get(take))
-    .route("/sessions/{id}", delete(take))
-    .route("/sessions/{id}/turns", post(take))
-    .route("/sessions/{id}/state", get(take))
-    .route("/sessions/{id}/output", get(take))
-    .route("/sessions/{id}/interrupt", post(take))
-    .route("/sessions/{id}/fold", post(take))
+    .route("/session/start", post(take))
+    .route("/session/turn", post(take))
+    .route("/session/push", post(take))
+    .route("/session/state", get(take))
+    .route("/session/interrupt", post(take))
+    .route("/session/fold", post(take))
+    .route("/session/end", post(take))
+    .route("/session/list", get(take))
     .route("/executions", get(take))
     .route("/executions/{id}", get(take))
     .route("/executions/{id}/cancel", post(take).delete(take))
@@ -65,11 +69,6 @@ fn routes() -> Router<Shared> {
     .route("/providers/{provider}/cache", get(take))
     .route("/pool/roles", get(take))
     .route("/pool/room", get(take))
-    .route("/work-turns", post(take))
-    .route("/work-turns/{turn}", get(take))
-    .route("/work-turns/{turn}/prompt", post(take))
-    .route("/work-turns/{turn}/asides", post(take))
-    .route("/work-turns/{turn}/questions/{question}", put(take))
     .route("/workers/{worker}/sessions/reset", post(take))
     .route("/workers/{worker}/sessions/record", post(take))
     .route("/workers/{worker}/sessions/handover", post(take))
@@ -94,7 +93,7 @@ impl Stub {
 
   /// The port's client, calling the stand-in.
   pub fn client(&self) -> AgencyClient {
-    AgencyClient::new(self.address()).expect("the stand-in's address is an http address")
+    AgencyClient::new(self.address(), TOKEN).expect("the stand-in's address is an http address")
   }
 }
 

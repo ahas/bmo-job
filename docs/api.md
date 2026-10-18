@@ -1372,9 +1372,12 @@ HTTP to the address it is given.
 
 - **The address** is the base of every path below, a plain `http:` address of bmo-agency on the
   machine. An address of any other kind is refused when the client is made.
-- **A body is JSON, both ways,** with snake_case keys, but for the machine's room, whose keys are
-  camelCase. A time is epoch milliseconds, but for the run ledger's, which are epoch seconds; a count and
-  a token count are whole numbers, and a field written with a question mark may be null.
+- **Every call carries bmo-agency's control token** as a bearer token in its `Authorization` header.
+  The token is given with the address.
+- **A body is JSON, both ways,** with snake_case keys, but for the machine's room, the session contract
+  and the events, whose keys are camelCase. A time is epoch milliseconds, but for the run ledger's, which
+  are epoch seconds; a count and a token count are whole numbers, and a field written with a question
+  mark may be null.
 - **A path segment is an id as it stands,** percent-encoded where it needs to be.
 - **An answer with no body is 204.** An answer with a body is 200, or 201 where the call creates
   something.
@@ -1387,64 +1390,103 @@ HTTP to the address it is given.
 
 #### Sessions
 
-A session is one agent's conversation on a provider, started for the agent itself, for a room or for a
-worker. bmo-agency keeps it; the service starts, feeds, reads and ends it.
+A session is one agent's conversation, started for the agent itself, for a room or for a worker.
+bmo-agency keeps it and knows it by its agent and its scope; the service starts, feeds, reads and ends it
+on bmo-agency's session contract, and hears how its turns end on bmo-agency's event stream.
 
 | Call | Method and path | Request | Answer |
 |---|---|---|---|
-| Start a session | `POST /sessions` | `agent`, `scope` | 201, a session |
-| Send a turn | `POST /sessions/{id}/turns` | `prompt` | `delivery`: `taken`, or `blocked` where the session cannot take a turn now |
-| Read its state | `GET /sessions/{id}/state` | | a session's state |
-| Read its output | `GET /sessions/{id}/output` | | `session`, `generation`, `text`: what the session has written in its latest turn so far |
-| Interrupt it | `POST /sessions/{id}/interrupt` | | 204 |
-| Fold it | `POST /sessions/{id}/fold` | | 204 |
-| End it | `DELETE /sessions/{id}` | | 204 |
-| List the sessions | `GET /sessions` | | a list of sessions |
+| Start a session | `POST /session/start` | `agent`, `scope` | a session: the one already kept for that scope where there is one |
+| Send a turn | `POST /session/turn` | `session`, `prompt`, and the turn's context: `job?`, `item?` | `delivery`: `taken`, or `blocked` where the program refused the words while it waits on a person; answered once the turn has ended |
+| Push words into its turn | `POST /session/push` | `session`, `words` | `said`: `delivered`, `waiting` (its program waits on a person and took nothing) or `refused` (they did not go in) |
+| Read its state | `GET /session/state?session=` | | a session's state |
+| Interrupt it | `POST /session/interrupt` | `session` | `ok` |
+| Fold it | `POST /session/fold` | `session` | `ok` |
+| End it | `POST /session/end` | `session` | `ok` |
+| List the sessions | `GET /session/list` | | `sessions`: a list of sessions |
+| Hear its turns | `GET /events?kinds=turn-started,turn-ended` | | a server-sent event stream of the turns' starts and ends |
 
 - **A scope** is an object holding `kind`: `agent`, `worker`, or `room` with the field `room`.
 - **A session:** `id`, `agent`, `scope`.
+- **A turn's context** is, of the parts bmo-agency names, `job`, the job the turn is of, and `item`, the
+  item that job works, each a number, which bmo-agency names behind the worker's place while the turn
+  goes. A turn with no job behind it, a research run's, sends neither.
 - **The program a session runs** carries `BMO_TURN_AGENT`, the agent the session is, so what the verbs
   it runs file stands under that agent (docs/cli.md, "`todo`").
 - **A session's state:** `session`, `provider`, `model`, `place`, `generation` (how many times it has
   started over), and `context?`, which holds `carried` and `window`: the tokens it carries and the most
   it may.
-- A turn, an interrupt, a fold or an end on a session that does not exist is refused with 404, and a
-  turn to a session busy with another is refused with 409.
+- **A turn's start,** the event `turn-started`: `session`, `run` (the run the turn goes out as) and `at`.
+  **Its end,** `turn-ended`: `session`, `run`, `outcome` (`answered`, `blocked`, `stopped` or `failed`),
+  `answer?` where it answered, `reason?` where it failed, and `engineError?`, an object holding `kind?`,
+  where its engine ended it with an error. Both are published before the turn's send is answered.
+- **A fault** of the session contract carries `error` and its own `code`: `unknown-session` under 404,
+  `session-busy` under 409 (a session already in a turn), `backend-unreachable` under 503 and
+  `backend-refused` under 422. A state read of a session that does not exist is nothing found.
 
 #### Work turns
 
-A work turn is one turn of a job's work, carried by bmo-agency end to end: the worker's session settled,
-the logins of the work key walked, the line laid on the mapping asked, the turn put through the
-resident program, words said to the worker meanwhile pushed in, and its record read. What the turn says
-— the prompt, the results it carries, the notes pushed into it — and what is made of its answer are the
-service's.
+A work turn is one turn of a job's work, or of a research run's model. What it says — the prompt, the
+results it carries, the notes pushed into it — and what is made of its answer are the service's;
+bmo-agency carries it on the session contract above. The crate's `WorkTurns` carries each turn, under an
+id of its own, and the job's runner and a research run read it by that id as it stands.
 
-| Call | Method and path | Request | Answer |
-|---|---|---|---|
-| Prepare a work turn | `POST /work-turns` | a work turn's asking | 201, `turn`, `session?`: the session the turn will continue, none where it opens a fresh one |
-| Send its prompt | `POST /work-turns/{turn}/prompt` | `prompt` | 204 |
-| Read it | `GET /work-turns/{turn}` | | a work turn |
-| Push words into it | `POST /work-turns/{turn}/asides` | `text` | `outcome`: `delivered`, `waiting` (the run waits on a person and took nothing) or `refused` |
-| Answer its question | `PUT /work-turns/{turn}/questions/{question}` | an answer | 204 |
+| Step | Over the session contract |
+|---|---|
+| Prepare a work turn: a work turn's asking | a worker's seat starts the worker's session (`scope` `worker`); answered with the turn's id and no session to continue |
+| Send its prompt | the event stream opened, then `POST /session/turn` on the session with the prompt, `job` and `item`, carried in the background |
+| Read it | a work turn, built from the send's answer, the turn's `turn-ended` and the session's state |
+| Push words into it | `POST /session/push` on its session, answered `outcome` as `said` was |
+| Answer its question | refused: the session contract shows no question a turn stands on |
 
+- **The turn's own events** are told apart by the session: the worker's session carries one turn at a
+  time, and the service sends it no other while a job runs, so the first `turn-started` on the session
+  after the stream opened names the turn's run, and the `turn-ended` of that run is how it ended. A
+  stream that ends before telling it leaves the turn failed with that said.
+- **Reading** names the turn's `session` as bmo-agency's id of the worker's session, and answers
+  `running`, with no question, until the send is answered, then:
+  - `answered`, where the end is `answered`: a reply of the answer's `text`, its `session_id` that same
+    session's id, its `mode` and `model` the provider and model the session's state reads after the
+    turn, the asking's where it reads none, and its `context_tokens` and `context_ratio` the context that
+    state carries against its window;
+  - `failed` with the failure `person` where the send was answered `blocked` or the end is `blocked`,
+    and `stopped` where the end is `stopped`;
+  - `failed` with `evidence` where the end is `failed` — its `reason`, and the engine's error kind on a
+    line after it — or where the send was refused, for the service to read as it reads a turn that did
+    not answer.
+- **`went_out`** is the provider and model of the same state once the turn has ended. A turn read in an
+  ending is let go, and read again it is nothing found.
+- **What the session contract does not carry yet.** The service's shapes below keep every part of a
+  work turn, and `WorkTurns` fills the parts the session contract answers:
+  - of the asking, bmo-agency takes only the agent, the seat's scope, the job and the item. It chooses
+    the worker's session, model and login itself, so `provider`, `model`, `mapping` and `resume` go
+    unsent, and so do `cwd`, `name`, `title`, `thread`, `chat`, `unit`, `user`, `work_key`,
+    `hears_words` and `variables`: the turn's program is started under the run name bmo-agency gives it,
+    not the job's unit;
+  - a branch's seat has no scope to start on, since the session contract keeps no session thrown away,
+    so preparing one is refused, and a co-work branch's or a research run's turn is not carried;
+  - a preparing names no session the turn continues, and a reading's session is bmo-agency's id, never
+    the program's own conversation, so the results a turn sends always go whole; a reading has no
+    `spans`, no `compacted` and no effort or tier in `went_out`, and a reply holds its text, session,
+    mode, model and context alone; a failure is typed only as `person` and `stopped`, every other ending
+    read from its evidence; and no turn stands `reprepared`;
+  - a question a turn's program stops on is bmo-agency's own reading of its screen, answered there or
+    left for a person, and the session contract neither shows it nor takes an answer to it;
+  - what a session has written in its latest turn so far is not read, so a research run stopped from
+    outside keeps nothing the interrupted turn wrote.
 - **A work turn's asking:** `agent` (the name the turn runs under), `seat` (an object holding `kind`:
   `worker`, or `branch` with `todo?` and `role?`), `provider`, `model` (the model the worker's session
   record is kept under), `mapping` (`model`, `effort?`, `tier?`, `answer_tokens?`), `resume` (an object
   holding `kind`: `auto`, `fresh`, or `session` with `id`), `cwd`, `name` (the run's name), `title`
   (what a person watching reads over the turn), `thread?`, `job?` (none for a research run's turn),
-  `item?` (the item that job works, which bmo-agency names with the job behind the worker's place),
-  `chat`, `unit?`, `user?`, `work_key`, `hears_words` (whether words said to the worker are pushed into
-  the turn), and `variables` (an object of the variables the program the turn starts is started with
-  beside its own; empty where there are none).
-- **The program a turn starts** carries `BMO_RUN_NAME`, the turn's `name`, and `BMO_TASK_LOCKED=1`
+  `item?` (the item that job works), `chat`, `unit?`, `user?`, `work_key`, `hears_words` (whether words
+  said to the worker are pushed into the turn), and `variables` (the variables the program the turn
+  starts is started with beside its own; empty where there are none).
+- **The program a turn starts** is to carry `BMO_RUN_NAME`, the turn's `name`, and `BMO_TASK_LOCKED=1`
   where the turn has a job, so the verbs it runs know whose job they work for (docs/verbs.md, "Where a
-  verb stands").
-- **Preparing** claims the worker's standby, chooses the kept session where `resume` is `auto`, and
-  judges the session the agent holds, answering the session the turn will continue. A branch's turn
-  goes on a session thrown away: in a standing branch place of its repository, or in a pane of its own.
-- **Sending** puts the turn through on the logins of the work key in order. Where the walk moves to a
-  login whose session differs from the one prepared, the turn stands `reprepared` with that session
-  and waits for its prompt again.
+  verb stands"); the session contract takes neither yet (above).
+- **Prepared:** `turn`, and `session?`: the session the turn continues, none where it opens a fresh one
+  or where the session contract names none.
 - **A work turn:** `turn`, `state`, `spans` (where the turn's time went so far: each `kind`, `name`,
   `seconds`, `times`, `tokens?`, `input_tokens?`, `output_tokens?`, `cache_read_tokens?`,
   `cache_write_tokens?`), `compacted` (whether the session's context was compacted during the turn),
@@ -1452,7 +1494,8 @@ service's.
   went out on, once known), and by its state:
   - `running`, with `question?`: a question the program stopped on, waiting for an answer, as `id` and
     `kind`, `permission` with `text` and `amendable`, or `unknown`;
-  - `reprepared`;
+  - `reprepared`: the walk moved to a login whose session differs, and the turn waits for its prompt
+    again;
   - `answered`, with `reply`;
   - `failed`, with `failure?` (a failure) or `evidence?` (what a turn that did not answer left, for the
     service to read).
@@ -1466,9 +1509,9 @@ service's.
   (`failure`: `limit`, `login`, `outage` or `node_token`; `detail`), `died` (`ending`, `said?`,
   `message`), `person`, `untrusted` (`folder`, `config`), `stopped`, `transport` (`message`),
   `refused` (`message`), `unavailable` (`scope`, `mode`, `reason`) or `error` (`name`, `message`).
-- **An answer** is an object holding `kind`: `allow`, `leave`, or `refuse` with `words?`.
-- A call on a turn that does not exist is refused with 404; sending a turn that is not waiting for its
-  prompt, or answering a question it does not stand on, with 409.
+- **An answer** to a question is an object holding `kind`: `allow`, `leave`, or `refuse` with `words?`.
+- A read of a turn that does not exist is nothing found; sending a turn that is not waiting for its
+  prompt is refused.
 
 #### Executions
 

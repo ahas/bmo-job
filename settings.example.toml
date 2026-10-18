@@ -20,6 +20,7 @@ unit = "job"
 
 [units]
 agency = "http://127.0.0.1:7842"
+agency_token = "/srv/job/agency.token"
 gate = "http://127.0.0.1:7843"
 receiver = "http://127.0.0.1:7844"
 web = "http://127.0.0.1:7845"

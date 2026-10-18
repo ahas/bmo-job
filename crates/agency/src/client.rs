@@ -2,6 +2,7 @@
 //! written and its answer read as JSON.
 
 use futures_util::StreamExt;
+use futures_util::stream::BoxStream;
 use reqwest::{Client, Method, RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -10,23 +11,27 @@ use sse_stream::SseStream;
 use url::Url;
 
 use crate::{
-  Agency, AgencyError, Answer, BranchSlots, Delivery, Execution, JobLines, LaunchHeld, LogLine, Mapping,
-  Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, PoolRole, PoolRoom, Provider,
-  Reservation, ReservationAsking, Room, RoomReturns, RouteAsk, Run, RunClosing, RunOpening, Session,
-  SessionId, SessionState, SshReach, Start, Tier, TurnRecord, WorkMachine, Workbench, WorkerRuntime,
+  Agency, AgencyError, Answer, AsideOutcome, BranchSlots, Delivery, Execution, Handover, JobDocuments,
+  JobLines, LaunchHeld, LogLine, LogNote, Mapping, Node, Pin, PinChoice, PlaceWrite, PoolAsking,
+  PoolRequest, PoolRole, PoolRoom, Provider, Reply, Reservation, ReservationAsking, Room, RoomReturns,
+  RouteAsk, Run, RunClosing, RunOpening, Session, SessionAnswered, SessionId, SessionKept, SessionState,
+  SshReach, Start, Tier, Turn, TurnEvent, TurnEvents, TurnRecord, WorkMachine, Workbench, WorkerRuntime,
 };
 
 /// The kind of event bmo-agency publishes once a held launch's notice is let go for the room returned.
 const ROOM_RETURNED: &str = "machine-room-returned";
-use crate::{
-  AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LogNote, Prepared, Reply, SessionAnswered,
-  SessionKept, TurnAsking, WorkTurn,
-};
+
+/// The kind of event bmo-agency publishes as a turn put into a session begins.
+const TURN_STARTED: &str = "turn-started";
+
+/// The kind of event bmo-agency publishes as a turn put into a session ends.
+const TURN_ENDED: &str = "turn-ended";
 
 /// The calls on bmo-agency, made over HTTP to the address given.
 #[derive(Clone, Debug)]
 pub struct AgencyClient {
   base: Url,
+  token: String,
   http: Client,
 }
 
@@ -98,8 +103,13 @@ struct Placed {
 }
 
 #[derive(Deserialize)]
-struct Pushed {
-  outcome: AsideOutcome,
+struct Spoken {
+  said: AsideOutcome,
+}
+
+#[derive(Deserialize)]
+struct Listed {
+  sessions: Vec<Session>,
 }
 
 #[derive(Deserialize)]
@@ -173,8 +183,8 @@ async fn read<T: DeserializeOwned>(call: &'static str, response: Response) -> An
 }
 
 impl AgencyClient {
-  /// A client of bmo-agency at `base`, which must be an `http:` address.
-  pub fn new(base: Url) -> Answer<Self> {
+  /// A client of bmo-agency at `base`, which must be an `http:` address, calling with its control `token`.
+  pub fn new(base: Url, token: impl Into<String>) -> Answer<Self> {
     if base.scheme() != "http" || base.cannot_be_a_base() {
       return Err(AgencyError::NotAnAddress {
         address: base.to_string(),
@@ -183,6 +193,7 @@ impl AgencyClient {
 
     Ok(Self {
       base,
+      token: token.into(),
       http: Client::new(),
     })
   }
@@ -192,7 +203,8 @@ impl AgencyClient {
     &self.base
   }
 
-  /// A request on the path made of `segments` under the address, each percent-encoded, with `query`.
+  /// A request on the path made of `segments` under the address, each percent-encoded, with `query`, carrying
+  /// the control token.
   fn request(&self, method: Method, segments: &[&str], query: &[(&str, &str)]) -> RequestBuilder {
     let mut url = self.base.clone();
 
@@ -204,7 +216,7 @@ impl AgencyClient {
       url.query_pairs_mut().extend_pairs(query);
     }
 
-    self.http.request(method, url)
+    self.http.request(method, url).bearer_auth(&self.token)
   }
 
   async fn send(&self, call: &'static str, request: RequestBuilder) -> Answer<Response> {
@@ -244,56 +256,119 @@ impl AgencyClient {
 
     Err(refused(call, status, &body))
   }
+
+  /// The stream of the events of `kinds`, each read by `read` from its kind and its data. An event `read`
+  /// passes over, or a comment between events, says nothing.
+  async fn events<T: Send + 'static>(
+    &self,
+    call: &'static str,
+    kinds: &str,
+    read: fn(&str, &str) -> Option<serde_json::Result<T>>,
+  ) -> Answer<BoxStream<'static, Answer<T>>> {
+    let request = self.request(Method::GET, &["events"], &[("kinds", kinds)]);
+    let response = self.send(call, request).await?;
+    let status = response.status();
+
+    if !status.is_success() {
+      let body = response.bytes().await.map_err(unreachable(call))?;
+
+      return Err(refused(call, status, &body));
+    }
+
+    let events = SseStream::from_bytes_stream(response.bytes_stream()).filter_map(move |sse| async move {
+      match sse {
+        Err(error) => Some(Err(AgencyError::Unreachable {
+          call,
+          error: error.to_string(),
+        })),
+        Ok(sse) => {
+          let data = sse.data.unwrap_or_default();
+
+          read(sse.event.as_deref().unwrap_or_default(), &data).map(|read| {
+            read.map_err(|error| AgencyError::Malformed {
+              call,
+              status: status.as_u16(),
+              error: error.to_string(),
+            })
+          })
+        }
+      }
+    });
+
+    Ok(events.boxed())
+  }
 }
 
 impl Agency for AgencyClient {
   async fn start_session(&self, start: &Start) -> Answer<Session> {
-    let request = self.request(Method::POST, &["sessions"], &[]).json(start);
+    let request = self.request(Method::POST, &["session", "start"], &[]).json(start);
 
     self.answer("start_session", request).await
   }
 
-  async fn send_turn(&self, session: &SessionId, prompt: &str) -> Answer<Delivery> {
-    let request = self
-      .request(Method::POST, &["sessions", &session.0, "turns"], &[])
-      .json(&json!({ "prompt": prompt }));
+  async fn send_turn(&self, turn: &Turn) -> Answer<Delivery> {
+    let request = self.request(Method::POST, &["session", "turn"], &[]).json(turn);
     let delivered: Delivered = self.answer("send_turn", request).await?;
 
     Ok(delivered.delivery)
   }
 
+  async fn push_words(&self, session: &SessionId, words: &str) -> Answer<AsideOutcome> {
+    let request = self
+      .request(Method::POST, &["session", "push"], &[])
+      .json(&json!({ "session": session, "words": words }));
+    let spoken: Spoken = self.answer("push_words", request).await?;
+
+    Ok(spoken.said)
+  }
+
   async fn session_state(&self, session: &SessionId) -> Answer<Option<SessionState>> {
-    let request = self.request(Method::GET, &["sessions", &session.0, "state"], &[]);
+    let request = self.request(Method::GET, &["session", "state"], &[("session", &session.0)]);
 
     self.found("session_state", request).await
   }
 
-  async fn session_output(&self, session: &SessionId) -> Answer<Option<Output>> {
-    let request = self.request(Method::GET, &["sessions", &session.0, "output"], &[]);
-
-    self.found("session_output", request).await
-  }
-
   async fn interrupt_session(&self, session: &SessionId) -> Answer<()> {
-    let request = self.request(Method::POST, &["sessions", &session.0, "interrupt"], &[]);
+    let request = self
+      .request(Method::POST, &["session", "interrupt"], &[])
+      .json(&json!({ "session": session }));
 
     self.done("interrupt_session", request).await
   }
 
   async fn fold_session(&self, session: &SessionId) -> Answer<()> {
-    let request = self.request(Method::POST, &["sessions", &session.0, "fold"], &[]);
+    let request = self
+      .request(Method::POST, &["session", "fold"], &[])
+      .json(&json!({ "session": session }));
 
     self.done("fold_session", request).await
   }
 
   async fn end_session(&self, session: &SessionId) -> Answer<()> {
-    let request = self.request(Method::DELETE, &["sessions", &session.0], &[]);
+    let request = self
+      .request(Method::POST, &["session", "end"], &[])
+      .json(&json!({ "session": session }));
 
     self.done("end_session", request).await
   }
 
   async fn sessions(&self) -> Answer<Vec<Session>> {
-    self.answer("sessions", self.request(Method::GET, &["sessions"], &[])).await
+    let listed: Listed =
+      self.answer("sessions", self.request(Method::GET, &["session", "list"], &[])).await?;
+
+    Ok(listed.sessions)
+  }
+
+  async fn turn_events(&self) -> Answer<TurnEvents> {
+    let kinds = format!("{TURN_STARTED},{TURN_ENDED}");
+
+    self
+      .events("turn_events", &kinds, |kind, data| match kind {
+        TURN_STARTED => Some(serde_json::from_str(data).map(TurnEvent::Started)),
+        TURN_ENDED => Some(serde_json::from_str(data).map(TurnEvent::Ended)),
+        _ => None,
+      })
+      .await
   }
 
   async fn executions(&self, open_only: bool) -> Answer<Vec<Execution>> {
@@ -551,41 +626,11 @@ impl Agency for AgencyClient {
   }
 
   async fn room_returns(&self) -> Answer<RoomReturns> {
-    const CALL: &str = "room_returns";
-
-    let request = self.request(Method::GET, &["events"], &[("kinds", ROOM_RETURNED)]);
-    let response = self.send(CALL, request).await?;
-    let status = response.status();
-
-    if !status.is_success() {
-      let body = response.bytes().await.map_err(unreachable(CALL))?;
-
-      return Err(refused(CALL, status, &body));
-    }
-
-    // Only the kind asked for is read; a comment between events, or a kind the stream carries beside it,
-    // says nothing of the room.
-    let returns =
-      SseStream::from_bytes_stream(response.bytes_stream()).filter_map(move |read| async move {
-        match read {
-          Err(error) => Some(Err(AgencyError::Unreachable {
-            call: CALL,
-            error: error.to_string(),
-          })),
-          Ok(sse) if sse.event.as_deref() == Some(ROOM_RETURNED) => {
-            let data = sse.data.unwrap_or_default();
-
-            Some(serde_json::from_str(&data).map_err(|error| AgencyError::Malformed {
-              call: CALL,
-              status: status.as_u16(),
-              error: error.to_string(),
-            }))
-          }
-          Ok(_) => None,
-        }
-      });
-
-    Ok(returns.boxed())
+    self
+      .events("room_returns", ROOM_RETURNED, |kind, data| {
+        (kind == ROOM_RETURNED).then(|| serde_json::from_str(data))
+      })
+      .await
   }
 
   async fn workbench(&self, worker: &str) -> Answer<Workbench> {
@@ -635,41 +680,6 @@ impl Agency for AgencyClient {
     let digest: Digest = self.answer("prefix_digest", request).await?;
 
     Ok(digest.digest)
-  }
-
-  async fn prepare_turn(&self, asking: &TurnAsking) -> Answer<Prepared> {
-    let request = self.request(Method::POST, &["work-turns"], &[]).json(asking);
-
-    self.answer("prepare_turn", request).await
-  }
-
-  async fn send_turn_prompt(&self, turn: &str, prompt: &str) -> Answer<()> {
-    let request = self
-      .request(Method::POST, &["work-turns", turn, "prompt"], &[])
-      .json(&json!({ "prompt": prompt }));
-
-    self.done("send_turn_prompt", request).await
-  }
-
-  async fn work_turn(&self, turn: &str) -> Answer<Option<WorkTurn>> {
-    self.found("work_turn", self.request(Method::GET, &["work-turns", turn], &[])).await
-  }
-
-  async fn push_aside(&self, turn: &str, text: &str) -> Answer<AsideOutcome> {
-    let request = self
-      .request(Method::POST, &["work-turns", turn, "asides"], &[])
-      .json(&json!({ "text": text }));
-    let pushed: Pushed = self.answer("push_aside", request).await?;
-
-    Ok(pushed.outcome)
-  }
-
-  async fn answer_question(&self, turn: &str, question: &str, answer: &ConfirmAnswer) -> Answer<()> {
-    let request = self
-      .request(Method::PUT, &["work-turns", turn, "questions", question], &[])
-      .json(answer);
-
-    self.done("answer_question", request).await
   }
 
   async fn carry_out_reset(&self, worker: &str) -> Answer<bool> {

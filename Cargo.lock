@@ -1200,6 +1200,7 @@ dependencies = [
  "serde_json",
  "sse-stream",
  "thiserror",
+ "tokio",
  "url",
 ]
 

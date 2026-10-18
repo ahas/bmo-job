@@ -1,4 +1,5 @@
-//! Agent sessions: one agent's conversation on a provider, kept by bmo-agency.
+//! Agent sessions: one agent's conversation on a provider, kept by bmo-agency and carried on its session
+//! contract, and the starts and ends of their turns its event stream tells.
 
 use std::fmt;
 
@@ -70,10 +71,75 @@ pub struct SessionState {
   pub context: Option<Context>,
 }
 
-/// What a session has written in its latest turn so far.
+/// The parts of a turn's context the service hands in beside the prompt: on a worker's turn, the job it is a turn
+/// of and the item that job works.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnContext {
+  pub job: Option<i64>,
+  pub item: Option<i64>,
+}
+
+/// One turn sent into a session: its prompt and its context.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Output {
+pub struct Turn {
   pub session: SessionId,
-  pub generation: u64,
-  pub text: String,
+  pub prompt: String,
+  #[serde(flatten)]
+  pub context: TurnContext,
+}
+
+/// A turn put into a session began: the session and the run it goes out as.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnStarted {
+  pub session: SessionId,
+  pub run: String,
+  pub at: i64,
+}
+
+/// What a turn came to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnOutcome {
+  Answered,
+  /// Its program waits on a person.
+  Blocked,
+  /// It was ended from outside.
+  Stopped,
+  Failed,
+}
+
+/// The error an engine ended a turn with: its kind as the program names it, none where it named none.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EngineError {
+  pub kind: Option<String>,
+}
+
+/// How a turn put into a session ended: its answer where it answered, why where it failed, and the engine's
+/// error where its engine ended it with one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnEnded {
+  pub session: SessionId,
+  pub run: String,
+  pub outcome: TurnOutcome,
+  pub answer: Option<String>,
+  pub reason: Option<String>,
+  pub engine_error: Option<EngineError>,
+}
+
+/// One event of a session's turns, as the event stream tells it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TurnEvent {
+  Started(TurnStarted),
+  Ended(TurnEnded),
+}
+
+impl TurnEvent {
+  /// The session the event is of.
+  pub fn session(&self) -> &SessionId {
+    match self {
+      Self::Started(started) => &started.session,
+      Self::Ended(ended) => &ended.session,
+    }
+  }
 }

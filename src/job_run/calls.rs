@@ -11,7 +11,7 @@ use std::time::Duration;
 use futures_util::future::BoxFuture;
 use job_agency::{
   Agency, AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LogNote, Prepared, Reply, SessionAnswered,
-  SessionKept, SshReach, TurnAsking, WorkTurn,
+  SessionKept, SshReach, TurnAsking, WorkTurn, WorkTurns,
 };
 use job_codes::{JobError, UnitRefusal};
 use job_gate::{Gate, KnowledgeAsked, Piece, Sanitise, Sanitised};
@@ -128,27 +128,30 @@ pub trait Calls: Sync {
   fn queue_moved(&self) -> BoxFuture<'_, ()>;
 }
 
-/// The calls made over the real ports, and the service's own server reached at its address where one is
-/// given.
+/// The calls made over the real ports, the work turns carried on bmo-agency's session contract, and the
+/// service's own server reached at its address where one is given.
 pub struct RunPorts<'a, A, G, Gr, T> {
   pub agency: &'a A,
+  pub turns: &'a WorkTurns<A>,
   pub gate: &'a G,
   pub graph: &'a Gr,
   pub testbed: &'a T,
   pub server: Option<Url>,
 }
 
-impl<A: Agency, G: Gate, Gr: Graph + Sync, T: Testbed> Calls for RunPorts<'_, A, G, Gr, T> {
+impl<A: Agency + Clone + 'static, G: Gate, Gr: Graph + Sync, T: Testbed> Calls
+  for RunPorts<'_, A, G, Gr, T>
+{
   fn prepare_turn<'a>(&'a self, asking: &'a TurnAsking) -> BoxFuture<'a, Result<Prepared, Refusal>> {
-    Box::pin(async move { self.agency.prepare_turn(asking).await.map_err(agency_failed) })
+    Box::pin(async move { self.turns.prepare(asking).await.map_err(agency_failed) })
   }
 
   fn send_turn_prompt<'a>(&'a self, turn: &'a str, prompt: &'a str) -> BoxFuture<'a, Result<(), Refusal>> {
-    Box::pin(async move { self.agency.send_turn_prompt(turn, prompt).await.map_err(agency_failed) })
+    Box::pin(async move { self.turns.send(turn, prompt).await.map_err(agency_failed) })
   }
 
   fn work_turn<'a>(&'a self, turn: &'a str) -> BoxFuture<'a, Result<Option<WorkTurn>, Refusal>> {
-    Box::pin(async move { self.agency.work_turn(turn).await.map_err(agency_failed) })
+    Box::pin(async move { Ok(self.turns.read(turn)) })
   }
 
   fn push_aside<'a>(
@@ -156,7 +159,7 @@ impl<A: Agency, G: Gate, Gr: Graph + Sync, T: Testbed> Calls for RunPorts<'_, A,
     turn: &'a str,
     text: &'a str,
   ) -> BoxFuture<'a, Result<AsideOutcome, Refusal>> {
-    Box::pin(async move { self.agency.push_aside(turn, text).await.map_err(agency_failed) })
+    Box::pin(async move { self.turns.push(turn, text).await.map_err(agency_failed) })
   }
 
   fn answer_question<'a>(
@@ -165,9 +168,7 @@ impl<A: Agency, G: Gate, Gr: Graph + Sync, T: Testbed> Calls for RunPorts<'_, A,
     question: &'a str,
     answer: &'a ConfirmAnswer,
   ) -> BoxFuture<'a, Result<(), Refusal>> {
-    Box::pin(
-      async move { self.agency.answer_question(turn, question, answer).await.map_err(agency_failed) },
-    )
+    Box::pin(async move { self.turns.answer(turn, question, answer).map_err(agency_failed) })
   }
 
   fn carry_out_reset<'a>(&'a self, worker: &'a str) -> BoxFuture<'a, Result<bool, Refusal>> {

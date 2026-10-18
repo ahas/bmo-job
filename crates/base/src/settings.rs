@@ -80,6 +80,8 @@ pub struct ServerSettings {
 #[serde(deny_unknown_fields)]
 pub struct Units {
   pub agency: HttpAddress,
+  /// The file holding bmo-agency's control token.
+  pub agency_token: AbsolutePath,
   pub gate: HttpAddress,
   pub receiver: HttpAddress,
   pub web: HttpAddress,

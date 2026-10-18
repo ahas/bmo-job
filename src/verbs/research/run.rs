@@ -126,7 +126,8 @@ pub struct Carry<'a> {
 }
 
 /// The turn carried on bmo-agency to its answer, `prompt` on its input, read again until it answers or fails;
-/// once `stopping` is set or `closes_at` passes, its session is interrupted and what it wrote is kept.
+/// once `stopping` is set or `closes_at` passes, its session is interrupted. What the interrupted turn wrote is
+/// not told by the session contract, so a stopped turn keeps nothing of it.
 pub async fn carry_turn(
   stand: &Stand,
   carry: &Carry<'_>,
@@ -135,6 +136,7 @@ pub async fn carry_turn(
   closes_at: Option<i64>,
 ) -> Result<Carried, Refusal> {
   let agency = &stand.ground.agency;
+  let turns = &stand.ground.turns;
   let variables: BTreeMap<String, String> = carry
     .told
     .variables()
@@ -174,16 +176,16 @@ pub async fn carry_turn(
     return Ok(Carried::Stopped(String::new()));
   }
 
-  let prepared = agency.prepare_turn(&asking).await.map_err(agency_failed)?;
+  let prepared = turns.prepare(&asking).await.map_err(agency_failed)?;
 
-  agency.send_turn_prompt(&prepared.turn, prompt).await.map_err(agency_failed)?;
+  turns.send(&prepared.turn, prompt).await.map_err(agency_failed)?;
 
   let mut interrupted: Option<String> = None;
 
   loop {
     tokio::time::sleep(POLL).await;
 
-    let Some(turn) = agency.work_turn(&prepared.turn).await.map_err(agency_failed)? else {
+    let Some(turn) = turns.read(&prepared.turn) else {
       return Ok(Carried::Failed("the turn is gone".to_owned()));
     };
     let stop = stopping.load(Ordering::SeqCst) || closes_at.is_some_and(|at| now_ms() >= at);
@@ -192,17 +194,8 @@ pub async fn carry_turn(
       && interrupted.is_none()
       && let Some(session) = turn.session.clone()
     {
-      let id = SessionId(session);
-      let written = agency
-        .session_output(&id)
-        .await
-        .ok()
-        .flatten()
-        .map(|output| output.text)
-        .unwrap_or_default();
-
-      let _ = agency.interrupt_session(&id).await;
-      interrupted = Some(written);
+      let _ = agency.interrupt_session(&SessionId(session)).await;
+      interrupted = Some(String::new());
     }
 
     match turn.state {
@@ -217,9 +210,7 @@ pub async fn carry_turn(
           ),
         });
       }
-      TurnState::Reprepared => {
-        agency.send_turn_prompt(&prepared.turn, prompt).await.map_err(agency_failed)?
-      }
+      TurnState::Reprepared => turns.send(&prepared.turn, prompt).await.map_err(agency_failed)?,
       TurnState::Running {
         question: Some(question),
       } => {
@@ -227,10 +218,7 @@ pub async fn carry_turn(
           words: Some(NO_QUESTION.to_owned()),
         };
 
-        agency
-          .answer_question(&prepared.turn, &question.id, &answer)
-          .await
-          .map_err(agency_failed)?;
+        turns.answer(&prepared.turn, &question.id, &answer).map_err(agency_failed)?;
       }
       TurnState::Running { question: None } => {}
     }

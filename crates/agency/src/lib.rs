@@ -1,6 +1,6 @@
 //! The service's port to bmo-agency (docs/api.md, "bmo-agency"): every call it makes there, declared by
-//! the trait `Agency` and made over HTTP by `AgencyClient`. The shapes the calls carry stand in one
-//! module to an area.
+//! the trait `Agency` and made over HTTP by `AgencyClient`, and `WorkTurns`, which carries a work turn on the
+//! session contract. The shapes the calls carry stand in one module to an area.
 
 pub mod client;
 pub mod executions;
@@ -14,6 +14,7 @@ pub mod routes;
 pub mod runs;
 pub mod sessions;
 pub mod turns;
+pub mod work;
 pub mod workers;
 
 use std::future::Future;
@@ -33,12 +34,16 @@ pub use pool::{
 pub use records::{TurnRecord, TurnRecordKind};
 pub use routes::{Mapping, PinChoice, Provider, RouteAsk, Tier};
 pub use runs::{Run, RunClosing, RunOpening};
-pub use sessions::{Context, Delivery, Output, Scope, Session, SessionId, SessionState, Start};
+pub use sessions::{
+  Context, Delivery, EngineError, Scope, Session, SessionId, SessionState, Start, Turn, TurnContext,
+  TurnEnded, TurnEvent, TurnOutcome, TurnStarted,
+};
 pub use turns::{
   AccountFailure, AsideOutcome, ConfirmAnswer, Confirmation, Handover, JobDocuments, LiveTask, ModelSpend,
   Prepared, Question, Reply, RequestUsage, Resume, RunEnding, RunWorkflow, SessionAnswered, SessionKept,
   TurnAsking, TurnFailure, TurnMapping, TurnSeat, TurnSpan, TurnState, WentOut, WorkTurn,
 };
+pub use work::WorkTurns;
 pub use workers::{Pin, WorkerRuntime};
 
 /// Why a call on bmo-agency failed. Each names the call it was.
@@ -65,10 +70,17 @@ pub enum AgencyError {
     status: u16,
     error: String,
   },
+  /// The session contract does not carry what the call asks, so nothing was sent.
+  #[error("{call}: {why}")]
+  Uncarried { call: &'static str, why: String },
 }
 
 /// What a call on bmo-agency comes back with.
 pub type Answer<T> = Result<T, AgencyError>;
+
+/// Each start and end of a session's turn bmo-agency tells, from the moment the stream opens until it ends; a
+/// failure reading it ends the stream.
+pub type TurnEvents = BoxStream<'static, Answer<TurnEvent>>;
 
 /// Each time bmo-agency says the machine's room returned, for as long as its stream stays open; a failure
 /// reading it ends the stream.
@@ -80,15 +92,19 @@ pub trait Agency: Send + Sync {
   /// Starts a session.
   fn start_session(&self, start: &Start) -> impl Future<Output = Answer<Session>> + Send;
 
-  /// Sends a session one turn.
-  fn send_turn(&self, session: &SessionId, prompt: &str) -> impl Future<Output = Answer<Delivery>> + Send;
+  /// Sends a session one turn, answered once the turn has ended.
+  fn send_turn(&self, turn: &Turn) -> impl Future<Output = Answer<Delivery>> + Send;
+
+  /// Pushes words into the turn a session is working.
+  fn push_words(
+    &self,
+    session: &SessionId,
+    words: &str,
+  ) -> impl Future<Output = Answer<AsideOutcome>> + Send;
 
   /// Reads what a session runs on now.
   fn session_state(&self, session: &SessionId)
   -> impl Future<Output = Answer<Option<SessionState>>> + Send;
-
-  /// Reads what a session has written in its latest turn so far.
-  fn session_output(&self, session: &SessionId) -> impl Future<Output = Answer<Option<Output>>> + Send;
 
   /// Interrupts a session's turn.
   fn interrupt_session(&self, session: &SessionId) -> impl Future<Output = Answer<()>> + Send;
@@ -101,6 +117,9 @@ pub trait Agency: Send + Sync {
 
   /// Lists the sessions.
   fn sessions(&self) -> impl Future<Output = Answer<Vec<Session>>> + Send;
+
+  /// Hears the starts and ends of the sessions' turns, from the moment the stream opens until it ends.
+  fn turn_events(&self) -> impl Future<Output = Answer<TurnEvents>> + Send;
 
   /// Lists the executions, only those not yet ended where `open_only`.
   fn executions(&self, open_only: bool) -> impl Future<Output = Answer<Vec<Execution>>> + Send;
@@ -263,26 +282,6 @@ pub trait Agency: Send + Sync {
 
   /// Reads a pool's branch slots.
   fn branch_slots(&self, pool: &str) -> impl Future<Output = Answer<BranchSlots>> + Send;
-
-  /// Prepares a work turn, answering it and the session it will continue.
-  fn prepare_turn(&self, asking: &TurnAsking) -> impl Future<Output = Answer<Prepared>> + Send;
-
-  /// Sends a prepared work turn its prompt.
-  fn send_turn_prompt(&self, turn: &str, prompt: &str) -> impl Future<Output = Answer<()>> + Send;
-
-  /// Reads a work turn as it stands.
-  fn work_turn(&self, turn: &str) -> impl Future<Output = Answer<Option<WorkTurn>>> + Send;
-
-  /// Pushes words into a running work turn.
-  fn push_aside(&self, turn: &str, text: &str) -> impl Future<Output = Answer<AsideOutcome>> + Send;
-
-  /// Answers the question a work turn stands on.
-  fn answer_question(
-    &self,
-    turn: &str,
-    question: &str,
-    answer: &ConfirmAnswer,
-  ) -> impl Future<Output = Answer<()>> + Send;
 
   /// Carries out a reset the owner asked of a worker's sessions, answering whether one waited.
   fn carry_out_reset(&self, worker: &str) -> impl Future<Output = Answer<bool>> + Send;

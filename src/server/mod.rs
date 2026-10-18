@@ -24,6 +24,7 @@ use tokio::net::TcpListener;
 
 use crate::events::Events;
 use crate::now_ms;
+use crate::queue::ground::token_of;
 use crate::queue::launches::MACHINE_LAUNCH_HELD_KEY;
 use crate::queue::settings;
 use crate::talk::{Talking, Talks};
@@ -66,6 +67,8 @@ pub enum StartError {
   Policy(#[from] job_policy::PolicyError),
   #[error("{0}")]
   Agency(#[from] job_agency::AgencyError),
+  #[error("bmo-agency's control token cannot be read from {path}: {error}")]
+  AgencyToken { path: String, error: String },
   #[error("{0}")]
   Gate(#[from] job_gate::GateError),
   #[error("{0}")]
@@ -88,6 +91,10 @@ impl<V: Verbs> Server<V> {
   ) -> Result<Self, StartError> {
     let units = settings.units.as_ref().ok_or(StartError::NoUnits)?;
     let receiver = ReceiverClient::new(units.receiver.url().clone())?;
+    let agency_token = token_of(&units.agency_token).map_err(|error| StartError::AgencyToken {
+      path: units.agency_token.display().to_string(),
+      error,
+    })?;
 
     Ok(Self {
       talking: Talking {
@@ -98,7 +105,7 @@ impl<V: Verbs> Server<V> {
       },
       policy: Arc::new(Policy::load(settings)?),
       names: Names::of(&settings.deployment),
-      agency: AgencyClient::new(units.agency.url().clone())?,
+      agency: AgencyClient::new(units.agency.url().clone(), agency_token)?,
       gate: GateClient::new(units.gate.url().clone())?,
       receiver,
       events,

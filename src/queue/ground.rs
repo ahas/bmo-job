@@ -3,10 +3,10 @@
 //! reading of what runs. The verbs and the server take the queue from here.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use job_agency::{AgencyClient, AgencyError};
+use job_agency::{AgencyClient, AgencyError, WorkTurns};
 use job_base::Settings;
 use job_brain::{BrainClient, BrainError};
 use job_gate::{GateClient, GateError};
@@ -41,6 +41,8 @@ pub enum GroundError {
   NoHost,
   #[error("bmo-brain's token cannot be read from {path}: {error}")]
   BrainToken { path: String, error: String },
+  #[error("bmo-agency's control token cannot be read from {path}: {error}")]
+  AgencyToken { path: String, error: String },
   #[error(transparent)]
   Agency(#[from] AgencyError),
   #[error(transparent)]
@@ -63,6 +65,8 @@ pub type RunCalls<'a> = RunPorts<'a, AgencyClient, GateClient, GraphClient, Test
 /// Everything the queue stands on that the settings name.
 pub struct QueueGround {
   pub agency: AgencyClient,
+  /// The work turns carried on bmo-agency's session contract.
+  pub turns: WorkTurns<AgencyClient>,
   pub receiver: ReceiverClient,
   pub web: WebClient,
   pub testbed: TestbedClient,
@@ -102,6 +106,13 @@ pub struct QueueGround {
   pub banned: Vec<BannedTerm>,
 }
 
+/// The token a unit's token file holds, without the whitespace around it, or why the file cannot be read.
+pub fn token_of(path: &Path) -> Result<String, String> {
+  std::fs::read_to_string(path)
+    .map(|token| token.trim().to_owned())
+    .map_err(|error| error.to_string())
+}
+
 impl QueueGround {
   /// The ground the settings name, its systemd manager reached on `environment`, the process's own
   /// variables where the service runs.
@@ -113,9 +124,15 @@ impl QueueGround {
       path: units.brain_token.display().to_string(),
       error: error.to_string(),
     })?;
+    let agency_token = token_of(&units.agency_token).map_err(|error| GroundError::AgencyToken {
+      path: units.agency_token.display().to_string(),
+      error,
+    })?;
+    let agency = AgencyClient::new(units.agency.url().clone(), agency_token)?;
 
     Ok(Self {
-      agency: AgencyClient::new(units.agency.url().clone())?,
+      turns: WorkTurns::new(agency.clone()),
+      agency,
       receiver: ReceiverClient::new(units.receiver.url().clone())?,
       web: WebClient::new(units.web.url().clone())?,
       testbed: TestbedClient::new(host.testbed.to_path_buf())?,
@@ -172,6 +189,7 @@ impl QueueGround {
   pub fn run_calls(&self) -> RunCalls<'_> {
     RunPorts {
       agency: &self.agency,
+      turns: &self.turns,
       gate: &self.gate,
       graph: &self.graph,
       testbed: &self.testbed,

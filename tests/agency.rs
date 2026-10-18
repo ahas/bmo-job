@@ -7,14 +7,15 @@ use std::path::PathBuf;
 
 use futures_util::StreamExt;
 use job_agency::{
-  Agency, AgencyClient, AgencyError, BranchSlots, Context, Delivery, Execution, JobLines, LaunchHeld,
-  LogLine, Mapping, Node, Output, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest, PoolRole, PoolRoom,
-  PoolState, Provider, Reservation, ReservationAsking, ReservationState, Room, RoomReturned, RouteAsk, Run,
-  RunClosing, RunOpening, Scope, Session, SessionId, SessionState, Slot, SshReach, Start, Tier, ToolCall,
-  ToolResult, TurnRecord, TurnRecordKind, WorkMachine, Workbench, WorkerRuntime,
+  Agency, AgencyClient, AgencyError, AsideOutcome, BranchSlots, Context, Delivery, EngineError, Execution,
+  JobLines, LaunchHeld, LogLine, Mapping, Node, Pin, PinChoice, PlaceWrite, PoolAsking, PoolRequest,
+  PoolRole, PoolRoom, PoolState, Provider, Reservation, ReservationAsking, ReservationState, Room,
+  RoomReturned, RouteAsk, Run, RunClosing, RunOpening, Scope, Session, SessionId, SessionState, Slot,
+  SshReach, Start, Tier, ToolCall, ToolResult, Turn, TurnContext, TurnEnded, TurnEvent, TurnOutcome,
+  TurnRecord, TurnRecordKind, TurnStarted, WorkMachine, Workbench, WorkerRuntime,
 };
 use serde_json::{Map, Value, json};
-use support::agency::Stub;
+use support::agency::{Stub, TOKEN};
 use url::Url;
 
 fn session_id() -> SessionId {
@@ -172,7 +173,7 @@ async fn start_session_posts_the_agent_and_its_scope() {
   let stub = Stub::start().await;
   let scope = json!({ "kind": "room", "room": "room-1" });
 
-  stub.answer("POST /sessions", 201, json!({ "id": "s-1", "agent": "agent", "scope": scope }));
+  stub.answer("POST /session/start", 200, json!({ "id": "s-1", "agent": "agent", "scope": scope }));
 
   let start = Start {
     agent: "agent".into(),
@@ -190,19 +191,51 @@ async fn start_session_posts_the_agent_and_its_scope() {
       scope: start.scope.clone(),
     }
   );
-  stub.took("POST /sessions", "/sessions", Some(json!({ "agent": "agent", "scope": scope })));
+  stub.took(
+    "POST /session/start",
+    "/session/start",
+    Some(json!({ "agent": "agent", "scope": scope })),
+  );
 }
 
 #[tokio::test]
-async fn send_turn_posts_the_prompt_and_reads_the_delivery() {
+async fn send_turn_posts_the_prompt_with_the_job_and_item_and_reads_the_delivery() {
   let stub = Stub::start().await;
 
-  stub.answer("POST /sessions/{id}/turns", 200, json!({ "delivery": "blocked" }));
+  stub.answer("POST /session/turn", 200, json!({ "delivery": "blocked" }));
 
-  let delivery = stub.client().send_turn(&session_id(), "go on").await.unwrap();
+  let turn = Turn {
+    session: session_id(),
+    prompt: "go on".into(),
+    context: TurnContext {
+      job: Some(7),
+      item: Some(12),
+    },
+  };
+  let delivery = stub.client().send_turn(&turn).await.unwrap();
 
   assert_eq!(delivery, Delivery::Blocked);
-  stub.took("POST /sessions/{id}/turns", "/sessions/s-1/turns", Some(json!({ "prompt": "go on" })));
+  stub.took(
+    "POST /session/turn",
+    "/session/turn",
+    Some(json!({ "session": "s-1", "prompt": "go on", "job": 7, "item": 12 })),
+  );
+}
+
+#[tokio::test]
+async fn push_words_posts_them_into_the_session_and_reads_what_was_said() {
+  let stub = Stub::start().await;
+
+  stub.answer("POST /session/push", 200, json!({ "said": "waiting" }));
+
+  let said = stub.client().push_words(&session_id(), "Cover the tests too.").await.unwrap();
+
+  assert_eq!(said, AsideOutcome::Waiting);
+  stub.took(
+    "POST /session/push",
+    "/session/push",
+    Some(json!({ "session": "s-1", "words": "Cover the tests too." })),
+  );
 }
 
 #[tokio::test]
@@ -210,7 +243,7 @@ async fn session_state_reads_what_the_session_runs_on() {
   let stub = Stub::start().await;
 
   stub.answer(
-    "GET /sessions/{id}/state",
+    "GET /session/state",
     200,
     json!({
       "session": "s-1",
@@ -238,57 +271,35 @@ async fn session_state_reads_what_the_session_runs_on() {
       }),
     })
   );
-  stub.took("GET /sessions/{id}/state", "/sessions/s-1/state", None);
+  stub.took("GET /session/state", "/session/state?session=s-1", None);
 }
 
 #[tokio::test]
-async fn session_output_reads_the_latest_turns_text() {
+async fn interrupt_fold_and_end_each_post_the_session() {
   let stub = Stub::start().await;
 
-  stub.answer(
-    "GET /sessions/{id}/output",
-    200,
-    json!({ "session": "s-1", "generation": 0, "text": "Working on it." }),
-  );
+  for route in ["POST /session/interrupt", "POST /session/fold", "POST /session/end"] {
+    stub.answer(route, 200, json!({ "ok": true }));
+  }
 
-  let output = stub.client().session_output(&session_id()).await.unwrap();
+  let client = stub.client();
+
+  client.interrupt_session(&session_id()).await.unwrap();
+  client.fold_session(&session_id()).await.unwrap();
+  client.end_session(&session_id()).await.unwrap();
+
+  let took: Vec<(String, Option<Value>)> =
+    stub.calls().into_iter().map(|call| (call.target, call.body)).collect();
+  let body = Some(json!({ "session": "s-1" }));
 
   assert_eq!(
-    output,
-    Some(Output {
-      session: session_id(),
-      generation: 0,
-      text: "Working on it.".into(),
-    })
+    took,
+    [
+      ("/session/interrupt".to_owned(), body.clone()),
+      ("/session/fold".to_owned(), body.clone()),
+      ("/session/end".to_owned(), body),
+    ]
   );
-  stub.took("GET /sessions/{id}/output", "/sessions/s-1/output", None);
-}
-
-#[tokio::test]
-async fn interrupt_session_posts_with_no_body() {
-  let stub = Stub::start().await;
-
-  stub.answer_empty("POST /sessions/{id}/interrupt", 204);
-  stub.client().interrupt_session(&session_id()).await.unwrap();
-  stub.took("POST /sessions/{id}/interrupt", "/sessions/s-1/interrupt", None);
-}
-
-#[tokio::test]
-async fn fold_session_posts_with_no_body() {
-  let stub = Stub::start().await;
-
-  stub.answer_empty("POST /sessions/{id}/fold", 204);
-  stub.client().fold_session(&session_id()).await.unwrap();
-  stub.took("POST /sessions/{id}/fold", "/sessions/s-1/fold", None);
-}
-
-#[tokio::test]
-async fn end_session_deletes_it() {
-  let stub = Stub::start().await;
-
-  stub.answer_empty("DELETE /sessions/{id}", 204);
-  stub.client().end_session(&session_id()).await.unwrap();
-  stub.took("DELETE /sessions/{id}", "/sessions/s-1", None);
 }
 
 #[tokio::test]
@@ -296,19 +307,78 @@ async fn sessions_lists_every_session() {
   let stub = Stub::start().await;
 
   stub.answer(
-    "GET /sessions",
+    "GET /session/list",
     200,
-    json!([
+    json!({ "sessions": [
       { "id": "s-1", "agent": "agent", "scope": { "kind": "agent" } },
       { "id": "s-2", "agent": "agent", "scope": { "kind": "worker" } }
-    ]),
+    ] }),
   );
 
   let sessions = stub.client().sessions().await.unwrap();
   let scopes: Vec<Scope> = sessions.into_iter().map(|session| session.scope).collect();
 
   assert_eq!(scopes, [Scope::Agent, Scope::Worker]);
-  stub.took("GET /sessions", "/sessions", None);
+  stub.took("GET /session/list", "/session/list", None);
+}
+
+#[tokio::test]
+async fn turn_events_hears_the_starts_and_ends_of_turns_until_the_stream_ends() {
+  let stub = Stub::start().await;
+
+  stub.answer_events(
+    "GET /events",
+    concat!(
+      ": a comment between events\n\n",
+      "event: turn-started\ndata: {\"session\":\"s-1\",\"run\":\"turn:a:1\",\"at\":1}\n\n",
+      "event: road-walked\ndata: {\"stage\":\"chat\"}\n\n",
+      "event: turn-ended\ndata: {\"session\":\"s-1\",\"run\":\"turn:a:1\",\"outcome\":\"failed\",",
+      "\"answer\":null,\"reason\":\"it died\",\"engineError\":{\"kind\":\"rate_limit\"}}\n\n",
+    ),
+  );
+
+  let events: Vec<TurnEvent> =
+    stub.client().turn_events().await.unwrap().map(|event| event.unwrap()).collect().await;
+
+  assert_eq!(
+    events,
+    [
+      TurnEvent::Started(TurnStarted {
+        session: session_id(),
+        run: "turn:a:1".into(),
+        at: 1,
+      }),
+      TurnEvent::Ended(TurnEnded {
+        session: session_id(),
+        run: "turn:a:1".into(),
+        outcome: TurnOutcome::Failed,
+        answer: None,
+        reason: Some("it died".into()),
+        engine_error: Some(EngineError {
+          kind: Some("rate_limit".into()),
+        }),
+      }),
+    ]
+  );
+  stub.took("GET /events", "/events?kinds=turn-started%2Cturn-ended", None);
+}
+
+#[tokio::test]
+async fn every_call_carries_the_control_token() {
+  let stub = Stub::start().await;
+
+  stub.answer("GET /session/list", 200, json!({ "sessions": [] }));
+  stub.answer("GET /tiers", 200, json!([]));
+
+  let client = stub.client();
+
+  client.sessions().await.unwrap();
+  client.tiers().await.unwrap();
+
+  let carried: Vec<Option<String>> = stub.calls().into_iter().map(|call| call.authorization).collect();
+  let bearer = Some(format!("Bearer {TOKEN}"));
+
+  assert_eq!(carried, [bearer.clone(), bearer]);
 }
 
 // Executions.
@@ -1396,8 +1466,7 @@ async fn a_read_of_one_thing_that_does_not_exist_is_none() {
   let missing = json!({ "error": "No such thing.", "code": "unknown" });
 
   for route in [
-    "GET /sessions/{id}/state",
-    "GET /sessions/{id}/output",
+    "GET /session/state",
     "GET /executions/{id}",
     "GET /runs/{id}",
     "GET /log/jobs/{job}/last",
@@ -1417,7 +1486,6 @@ async fn a_read_of_one_thing_that_does_not_exist_is_none() {
   };
 
   assert_eq!(client.session_state(&session_id()).await.unwrap(), None);
-  assert_eq!(client.session_output(&session_id()).await.unwrap(), None);
   assert_eq!(client.execution("e-9").await.unwrap(), None);
   assert_eq!(client.run(99).await.unwrap(), None);
   assert_eq!(client.job_last_line(99).await.unwrap(), None);
@@ -1425,7 +1493,7 @@ async fn a_read_of_one_thing_that_does_not_exist_is_none() {
   assert_eq!(client.resolve_route(&asked).await.unwrap(), None);
   assert_eq!(client.pool_request("t-9").await.unwrap(), None);
   assert_eq!(client.ssh_reach("node-9").await.unwrap(), None);
-  assert_eq!(stub.calls().len(), 9);
+  assert_eq!(stub.calls().len(), 8);
 }
 
 #[tokio::test]
@@ -1433,29 +1501,37 @@ async fn a_refusal_is_handed_on_with_its_status_code_and_sentence() {
   let stub = Stub::start().await;
 
   stub.answer(
-    "POST /sessions/{id}/turns",
+    "POST /session/turn",
     409,
-    json!({ "error": "The session is busy with another turn.", "code": "session_busy" }),
+    json!({ "error": "s-1 is in a turn", "code": "session-busy" }),
   );
   stub.answer(
-    "POST /sessions/{id}/fold",
+    "POST /session/fold",
     404,
-    json!({ "error": "No such session.", "code": "unknown" }),
+    json!({ "error": "no worker is named agent", "code": "unknown-session" }),
   );
 
-  let busy = stub.client().send_turn(&session_id(), "go on").await.unwrap_err();
+  let turn = Turn {
+    session: session_id(),
+    prompt: "go on".into(),
+    context: TurnContext::default(),
+  };
+  let busy = stub.client().send_turn(&turn).await.unwrap_err();
   let gone = stub.client().fold_session(&session_id()).await.unwrap_err();
 
   assert!(
     matches!(
       &busy,
       AgencyError::Refused { call: "send_turn", status: 409, code, error }
-        if code == "session_busy" && error == "The session is busy with another turn."
+        if code == "session-busy" && error == "s-1 is in a turn"
     ),
     "{busy}"
   );
   assert!(
-    matches!(&gone, AgencyError::Refused { call: "fold_session", status: 404, code, .. } if code == "unknown"),
+    matches!(
+      &gone,
+      AgencyError::Refused { call: "fold_session", status: 404, code, .. } if code == "unknown-session"
+    ),
     "{gone}"
   );
 }
@@ -1501,7 +1577,7 @@ async fn a_call_that_reaches_nothing_is_unreachable() {
 
   drop(listener);
 
-  let failed = AgencyClient::new(address).unwrap().sessions().await.unwrap_err();
+  let failed = AgencyClient::new(address, TOKEN).unwrap().sessions().await.unwrap_err();
 
   assert!(
     matches!(
@@ -1518,7 +1594,7 @@ async fn a_call_that_reaches_nothing_is_unreachable() {
 #[test]
 fn an_address_that_is_not_http_is_refused() {
   for address in ["https://agency.invalid/", "mailto:agency@agency.invalid", "file:///agency"] {
-    let refused = AgencyClient::new(Url::parse(address).unwrap()).unwrap_err();
+    let refused = AgencyClient::new(Url::parse(address).unwrap(), TOKEN).unwrap_err();
 
     assert!(matches!(refused, AgencyError::NotAnAddress { .. }), "{address}: {refused}");
   }

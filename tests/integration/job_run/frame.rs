@@ -92,8 +92,8 @@ async fn a_work_order_s_middle_turn_ends_with_its_answer_for_the_order_to_read()
   let dir = bench.checkout("checkout");
   let prompt = bench.at("prompt.txt");
   let task = "Read the panel and say how it is drawn.";
-  let answer = reply("s1", "The step's result");
   let agency = &desk.agency;
+  let session = format!("{WORKER}@worker");
 
   desk
     .run(
@@ -128,10 +128,14 @@ async fn a_work_order_s_middle_turn_ends_with_its_answer_for_the_order_to_read()
       "GET /workers/{worker}/job-documents",
       json!({ "graph": GRAPH_TOLD, "trailer": TRAILER, "handoff": null }),
     ),
-    ("POST /work-turns", json!({ "turn": "t1", "session": "s1" })),
     (
-      "GET /work-turns/{turn}",
-      json!({ "turn": "t1", "state": "answered", "reply": answer, "spans": [], "compacted": false, "session": "s1", "went_out": null }),
+      "POST /session/start",
+      json!({ "id": session, "agent": WORKER, "scope": { "kind": "worker" } }),
+    ),
+    ("POST /session/turn", json!({ "delivery": "taken" })),
+    (
+      "GET /session/state",
+      json!({ "session": session, "provider": "claude-code", "model": "claude-opus-5", "place": "p", "generation": 1, "context": null }),
     ),
     ("POST /workers/{worker}/sessions/record", json!({ "kept": "recorded" })),
   ] {
@@ -142,13 +146,20 @@ async fn a_work_order_s_middle_turn_ends_with_its_answer_for_the_order_to_read()
     "POST /workers/{worker}/bench",
     "DELETE /workers/{worker}/keepalive-pause",
     "POST /log/notes",
-    "POST /work-turns/{turn}/prompt",
     "POST /workers/{worker}/runs",
     "POST /workers/{worker}/usage",
   ] {
     agency.answer_empty(route, 204);
   }
 
+  agency.answer_events(
+    "GET /events",
+    &format!(
+      "event: turn-started\ndata: {}\n\nevent: turn-ended\ndata: {}\n\n",
+      json!({ "session": session, "run": "turn:1", "at": 1 }),
+      json!({ "session": session, "run": "turn:1", "outcome": "answered", "answer": "The step's result" }),
+    ),
+  );
   desk.gate.answer("POST /sanitised", 200, json!({ "text": task, "changed": false }));
 
   let words = [
@@ -188,17 +199,19 @@ async fn a_work_order_s_middle_turn_ends_with_its_answer_for_the_order_to_read()
     row.try_get::<Option<String>>("", "report").unwrap().as_deref(),
     Some("The step's result")
   );
-  assert_eq!(body("POST /work-turns")["seat"], json!({ "kind": "worker" }));
-  assert!(body("POST /work-turns/{turn}/prompt")["prompt"].as_str().unwrap().contains(task));
+  assert_eq!(body("POST /session/start")["scope"], json!({ "kind": "worker" }));
+
+  let sent = body("POST /session/turn");
+
+  assert_eq!((&sent["session"], &sent["job"]), (&json!(session), &json!(7)));
+  assert!(sent["prompt"].as_str().unwrap().contains(task));
   assert!(
-    body("POST /work-turns/{turn}/prompt")["prompt"]
-      .as_str()
-      .unwrap()
-      .contains("This is one bot-managed co-work step."),
-    "{}",
-    body("POST /work-turns/{turn}/prompt")
+    sent["prompt"].as_str().unwrap().contains("This is one bot-managed co-work step."),
+    "{sent}"
   );
-  assert_eq!(body("POST /workers/{worker}/sessions/record")["answered"]["session_id"], "s1");
+  let answered = &body("POST /workers/{worker}/sessions/record")["answered"];
+
+  assert_eq!((&answered["mode"], &answered["session_id"]), (&json!("claude-code"), &json!(session)));
   // A middle turn hands nothing over.
   assert!(
     !calls.iter().any(|call| call.route == "POST /workers/{worker}/sessions/handover"),
