@@ -130,7 +130,10 @@ async fn a_work_order_s_middle_turn_ends_with_its_answer_for_the_order_to_read()
       "POST /session/start",
       json!({ "id": session, "agent": WORKER, "scope": { "kind": "worker" } }),
     ),
-    ("POST /session/turn", json!({ "delivery": "taken" })),
+    (
+      "POST /session/turn",
+      json!({ "delivery": "taken", "run": "turn:1", "outcome": "answered", "answer": "The step's result" }),
+    ),
     (
       "GET /session/state",
       json!({ "session": session, "provider": "claude-code", "model": "claude-opus-5", "place": "p", "generation": 1, "context": null }),

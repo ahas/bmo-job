@@ -156,7 +156,12 @@ fn only_a_command_nothing_restores_after_is_recommended_refused() {
     }),
     1
   );
-  assert_eq!(recommended(&Confirmation::Unknown), 0);
+  assert_eq!(
+    recommended(&Confirmation::Unknown {
+      screen: String::new()
+    }),
+    0
+  );
 }
 
 fn asked(chosen: Option<i64>, answer: Option<&str>, by: &str) -> bmo_job::queue::questions::Question {
@@ -203,7 +208,12 @@ fn a_settled_question_answers_the_pane() {
     ConfirmAnswer::Leave
   );
   assert_eq!(
-    confirmation_answer(&Confirmation::Unknown, &asked(Some(1), None, "owner")),
+    confirmation_answer(
+      &Confirmation::Unknown {
+        screen: String::new()
+      },
+      &asked(Some(1), None, "owner")
+    ),
     ConfirmAnswer::Leave
   );
 }
@@ -484,6 +494,7 @@ fn the_phases_cover_the_row_s_stretch_and_spending_takes_no_seconds() {
     output_tokens: 3,
     cache_read_tokens: 2,
     cache_write_tokens: 1,
+    cost: None,
   };
   let spent = usage_spans(&[spend("a", 0), spend("b", 10)]);
 
@@ -557,6 +568,7 @@ fn a_turn_that_counted_nothing_is_one_event_of_unknown_usage() {
       output_tokens: 2,
       cache_read_tokens: 1,
       cache_write_tokens: 1,
+      cost: None,
     }],
     ..reply("openrouter", None)
   };

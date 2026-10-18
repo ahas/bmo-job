@@ -35,13 +35,13 @@ pub use records::{TurnRecord, TurnRecordKind};
 pub use routes::{Mapping, PinChoice, Provider, RouteAsk, Tier};
 pub use runs::{Run, RunClosing, RunOpening};
 pub use sessions::{
-  Context, Delivery, EngineError, Scope, Session, SessionId, SessionState, Start, Turn, TurnContext,
-  TurnEnded, TurnEvent, TurnOutcome, TurnStarted,
+  Context, Delivery, EngineError, Output, Scope, Session, SessionId, SessionState, Start, Turn,
+  TurnContext, TurnEnd, TurnEnded, TurnEvent, TurnOutcome, TurnStarted,
 };
 pub use turns::{
   AccountFailure, AsideOutcome, ConfirmAnswer, Confirmation, Handover, JobDocuments, LiveTask, ModelSpend,
   Prepared, Question, Reply, RequestUsage, Resume, RunEnding, RunWorkflow, SessionAnswered, SessionKept,
-  TurnAsking, TurnFailure, TurnMapping, TurnSeat, TurnSpan, TurnState, WentOut, WorkTurn,
+  TurnAsking, TurnFailure, TurnMapping, TurnSeat, TurnSpan, TurnState, WentOut, WorkParts, WorkTurn,
 };
 pub use work::WorkTurns;
 pub use workers::{Pin, WorkerRuntime};
@@ -92,8 +92,8 @@ pub trait Agency: Send + Sync {
   /// Starts a session.
   fn start_session(&self, start: &Start) -> impl Future<Output = Answer<Session>> + Send;
 
-  /// Sends a session one turn, answered once the turn has ended.
-  fn send_turn(&self, turn: &Turn) -> impl Future<Output = Answer<Delivery>> + Send;
+  /// Sends a session one turn, answered with how it ended once it has.
+  fn send_turn(&self, turn: &Turn) -> impl Future<Output = Answer<TurnEnd>> + Send;
 
   /// Pushes words into the turn a session is working.
   fn push_words(
@@ -102,9 +102,24 @@ pub trait Agency: Send + Sync {
     words: &str,
   ) -> impl Future<Output = Answer<AsideOutcome>> + Send;
 
-  /// Reads what a session runs on now.
-  fn session_state(&self, session: &SessionId)
-  -> impl Future<Output = Answer<Option<SessionState>>> + Send;
+  /// Reads what a session runs on now; read for `model`, a worker's state also names the session a turn on that
+  /// model would continue.
+  fn session_state(
+    &self,
+    session: &SessionId,
+    model: Option<&str>,
+  ) -> impl Future<Output = Answer<Option<SessionState>>> + Send;
+
+  /// Answers the question a session's turn stands on, by the question's id.
+  fn answer_question(
+    &self,
+    session: &SessionId,
+    question: &str,
+    answer: &ConfirmAnswer,
+  ) -> impl Future<Output = Answer<()>> + Send;
+
+  /// Reads what a session's turn now going, or its last one, has written so far.
+  fn session_output(&self, session: &SessionId) -> impl Future<Output = Answer<Option<Output>>> + Send;
 
   /// Interrupts a session's turn.
   fn interrupt_session(&self, session: &SessionId) -> impl Future<Output = Answer<()>> + Send;

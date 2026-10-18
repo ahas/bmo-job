@@ -1,9 +1,12 @@
 //! Agent sessions: one agent's conversation on a provider, kept by bmo-agency and carried on its session
-//! contract, and the starts and ends of their turns its event stream tells.
+//! contract: how a turn sent into one ended, what the session stands on, the question its turn waits on and
+//! what the turn has written; and the starts and ends of their turns its event stream tells.
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
+
+use crate::{Question, Reply, TurnFailure, TurnSpan, WentOut, WorkParts};
 
 /// A session's id, as bmo-agency gave it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -26,6 +29,16 @@ pub enum Scope {
   Room { room: String },
   /// A worker.
   Worker,
+  /// One piece of work, thrown away after it: a co-work branch's or a research run's, every turn on it a fresh
+  /// session on the provider, model and folder named, in the item's and role's place where the folder is a
+  /// standing branch place.
+  Apart {
+    provider: String,
+    model: String,
+    cwd: String,
+    todo: Option<i64>,
+    role: Option<String>,
+  },
 }
 
 /// What a session is started with.
@@ -59,7 +72,8 @@ pub struct Context {
   pub window: u64,
 }
 
-/// What a session runs on now.
+/// What a session runs on now, and while a turn goes, the run it goes out as, what it went out on and the
+/// question it waits on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionState {
   pub session: SessionId,
@@ -69,14 +83,26 @@ pub struct SessionState {
   /// How many times the session has started over.
   pub generation: u64,
   pub context: Option<Context>,
+  #[serde(default)]
+  pub run: Option<String>,
+  #[serde(default)]
+  pub went_out: Option<WentOut>,
+  #[serde(default)]
+  pub question: Option<Question>,
+  /// The harness session a worker's turn on the model the state was read for would continue now, none for a
+  /// fresh one.
+  #[serde(default)]
+  pub continues: Option<String>,
 }
 
 /// The parts of a turn's context the service hands in beside the prompt: on a worker's turn, the job it is a turn
-/// of and the item that job works.
+/// of and the item that job works; on a work turn, its parts, beside them at the body's top level.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnContext {
   pub job: Option<i64>,
   pub item: Option<i64>,
+  #[serde(flatten)]
+  pub work: Option<WorkParts>,
 }
 
 /// One turn sent into a session: its prompt and its context.
@@ -106,12 +132,53 @@ pub enum TurnOutcome {
   /// It was ended from outside.
   Stopped,
   Failed,
+  /// The session it settled on is not the one its `resume` named, so nothing was put in and it waits for its
+  /// prompt again.
+  Reprepared,
 }
 
 /// The error an engine ended a turn with: its kind as the program names it, none where it named none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EngineError {
   pub kind: Option<String>,
+}
+
+/// How a turn sent into a session ended, as the send is answered: whether the program took the words, the run it
+/// went out as, its outcome, and for a worker's turn or one on a session thrown away, what it went out on, its
+/// reply or its failure, where its time went, whether its context was compacted, and the session it would
+/// continue where it ended reprepared.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TurnEnd {
+  pub delivery: Delivery,
+  pub run: String,
+  pub outcome: TurnOutcome,
+  #[serde(default)]
+  pub answer: Option<String>,
+  #[serde(default)]
+  pub reason: Option<String>,
+  #[serde(default, rename = "engineError")]
+  pub engine_error: Option<EngineError>,
+  #[serde(default)]
+  pub went_out: Option<WentOut>,
+  #[serde(default)]
+  pub reply: Option<Box<Reply>>,
+  #[serde(default)]
+  pub failure: Option<TurnFailure>,
+  #[serde(default)]
+  pub spans: Vec<TurnSpan>,
+  #[serde(default)]
+  pub compacted: bool,
+  #[serde(default)]
+  pub continues: Option<String>,
+}
+
+/// What a session's turn now going, or its last one, has written so far: its run, whether it still goes, and
+/// every text block its program wrote of its answer, a blank line between them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Output {
+  pub run: String,
+  pub running: bool,
+  pub text: String,
 }
 
 /// How a turn put into a session ended: its answer where it answered, why where it failed, and the engine's

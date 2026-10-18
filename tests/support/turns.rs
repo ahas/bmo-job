@@ -170,6 +170,7 @@ pub fn spend(model: &str, tokens: i64) -> ModelSpend {
     output_tokens: 0,
     cache_read_tokens: 0,
     cache_write_tokens: 0,
+    cost: None,
   }
 }
 

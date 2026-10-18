@@ -69,8 +69,7 @@ pub async fn held_places(ground: &Ground<'_>, order: Option<&Value>) -> Result<V
 }
 
 /// Which place a branch task works in, as bmo-agency chooses it for the order's checkout, the task's model
-/// selection, role and tier, against the places taken now. A place whose directory bmo-agency does not name
-/// cannot be worked in, so the take is refused then.
+/// selection, role and tier, against the places taken now: its number and its directory.
 pub async fn take_slot(ground: &Ground<'_>, order: &Value, task: &Value) -> Result<Taken, Fault> {
   let ask = PlaceAsk {
     cwd: orders::text(order, "cwd").unwrap_or_default().to_owned(),
@@ -80,13 +79,10 @@ pub async fn take_slot(ground: &Ground<'_>, order: &Value, task: &Value) -> Resu
     held: held_places(ground, Some(order)).await?,
   };
   let taken = ground.units.take_place(&ask).await.map_err(faulted)?;
-  let cwd = taken
-    .cwd
-    .ok_or_else(|| format!("bmo-agency named no directory for branch place {}", taken.slot))?;
 
   Ok(Taken {
     slot: taken.slot,
-    cwd: cwd.to_string_lossy().into_owned(),
+    cwd: taken.cwd.to_string_lossy().into_owned(),
   })
 }
 

@@ -35,13 +35,12 @@ pub struct PlaceAsk {
   pub held: Vec<HeldPlace>,
 }
 
-/// The place taken: its number, and its directory where bmo-agency names one.
+/// The place taken: its number, and its directory, which a branch's turn works in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TakenPlace {
   pub slot: i64,
-  #[serde(default)]
-  pub cwd: Option<PathBuf>,
+  pub cwd: PathBuf,
 }
 
 /// What a finished branch left in its place: the checkout its order works in, the place, the role, and the

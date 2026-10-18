@@ -85,13 +85,13 @@ fn sorted(mut held: Vec<HeldPlace>) -> Vec<(String, i64)> {
 }
 
 #[tokio::test]
-async fn a_branch_takes_its_place_with_the_places_held_and_is_refused_where_no_directory_is_named() {
-  let mut bench = Bench::new().await;
+async fn a_branch_takes_its_place_and_its_directory_with_the_places_held() {
+  let bench = Bench::new().await;
 
   orders_standing(&bench).await;
 
   let taken = bench.step(json!({ "op": "take-slot", "todoId": 1, "task": "s4" })).await;
-  let dir = bench.scene.units.place.cwd.clone().unwrap();
+  let dir = bench.scene.units.place.cwd.clone();
 
   assert_eq!(taken, json!({ "slot": 1, "cwd": dir.to_string_lossy() }));
 
@@ -110,13 +110,6 @@ async fn a_branch_takes_its_place_with_the_places_held_and_is_refused_where_no_d
   assert_eq!(
     sorted(asks[0].held.clone()),
     [("/work/other".to_owned(), 1), (CHECKOUT.to_owned(), 2), (CHECKOUT.to_owned(), 4)]
-  );
-
-  bench.scene.units.place.cwd = None;
-
-  assert_eq!(
-    bench.carried(json!({ "op": "take-slot", "todoId": 1, "task": "s4" })).await,
-    Err(json!("bmo-agency named no directory for branch place 1"))
   );
 }
 

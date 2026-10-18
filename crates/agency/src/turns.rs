@@ -66,6 +66,49 @@ pub struct TurnAsking {
   pub variables: BTreeMap<String, String>,
 }
 
+/// A work turn's parts as a turn sent into a session carries them, beside its prompt: what of the asking goes
+/// out, its agent and seat having chosen the session and its job and item going as the turn's context.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkParts {
+  pub provider: String,
+  pub model: String,
+  pub mapping: TurnMapping,
+  pub resume: Resume,
+  pub cwd: String,
+  pub name: String,
+  pub title: String,
+  pub thread: Option<String>,
+  pub chat: i64,
+  pub unit: Option<String>,
+  pub user: Option<String>,
+  pub work_key: String,
+  pub hears_words: bool,
+  #[serde(default)]
+  pub variables: BTreeMap<String, String>,
+}
+
+impl TurnAsking {
+  /// The parts of this asking a turn sent into a session carries, on the session `resume` names.
+  pub fn parts(&self, resume: Resume) -> WorkParts {
+    WorkParts {
+      provider: self.provider.clone(),
+      model: self.model.clone(),
+      mapping: self.mapping.clone(),
+      resume,
+      cwd: self.cwd.clone(),
+      name: self.name.clone(),
+      title: self.title.clone(),
+      thread: self.thread.clone(),
+      chat: self.chat,
+      unit: self.unit.clone(),
+      user: self.user.clone(),
+      work_key: self.work_key.clone(),
+      hears_words: self.hears_words,
+      variables: self.variables.clone(),
+    }
+  }
+}
+
 /// A work turn prepared: its id, and the session it will continue, none where it opens a fresh one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Prepared {
@@ -123,12 +166,13 @@ pub struct Question {
   pub kind: Confirmation,
 }
 
-/// What the program asks: leave to run a command, or something this reading does not know.
+/// What the program asks: leave to run a command, or something this reading does not know, with the last rows
+/// the screen shows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Confirmation {
   Permission { text: String, amendable: bool },
-  Unknown,
+  Unknown { screen: String },
 }
 
 /// The answer a question takes: let it go on, leave the question standing for the pane, or refuse it with
@@ -189,8 +233,8 @@ pub struct Reply {
   pub request_usages: Option<Vec<RequestUsage>>,
 }
 
-/// What one model of a run spent.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// What one model of a run spent, and what it cost where the run says.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelSpend {
   pub mode: Option<String>,
@@ -200,6 +244,8 @@ pub struct ModelSpend {
   pub output_tokens: i64,
   pub cache_read_tokens: i64,
   pub cache_write_tokens: i64,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub cost: Option<f64>,
 }
 
 /// A background task of the run's own, still running when the turn ended.

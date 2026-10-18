@@ -47,7 +47,7 @@ fn options(window: PaneWindow) -> [PaneOption; 2] {
 fn window_of(confirmation: &Confirmation) -> PaneWindow {
   match confirmation {
     Confirmation::Permission { .. } => PaneWindow::Permission,
-    Confirmation::Unknown => PaneWindow::Unknown,
+    Confirmation::Unknown { .. } => PaneWindow::Unknown,
   }
 }
 
@@ -99,8 +99,8 @@ pub fn confirmation_answer(confirmation: &Confirmation, asked: &Question) -> Con
   match confirmation {
     Confirmation::Permission { .. } if chosen == 0 => ConfirmAnswer::Allow,
     Confirmation::Permission { .. } => refusal(None),
-    Confirmation::Unknown if chosen == 0 => refusal(None),
-    Confirmation::Unknown => ConfirmAnswer::Leave,
+    Confirmation::Unknown { .. } if chosen == 0 => refusal(None),
+    Confirmation::Unknown { .. } => ConfirmAnswer::Leave,
   }
 }
 
@@ -138,7 +138,7 @@ impl Asker {
       options(window).iter().map(|option| Into::<&str>::into(*option).to_owned()).collect();
     let text = match confirmation {
       Confirmation::Permission { text, .. } => text.clone(),
-      Confirmation::Unknown => UNKNOWN_TEXT.to_owned(),
+      Confirmation::Unknown { .. } => UNKNOWN_TEXT.to_owned(),
     };
     let now = now_ms();
     let opened = questions::open(

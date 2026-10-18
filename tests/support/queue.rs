@@ -137,7 +137,7 @@ impl Default for Fake {
       reservations: Mutex::default(),
       place: TakenPlace {
         slot: 1,
-        cwd: Some(std::env::temp_dir().join("standing-places").join("1")),
+        cwd: std::env::temp_dir().join("standing-places").join("1"),
       },
       place_asks: Mutex::default(),
       prepared: Mutex::default(),

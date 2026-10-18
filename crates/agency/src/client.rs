@@ -12,12 +12,12 @@ use url::Url;
 
 use crate::workers::{AgentRow, runtime_of};
 use crate::{
-  Agency, AgencyError, Answer, AsideOutcome, Delivery, Execution, Handover, JobDocuments, JobLines,
-  LaunchHeld, LogLine, LogNote, Mapping, Node, Pin, PinChoice, PlaceAsk, PlaceRecord, PlaceWrite,
+  Agency, AgencyError, Answer, AsideOutcome, ConfirmAnswer, Execution, Handover, JobDocuments, JobLines,
+  LaunchHeld, LogLine, LogNote, Mapping, Node, Output, Pin, PinChoice, PlaceAsk, PlaceRecord, PlaceWrite,
   PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, Provider, Reply, Reservation,
   ReservationAsking, Room, RoomReturns, RouteAsk, Run, RunClosing, RunOpening, Session, SessionAnswered,
-  SessionId, SessionKept, SessionState, SshReach, Start, TakenPlace, Tier, Turn, TurnEvent, TurnEvents,
-  TurnRecord, Workbench, WorkerRuntime,
+  SessionId, SessionKept, SessionState, SshReach, Start, TakenPlace, Tier, Turn, TurnEnd, TurnEvent,
+  TurnEvents, TurnRecord, Workbench, WorkerRuntime,
 };
 
 /// The kind of event bmo-agency publishes once a held launch's notice is let go for the room returned.
@@ -82,11 +82,6 @@ pub struct AgencyClient {
 struct Said {
   error: String,
   code: String,
-}
-
-#[derive(Deserialize)]
-struct Delivered {
-  delivery: Delivery,
 }
 
 #[derive(Deserialize)]
@@ -406,11 +401,10 @@ impl Agency for AgencyClient {
     self.answer("start_session", request).await
   }
 
-  async fn send_turn(&self, turn: &Turn) -> Answer<Delivery> {
+  async fn send_turn(&self, turn: &Turn) -> Answer<TurnEnd> {
     let request = self.request(Method::POST, &["session", "turn"], &[]).json(turn);
-    let delivered: Delivered = self.answer("send_turn", request).await?;
 
-    Ok(delivered.delivery)
+    self.answer("send_turn", request).await
   }
 
   async fn push_words(&self, session: &SessionId, words: &str) -> Answer<AsideOutcome> {
@@ -422,10 +416,32 @@ impl Agency for AgencyClient {
     Ok(spoken.said)
   }
 
-  async fn session_state(&self, session: &SessionId) -> Answer<Option<SessionState>> {
-    let request = self.request(Method::GET, &["session", "state"], &[("session", &session.0)]);
+  async fn session_state(&self, session: &SessionId, model: Option<&str>) -> Answer<Option<SessionState>> {
+    let query: Vec<(&str, &str)> = std::iter::once(("session", session.0.as_str()))
+      .chain(model.map(|model| ("model", model)))
+      .collect();
+    let request = self.request(Method::GET, &["session", "state"], &query);
 
     self.found("session_state", UNKNOWN_SESSION, request).await
+  }
+
+  async fn answer_question(
+    &self,
+    session: &SessionId,
+    question: &str,
+    answer: &ConfirmAnswer,
+  ) -> Answer<()> {
+    let request = self
+      .request(Method::POST, &["session", "answer"], &[])
+      .json(&json!({ "session": session, "question": question, "answer": answer }));
+
+    self.done("answer_question", request).await
+  }
+
+  async fn session_output(&self, session: &SessionId) -> Answer<Option<Output>> {
+    let request = self.request(Method::GET, &["session", "output"], &[("session", &session.0)]);
+
+    self.found("session_output", UNKNOWN_SESSION, request).await
   }
 
   async fn interrupt_session(&self, session: &SessionId) -> Answer<()> {

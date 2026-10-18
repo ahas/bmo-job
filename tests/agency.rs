@@ -7,13 +7,13 @@ use std::path::PathBuf;
 
 use futures_util::StreamExt;
 use job_agency::{
-  Agency, AgencyClient, AgencyError, AsideOutcome, Context, Delivery, EngineError, Execution, HeldPlace,
-  JobLines, LaunchHeld, LogLine, Mapping, Node, Pin, PinChoice, PlaceAsk, PlaceRecord, PlaceWrite,
-  PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, PoolState, Provider, Reservation,
-  ReservationAsking, ReservationState, Room, RoomReturned, RouteAsk, Run, RunClosing, RunOpening, Scope,
-  Session, SessionId, SessionState, SshReach, Start, TakenPlace, Tier, ToolCall, ToolResult, Turn,
-  TurnContext, TurnEnded, TurnEvent, TurnOutcome, TurnRecord, TurnRecordKind, TurnStarted, Workbench,
-  WorkerRuntime,
+  Agency, AgencyClient, AgencyError, AsideOutcome, Confirmation, Context, Delivery, EngineError, Execution,
+  HeldPlace, JobLines, LaunchHeld, LogLine, Mapping, Node, Pin, PinChoice, PlaceAsk, PlaceRecord,
+  PlaceWrite, PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, PoolState, Provider, Question,
+  Reservation, ReservationAsking, ReservationState, Resume, Room, RoomReturned, RouteAsk, Run, RunClosing,
+  RunOpening, Scope, Session, SessionId, SessionState, SshReach, Start, TakenPlace, Tier, ToolCall,
+  ToolResult, Turn, TurnContext, TurnEnded, TurnEvent, TurnMapping, TurnOutcome, TurnRecord,
+  TurnRecordKind, TurnStarted, WentOut, WorkParts, Workbench, WorkerRuntime,
 };
 use serde_json::{Map, Value, json};
 use support::agency::{Stub, TOKEN};
@@ -187,13 +187,53 @@ async fn start_session_posts_the_agent_and_its_scope() {
     "/session/start",
     Some(json!({ "agent": "agent", "scope": scope })),
   );
+
+  let stub = Stub::start().await;
+  let apart = json!({
+    "kind": "apart",
+    "provider": "provider-a",
+    "model": "model-a",
+    "cwd": "/places/pool-1/3",
+    "todo": 7,
+    "role": "scout"
+  });
+
+  stub.answer(
+    "POST /session/start",
+    200,
+    json!({ "id": "agent@apart:1", "agent": "agent", "scope": apart }),
+  );
+
+  let start = Start {
+    agent: "agent".into(),
+    scope: Scope::Apart {
+      provider: "provider-a".into(),
+      model: "model-a".into(),
+      cwd: "/places/pool-1/3".into(),
+      todo: Some(7),
+      role: Some("scout".into()),
+    },
+  };
+
+  assert_eq!(stub.client().start_session(&start).await.unwrap().scope, start.scope);
+  stub.took(
+    "POST /session/start",
+    "/session/start",
+    Some(json!({ "agent": "agent", "scope": apart })),
+  );
 }
 
 #[tokio::test]
-async fn send_turn_posts_the_prompt_with_the_job_and_item_and_reads_the_delivery() {
+async fn send_turn_posts_the_prompt_with_the_job_and_item_and_reads_the_end() {
   let stub = Stub::start().await;
 
-  stub.answer("POST /session/turn", 200, json!({ "delivery": "blocked" }));
+  stub.answer(
+    "POST /session/turn",
+    200,
+    json!({ "delivery": "blocked", "run": "run-1", "outcome": "blocked", "answer": null, "reason": null,
+            "engineError": null, "went_out": null, "reply": null, "failure": { "kind": "person" },
+            "spans": [], "compacted": false, "continues": null }),
+  );
 
   let turn = Turn {
     session: session_id(),
@@ -201,16 +241,136 @@ async fn send_turn_posts_the_prompt_with_the_job_and_item_and_reads_the_delivery
     context: TurnContext {
       job: Some(7),
       item: Some(12),
+      work: None,
     },
   };
-  let delivery = stub.client().send_turn(&turn).await.unwrap();
+  let end = stub.client().send_turn(&turn).await.unwrap();
 
-  assert_eq!(delivery, Delivery::Blocked);
+  assert_eq!(
+    (end.delivery, end.outcome, end.run.as_str()),
+    (Delivery::Blocked, TurnOutcome::Blocked, "run-1")
+  );
+  assert_eq!(end.failure, Some(job_agency::TurnFailure::Person));
   stub.took(
     "POST /session/turn",
     "/session/turn",
     Some(json!({ "session": "s-1", "prompt": "go on", "job": 7, "item": 12 })),
   );
+}
+
+#[tokio::test]
+async fn send_turn_posts_a_work_turn_s_parts_flat_and_reads_the_whole_end() {
+  let stub = Stub::start().await;
+
+  stub.answer(
+    "POST /session/turn",
+    200,
+    json!({
+      "delivery": "taken",
+      "run": "job-7",
+      "outcome": "answered",
+      "answer": "done",
+      "reason": null,
+      "engineError": null,
+      "went_out": { "provider": "provider-a", "model": "model-a", "effort": "high", "tier": null },
+      "reply": {
+        "mode": "provider-a", "model": "model-a", "effort": "high", "text": "done", "sessionId": "h-1",
+        "account": null, "contextRatio": 0.25, "contextTokens": 50_000, "sessionUsage": null,
+        "spend": [{ "mode": "provider-a", "model": "model-a", "tokens": 10, "inputTokens": 4,
+                    "outputTokens": 3, "cacheReadTokens": 2, "cacheWriteTokens": 1, "cost": 0.5 }],
+        "liveTasks": [], "workflows": [], "upstream": null, "requestUsages": null
+      },
+      "failure": null,
+      "spans": [{ "kind": "model", "name": "model-a", "seconds": 1.5, "times": 1, "tokens": 10,
+                  "input_tokens": 4, "output_tokens": 3, "cache_read_tokens": 2, "cache_write_tokens": 1 }],
+      "compacted": true,
+      "continues": null
+    }),
+  );
+
+  let work = WorkParts {
+    provider: "provider-a".into(),
+    model: "model-a".into(),
+    mapping: TurnMapping {
+      model: "model-a".into(),
+      effort: Some("high".into()),
+      tier: None,
+      answer_tokens: None,
+    },
+    resume: Resume::Session { id: "h-1".into() },
+    cwd: "/work/repo".into(),
+    name: "job-7".into(),
+    title: "Job 7".into(),
+    thread: Some("todo:12".into()),
+    chat: 100,
+    unit: Some("unit-7".into()),
+    user: None,
+    work_key: "job-worker".into(),
+    hears_words: true,
+    variables: [("NAME".to_owned(), "value".to_owned())].into(),
+  };
+  let turn = Turn {
+    session: session_id(),
+    prompt: "go on".into(),
+    context: TurnContext {
+      job: Some(7),
+      item: Some(12),
+      work: Some(work),
+    },
+  };
+  let end = stub.client().send_turn(&turn).await.unwrap();
+  let reply = end.reply.expect("an answered end carries its reply");
+
+  assert_eq!(end.outcome, TurnOutcome::Answered);
+  assert_eq!(
+    end.went_out,
+    Some(WentOut {
+      provider: "provider-a".into(),
+      model: "model-a".into(),
+      effort: Some("high".into()),
+      tier: None,
+    })
+  );
+  assert_eq!((reply.text.as_str(), reply.session_id.as_deref()), ("done", Some("h-1")));
+  assert_eq!(reply.spend[0].cost, Some(0.5));
+  assert_eq!((end.spans.len(), end.spans[0].tokens, end.compacted), (1, Some(10), true));
+  stub.took(
+    "POST /session/turn",
+    "/session/turn",
+    Some(json!({
+      "session": "s-1",
+      "prompt": "go on",
+      "job": 7,
+      "item": 12,
+      "provider": "provider-a",
+      "model": "model-a",
+      "mapping": { "model": "model-a", "effort": "high", "tier": null, "answer_tokens": null },
+      "resume": { "kind": "session", "id": "h-1" },
+      "cwd": "/work/repo",
+      "name": "job-7",
+      "title": "Job 7",
+      "thread": "todo:12",
+      "chat": 100,
+      "unit": "unit-7",
+      "user": null,
+      "work_key": "job-worker",
+      "hears_words": true,
+      "variables": { "NAME": "value" }
+    })),
+  );
+
+  let stub = Stub::start().await;
+
+  stub.answer(
+    "POST /session/turn",
+    200,
+    json!({ "delivery": "taken", "run": "job-7", "outcome": "reprepared", "spans": [], "compacted": false,
+            "continues": "h-2" }),
+  );
+
+  let end = stub.client().send_turn(&turn).await.unwrap();
+
+  assert_eq!((end.outcome, end.continues.as_deref()), (TurnOutcome::Reprepared, Some("h-2")));
 }
 
 #[tokio::test]
@@ -246,7 +406,7 @@ async fn session_state_reads_what_the_session_runs_on() {
     }),
   );
 
-  let state = stub.client().session_state(&session_id()).await.unwrap();
+  let state = stub.client().session_state(&session_id(), None).await.unwrap();
 
   assert_eq!(
     state,
@@ -260,9 +420,47 @@ async fn session_state_reads_what_the_session_runs_on() {
         carried: 1_200,
         window: 200_000,
       }),
+      run: None,
+      went_out: None,
+      question: None,
+      continues: None,
     })
   );
   stub.took("GET /session/state", "/session/state?session=s-1", None);
+
+  let stub = Stub::start().await;
+
+  stub.answer(
+    "GET /session/state",
+    200,
+    json!({
+      "session": "s-1",
+      "provider": "provider-a",
+      "model": "model-a",
+      "place": "place-1",
+      "generation": 2,
+      "context": null,
+      "run": "job-7",
+      "went_out": { "provider": "provider-a", "model": "model-a", "effort": null, "tier": null },
+      "question": { "id": "q-1", "kind": "unknown", "screen": "Pick one" },
+      "continues": "h-1"
+    }),
+  );
+
+  let state = stub.client().session_state(&session_id(), Some("model-a")).await.unwrap().unwrap();
+
+  assert_eq!((state.run.as_deref(), state.continues.as_deref()), (Some("job-7"), Some("h-1")));
+  assert_eq!(
+    state.question,
+    Some(Question {
+      id: "q-1".into(),
+      kind: Confirmation::Unknown {
+        screen: "Pick one".into(),
+      },
+    })
+  );
+  assert!(state.went_out.is_some());
+  stub.took("GET /session/state", "/session/state?session=s-1&model=model-a", None);
 }
 
 #[tokio::test]
@@ -989,7 +1187,18 @@ async fn take_place_posts_the_ask_and_reads_the_slot_and_its_directory() {
 
   stub.answer("POST /places/take", 200, json!({ "slot": 3 }));
 
-  assert_eq!(stub.client().take_place(&ask).await.unwrap(), TakenPlace { slot: 3, cwd: None });
+  let unnamed = stub.client().take_place(&ask).await.unwrap_err();
+
+  assert!(
+    matches!(
+      unnamed,
+      AgencyError::Malformed {
+        call: "take_place",
+        ..
+      }
+    ),
+    "{unnamed}"
+  );
   stub.took(
     "POST /places/take",
     "/places/take",
@@ -1010,7 +1219,7 @@ async fn take_place_posts_the_ask_and_reads_the_slot_and_its_directory() {
     stub.client().take_place(&PlaceAsk { tier: None, ..ask }).await.unwrap(),
     TakenPlace {
       slot: 3,
-      cwd: Some(PathBuf::from("/places/pool-1/3")),
+      cwd: PathBuf::from("/places/pool-1/3"),
     }
   );
   stub.took(
@@ -1637,7 +1846,7 @@ async fn a_read_of_one_thing_that_does_not_exist_is_none() {
     tier: "top".into(),
   };
 
-  assert_eq!(client.session_state(&session_id()).await.unwrap(), None);
+  assert_eq!(client.session_state(&session_id(), None).await.unwrap(), None);
   assert_eq!(client.execution("e-9").await.unwrap(), None);
   assert_eq!(client.run(99).await.unwrap(), None);
   assert_eq!(client.job_last_line(99).await.unwrap(), None);

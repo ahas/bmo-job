@@ -82,6 +82,7 @@ impl<A: Agency + Clone + 'static> WorkTurns<A> {
         context: TurnContext {
           job: asking.job,
           item: asking.item,
+          work: None,
         },
         provider: asking.provider.clone(),
         model: asking.mapping.model.clone(),
@@ -130,7 +131,7 @@ impl<A: Agency + Clone + 'static> WorkTurns<A> {
 
     tokio::spawn(async move {
       let ended = carried(&agency, &sent, events).await;
-      let state = agency.session_state(&sent.session).await.ok().flatten();
+      let state = agency.session_state(&sent.session, None).await.ok().flatten();
       let read = ended_turn(&id, &sent.session, ended, state.as_ref(), &provider, &model);
 
       if let Some(carrying) = locked(&turns).get_mut(&id) {
@@ -207,7 +208,7 @@ async fn carried<A: Agency>(agency: &A, turn: &Turn, mut events: TurnEvents) -> 
 
     Err("bmo-agency's event stream ended before it told how the turn ended".to_owned())
   };
-  let send = agency.send_turn(turn);
+  let send = async { agency.send_turn(turn).await.map(|end| end.delivery) };
 
   tokio::pin!(heard, send);
 
@@ -251,6 +252,7 @@ fn ended_turn(
       TurnOutcome::Blocked => failed(Some(TurnFailure::Person), None),
       TurnOutcome::Stopped => failed(Some(TurnFailure::Stopped), None),
       TurnOutcome::Failed => failed(None, Some(evidence(&heard))),
+      TurnOutcome::Reprepared => TurnState::Reprepared,
     },
   };
 

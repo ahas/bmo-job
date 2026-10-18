@@ -66,6 +66,7 @@ fn reply() -> Reply {
       output_tokens: 3,
       cache_read_tokens: 2,
       cache_write_tokens: 1,
+      cost: None,
     }],
     live_tasks: vec![LiveTask {
       id: "b1".into(),
@@ -193,7 +194,11 @@ async fn an_answered_turn_reads_its_answer_on_what_the_session_stood_on_and_is_t
   let stub = Stub::start().await;
 
   carrying(&stub, json!({ "outcome": "answered", "answer": "done" }));
-  stub.answer("POST /session/turn", 200, json!({ "delivery": "taken" }));
+  stub.answer(
+    "POST /session/turn",
+    200,
+    json!({ "delivery": "taken", "run": "turn:worker:2", "outcome": "answered", "answer": "done" }),
+  );
 
   let turns = WorkTurns::new(stub.client());
   let prepared = turns.prepare(&worker_asking()).await.unwrap();
@@ -259,9 +264,12 @@ async fn a_turn_that_did_not_answer_reads_by_how_it_ended() {
 
   for (delivery, ended, read) in cases {
     let stub = Stub::start().await;
+    let mut end = ended.clone();
 
+    end["delivery"] = delivery["delivery"].clone();
+    end["run"] = json!("turn:worker:2");
     carrying(&stub, ended);
-    stub.answer("POST /session/turn", 200, delivery);
+    stub.answer("POST /session/turn", 200, end);
     assert_eq!(carried(&stub).await.state, read);
   }
 }
@@ -297,7 +305,11 @@ async fn a_turn_whose_end_the_stream_never_tells_fails_saying_so() {
     "GET /events",
     "event: turn-started\ndata: {\"session\":\"other@worker\",\"run\":\"r\",\"at\":1}\n\n",
   );
-  stub.answer("POST /session/turn", 200, json!({ "delivery": "taken" }));
+  stub.answer(
+    "POST /session/turn",
+    200,
+    json!({ "delivery": "taken", "run": "turn:worker:2", "outcome": "answered", "answer": "done" }),
+  );
 
   let TurnState::Failed {
     failure: None,
@@ -335,7 +347,11 @@ async fn a_question_s_answer_a_second_prompt_and_an_unknown_turn_are_refused() {
   let stub = Stub::start().await;
 
   carrying(&stub, json!({ "outcome": "answered", "answer": "done" }));
-  stub.answer("POST /session/turn", 200, json!({ "delivery": "taken" }));
+  stub.answer(
+    "POST /session/turn",
+    200,
+    json!({ "delivery": "taken", "run": "turn:worker:2", "outcome": "answered", "answer": "done" }),
+  );
 
   let turns = WorkTurns::new(stub.client());
   let prepared = turns.prepare(&worker_asking()).await.unwrap();
