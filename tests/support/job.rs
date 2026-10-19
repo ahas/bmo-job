@@ -24,6 +24,9 @@ pub const WORKER: &str = "worker";
 /// The unit every job runs under unless a test names another.
 pub const UNIT: &str = "bmo-task-timed";
 
+/// The deployment's owner, as a job's ground names them.
+pub const OWNER_NAME: &str = "Owner";
+
 /// What a job is run on: its words as its unit passes them.
 #[derive(Clone)]
 pub struct Given {
@@ -94,7 +97,7 @@ impl Bench {
       lock_wait: Duration::from_secs(1),
     };
     let names = Names {
-      owner: "Owner".into(),
+      owner: OWNER_NAME.into(),
       agent: "Agent".into(),
       sender: "Agent".into(),
     };
@@ -172,6 +175,7 @@ impl Bench {
       owner_chat: OWNER,
       agent_key: "agent".into(),
       agent_name: "Agent".into(),
+      owner_name: OWNER_NAME.into(),
     }
   }
 

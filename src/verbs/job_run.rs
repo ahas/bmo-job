@@ -62,6 +62,7 @@ pub async fn job_run(settings: &Settings, words: &[String]) -> ExitCode {
     owner_chat: queue.owner_chat,
     agent_key: queue.agent_key.clone(),
     agent_name: names.agent.clone(),
+    owner_name: names.owner.clone(),
   };
   let cwd = args.cwd.clone().unwrap_or_else(|| queue.source.display().to_string());
   let _held = hold_locks(&queue.host, &cwd).await;

@@ -167,6 +167,7 @@ macro_rules! with_ground {
       owner_chat: queue.owner_chat,
       agent_key: queue.agent_key.clone(),
       agent_name: $desk.stand.names.agent.clone(),
+      owner_name: $desk.stand.names.owner.clone(),
     };
 
     $body

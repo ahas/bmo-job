@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use bmo_job::job_run::claude::confirm::{
-  ANSWERED_IN_PANE, confirmation_answer, is_destructive, recommended,
+  ANSWERED_IN_PANE, confirmation_answer, is_destructive, owner_refusal, recommended,
 };
 use bmo_job::job_run::claude::failure::{
   FAILURE_TEXT_LIMIT, Failure, failure_text, of_errored, of_unanswered,
@@ -192,29 +192,46 @@ fn a_settled_question_answers_the_pane() {
     amendable: false,
   };
 
-  assert_eq!(confirmation_answer(&permission, &asked(None, None, "deadline")), ConfirmAnswer::Allow);
+  let unknown = Confirmation::Unknown {
+    screen: String::new(),
+  };
+  let answer = |confirmation: &Confirmation, asked| confirmation_answer(confirmation, &asked, "Owner");
+
+  assert_eq!(answer(&permission, asked(None, None, "deadline")), ConfirmAnswer::Allow);
   assert_eq!(
-    confirmation_answer(&permission, &asked(Some(1), None, "owner")),
+    answer(&permission, asked(Some(1), None, "owner")),
     ConfirmAnswer::Refuse { words: None }
   );
   assert_eq!(
-    confirmation_answer(&permission, &asked(None, Some("not that one"), "owner")),
+    answer(&permission, asked(None, Some("not that one"), "owner")),
     ConfirmAnswer::Refuse {
-      words: Some("not that one".into())
+      words: Some(owner_refusal(&permission, "Owner", "not that one"))
     }
   );
-  assert_eq!(
-    confirmation_answer(&permission, &asked(None, Some(ANSWERED_IN_PANE), "owner")),
-    ConfirmAnswer::Leave
+  assert_eq!(answer(&permission, asked(None, Some(ANSWERED_IN_PANE), "owner")), ConfirmAnswer::Leave);
+  assert_eq!(answer(&unknown, asked(Some(1), None, "owner")), ConfirmAnswer::Leave);
+  assert_eq!(answer(&unknown, asked(Some(0), None, "owner")), ConfirmAnswer::Refuse { words: None });
+}
+
+#[test]
+fn the_owner_s_words_refuse_with_the_paragraph_that_names_the_owner() {
+  let permission = Confirmation::Permission {
+    text: "rm -rf build".to_owned(),
+    amendable: true,
+  };
+  let unknown = Confirmation::Unknown {
+    screen: "Pick one".to_owned(),
+  };
+  let said = owner_refusal(&permission, "Owner", "not that one");
+
+  assert!(
+    said.starts_with("Refused by Owner, who said: not that one Do not retry it as written. "),
+    "{said}"
   );
-  assert_eq!(
-    confirmation_answer(
-      &Confirmation::Unknown {
-        screen: String::new()
-      },
-      &asked(Some(1), None, "owner")
-    ),
-    ConfirmAnswer::Leave
+  assert!(said.ends_with("Then carry on with the work in this same turn."), "{said}");
+  assert!(
+    owner_refusal(&unknown, "Owner", "no").ends_with("What stood on the screen is in the run's log."),
+    "the refusal of a question this reading does not know says it was closed"
   );
 }
 

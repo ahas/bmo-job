@@ -93,8 +93,8 @@ const SSH_BATCH: [&str; 4] = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"];
 /// What the runner stands on: the database, the queue's calls on other units and the run's own, the policy and
 /// the closing's patterns, the words the owner banned, the telling its ending goes through, the host its locks
 /// stand on, the checkout the built-in worker works in, the platform's tree, where its documents and records
-/// are written, the testbed's log folder, the cache siren, the owner's chat, and the deployment's agent by its
-/// key and its name.
+/// are written, the testbed's log folder, the cache siren, the owner's chat, the deployment's agent by its key
+/// and its name, and the owner's name.
 pub struct Ground<'a> {
   pub db: &'a DatabaseConnection,
   pub units: &'a dyn Units,
@@ -112,6 +112,8 @@ pub struct Ground<'a> {
   pub owner_chat: i64,
   pub agent_key: String,
   pub agent_name: String,
+  /// The deployment's owner, as the deployment names them.
+  pub owner_name: String,
 }
 
 impl Ground<'_> {

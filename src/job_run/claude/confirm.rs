@@ -37,6 +37,17 @@ const UNKNOWN_TEXT: &str = "The program stopped on a question this reading does 
 // How long a question waits before the recommendation settles it.
 const ASK_WAIT_MS: i64 = 60_000;
 
+// What a refusal carrying the owner's words tells the program after them: not to retry, how a removal through a
+// variable is written safely, and to carry on in the same turn.
+const REFUSAL_AFTER: [&str; 3] = [
+  "Do not retry it as written.",
+  r#"For a removal through a variable, name the path outright or guard and quote the variable — rm -f "${S:?}"/*.md — and never remove through a $(…); leave files under ~/.claude alone."#,
+  "Then carry on with the work in this same turn.",
+];
+
+// What a refusal of a question this reading does not know adds.
+const REFUSAL_UNKNOWN: &str = "The pane stopped at a question this reading does not know, and that question was closed. What stood on the screen is in the run's log.";
+
 fn options(window: PaneWindow) -> [PaneOption; 2] {
   match window {
     PaneWindow::Permission => [PaneOption::Allow, PaneOption::Refuse],
@@ -77,21 +88,32 @@ pub fn recommended(confirmation: &Confirmation) -> i64 {
   }
 }
 
-/// What a refusal of the program's question carries: the owner's own words where he gave some.
-fn refusal(words: Option<&str>) -> ConfirmAnswer {
-  ConfirmAnswer::Refuse {
-    words: words.map(str::to_owned),
-  }
+/// What a refusal of the program's question carries: words of its own where the owner gave some, and
+/// bmo-agency's own paragraph otherwise.
+fn refusal(words: Option<String>) -> ConfirmAnswer {
+  ConfirmAnswer::Refuse { words }
 }
 
-/// What a settled question tells the pane. Words of the owner's own are a refusal carrying them.
-pub fn confirmation_answer(confirmation: &Confirmation, asked: &Question) -> ConfirmAnswer {
+/// The paragraph a refusal carrying the owner's words tells the program: who refused it and what they said, what
+/// not to do again and how, and, for a question this reading does not know, that it was closed.
+pub fn owner_refusal(confirmation: &Confirmation, owner: &str, said: &str) -> String {
+  let unknown = matches!(confirmation, Confirmation::Unknown { .. }).then_some(REFUSAL_UNKNOWN);
+
+  std::iter::once(format!("Refused by {owner}, who said: {said}"))
+    .chain(REFUSAL_AFTER.iter().chain(unknown.iter()).map(|sentence| (*sentence).to_owned()))
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+/// What a settled question tells the pane. Words of the owner's own, `owner` naming the owner, are a refusal
+/// carrying them.
+pub fn confirmation_answer(confirmation: &Confirmation, asked: &Question, owner: &str) -> ConfirmAnswer {
   if asked.answer.as_deref() == Some(ANSWERED_IN_PANE) {
     return ConfirmAnswer::Leave;
   }
 
   if let Some(answer) = &asked.answer {
-    return refusal(Some(answer));
+    return refusal(Some(owner_refusal(confirmation, owner, answer)));
   }
 
   let chosen = asked.chosen.unwrap_or(asked.recommended);
@@ -199,7 +221,7 @@ impl Asker {
     ground.tell(Fact::Question(row.settled(false, 0))).await;
     ground.screens_moved().await;
 
-    Ok(Some(confirmation_answer(&asking.confirmation, &row)))
+    Ok(Some(confirmation_answer(&asking.confirmation, &row, &ground.owner_name)))
   }
 
   /// A question the pane stopped asking before anybody answered it, settled as answered there and withdrawn.

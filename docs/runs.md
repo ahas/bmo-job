@@ -159,5 +159,5 @@ after a minute.
   bmo-agency's own paragraph.
 - **A question the pane stops asking** before anybody answered it is settled as answered in the pane, and
   nothing is sent.
-- **A question this reading does not know** has the screen it stood on written to the job's run log when it
-  is first seen, since the refusal of it points the program there.
+- **A question this reading does not know** has the screen it stood on written to the job's run log by
+  bmo-agency as it is put, so the refusal of it can point the program there.
