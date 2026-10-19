@@ -28,8 +28,8 @@ use crate::queue::units::agency_failed;
 use crate::verbs::stand::{Answer, Stand, VerbError};
 use crate::{now_ms, now_seconds};
 
-// How often a running turn is read again.
-const POLL: Duration = Duration::from_secs(1);
+/// How often a research run's or a branch's running turn is read again.
+pub const TURN_POLL: Duration = Duration::from_secs(1);
 
 /// What one run's web server is told, laid over what every run of the line is: the close its profile's clock
 /// gives it where it holds one, the owner its branches are held under, its source and role, its branch
@@ -103,6 +103,8 @@ pub struct Carry<'a> {
   pub chat: i64,
   pub unit: Option<&'a str>,
   pub told: &'a Told,
+  /// How often the running turn is read again.
+  pub poll: Duration,
 }
 
 /// The turn carried on bmo-agency to its answer, `prompt` on its input, read again until it answers or fails;
@@ -164,7 +166,7 @@ pub async fn carry_turn(
   let mut left: Option<String> = None;
 
   loop {
-    tokio::time::sleep(POLL).await;
+    tokio::time::sleep(carry.poll).await;
 
     let stop = stopping.load(Ordering::SeqCst) || closes_at.is_some_and(|at| now_ms() >= at);
 
@@ -327,6 +329,7 @@ impl<'s> Research<'s> {
       chat: self.chat_id,
       unit: (!self.unit.is_empty()).then_some(self.unit.as_str()),
       told,
+      poll: TURN_POLL,
     };
     let carried = carry_turn(self.stand, &carry, prompt, &self.stopping, closes_at).await?;
 

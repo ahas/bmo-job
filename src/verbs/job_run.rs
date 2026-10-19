@@ -8,6 +8,7 @@ use job_base::Settings;
 use job_policy::{Names, Policy};
 use queue_rows::closing::Reader;
 
+use crate::job_run::claude::turn::TURN_POLL;
 use crate::job_run::{self, Ground, JobArgs, hold_locks};
 use crate::queue::ground::QueueGround;
 
@@ -63,6 +64,7 @@ pub async fn job_run(settings: &Settings, words: &[String]) -> ExitCode {
     agent_key: queue.agent_key.clone(),
     agent_name: names.agent.clone(),
     owner_name: names.owner.clone(),
+    turn_poll: TURN_POLL,
   };
   let cwd = args.cwd.clone().unwrap_or_else(|| queue.source.display().to_string());
   let _held = hold_locks(&queue.host, &cwd).await;

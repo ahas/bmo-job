@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use futures_util::future::BoxFuture;
 use job_agency::{
-  Agency, AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LogNote, Prepared, Scope, SshReach, Start,
-  TurnAsking, WorkTurn, WorkTurns,
+  Agency, AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LogNote, Prepared, SshReach, TurnAsking,
+  WorkTurn, WorkTurns,
 };
 use job_codes::{JobError, UnitRefusal};
 use job_gate::{Gate, KnowledgeAsked, Piece, Sanitise, Sanitised};
@@ -161,7 +161,6 @@ impl<A: Agency + Clone + 'static, G: Gate, Gr: Graph + Sync, T: Testbed> Calls
     Box::pin(async move { self.turns.answer(turn, question, answer).await.map_err(agency_failed) })
   }
 
-  // The worker's session read for the model: the harness session a turn on it would continue now.
   fn session_kept<'a>(
     &'a self,
     worker: &'a str,
@@ -169,14 +168,9 @@ impl<A: Agency + Clone + 'static, G: Gate, Gr: Graph + Sync, T: Testbed> Calls
     session: &'a str,
   ) -> BoxFuture<'a, Result<bool, Refusal>> {
     Box::pin(async move {
-      let start = Start {
-        agent: worker.to_owned(),
-        scope: Scope::Worker,
-      };
-      let held = self.agency.start_session(&start).await.map_err(agency_failed)?;
-      let state = self.agency.session_state(&held.id, Some(model)).await.map_err(agency_failed)?;
+      let continues = self.turns.continues(worker, model).await.map_err(agency_failed)?;
 
-      Ok(state.and_then(|state| state.continues).as_deref() == Some(session))
+      Ok(continues.as_deref() == Some(session))
     })
   }
 

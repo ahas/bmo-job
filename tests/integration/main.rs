@@ -17,6 +17,7 @@ mod job_verbs;
 mod landing;
 mod machine_verbs;
 mod queue_steps;
+mod research_turns;
 mod stops;
 mod telling;
 mod todo_verb;

@@ -18,6 +18,7 @@ mod live;
 mod plans;
 mod preamble;
 mod prompt;
+mod questions;
 mod run;
 
 use std::path::{Path, PathBuf};

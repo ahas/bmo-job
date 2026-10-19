@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use job_agency::{Agency, Mapping, PlaceWrite, PoolAsking, PoolState};
 
-use super::run::{Carried, Carry, carry_turn};
+use super::run::{Carried, Carry, TURN_POLL, carry_turn};
 use super::{LINE, Told, child_mapping};
 use crate::now_ms;
 use crate::verbs::stand::Stand;
@@ -258,6 +258,7 @@ async fn carry(
     chat: branch.chat_id,
     unit: None,
     told: &told,
+    poll: TURN_POLL,
   };
 
   match carry_turn(stand, &carry, &prompt, stopping, branch.closes_at).await {

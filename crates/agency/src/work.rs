@@ -17,7 +17,7 @@ use crate::{
 };
 
 /// How often the session's state is read while a turn goes, for the question it waits on and what it went out
-/// on.
+/// on, unless the turns are made watching at another pace.
 const WATCH_EVERY: Duration = Duration::from_secs(1);
 
 /// The work turns being carried, each under its own id, and the session contract they are carried on.
@@ -25,6 +25,7 @@ pub struct WorkTurns<A> {
   agency: A,
   turns: Arc<Mutex<HashMap<String, Carrying>>>,
   next: AtomicU64,
+  watch_every: Duration,
 }
 
 type Carried = Arc<Mutex<HashMap<String, Carrying>>>;
@@ -72,6 +73,15 @@ impl<A: Agency + Clone + 'static> WorkTurns<A> {
       agency,
       turns: Arc::default(),
       next: AtomicU64::new(1),
+      watch_every: WATCH_EVERY,
+    }
+  }
+
+  /// The same turns, the session's state read every `every` while a turn goes.
+  pub fn watching_every(self, every: Duration) -> Self {
+    Self {
+      watch_every: every,
+      ..self
     }
   }
 
@@ -159,9 +169,10 @@ impl<A: Agency + Clone + 'static> WorkTurns<A> {
     let agency = self.agency.clone();
     let turns = Arc::clone(&self.turns);
     let id = turn.to_owned();
+    let every = self.watch_every;
 
     tokio::spawn(async move {
-      let end = watched(&agency, &turns, &id, &sent).await;
+      let end = watched(&agency, &turns, &id, &sent, every).await;
 
       if let Some(carrying) = locked(&turns).get_mut(&id) {
         carrying.end(&id, end);
@@ -224,6 +235,19 @@ impl<A: Agency + Clone + 'static> WorkTurns<A> {
     self.agency.session_output(&session).await
   }
 
+  /// The harness session a worker's turn on `model` would continue now, as bmo-agency's record of the worker's
+  /// session holds it; none for a fresh one.
+  pub async fn continues(&self, worker: &str, model: &str) -> Answer<Option<String>> {
+    let start = Start {
+      agent: worker.to_owned(),
+      scope: Scope::Worker,
+    };
+    let session = self.agency.start_session(&start).await?;
+    let state = self.agency.session_state(&session.id, Some(model)).await?;
+
+    Ok(state.and_then(|state| state.continues))
+  }
+
   fn session_of(&self, turn: &str, call: &'static str) -> Answer<SessionId> {
     locked(&self.turns)
       .get(turn)
@@ -234,9 +258,15 @@ impl<A: Agency + Clone + 'static> WorkTurns<A> {
 
 /// The turn sent, and the session's state read meanwhile for the question it waits on and what it went out on;
 /// a read that fails leaves what was shown last.
-async fn watched<A: Agency>(agency: &A, turns: &Carried, id: &str, turn: &Turn) -> Answer<TurnEnd> {
+async fn watched<A: Agency>(
+  agency: &A,
+  turns: &Carried,
+  id: &str,
+  turn: &Turn,
+  every: Duration,
+) -> Answer<TurnEnd> {
   let send = agency.send_turn(turn);
-  let mut every = tokio::time::interval(WATCH_EVERY);
+  let mut every = tokio::time::interval(every);
 
   every.set_missed_tick_behavior(MissedTickBehavior::Delay);
   tokio::pin!(send);

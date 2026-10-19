@@ -27,6 +27,9 @@ pub const UNIT: &str = "bmo-task-timed";
 /// The deployment's owner, as a job's ground names them.
 pub const OWNER_NAME: &str = "Owner";
 
+/// How often a job's running turn is read again on the stand-in, which answers at once.
+pub const TURN_POLL: Duration = Duration::from_millis(5);
+
 /// What a job is run on: its words as its unit passes them.
 #[derive(Clone)]
 pub struct Given {
@@ -176,6 +179,7 @@ impl Bench {
       agent_key: "agent".into(),
       agent_name: "Agent".into(),
       owner_name: OWNER_NAME.into(),
+      turn_poll: TURN_POLL,
     }
   }
 

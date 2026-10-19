@@ -1,9 +1,10 @@
 //! An in-process stand-in for another unit. It serves the routes it is given on a loopback port, records
-//! each call it takes, and answers each from the fixture set for its route. A route with no fixture
-//! answers 500 with the code `no_fixture`; a path it serves no route on is recorded under its method and
-//! path and answered 404 with the code `not-found`, as a unit answers a route it does not serve.
+//! each call it takes, and answers each from the fixture set for its route: the next of a sequence set for it,
+//! the last standing once reached, and only once the test lets it go where the route is held. A route with no
+//! fixture answers 500 with the code `no_fixture`; a path it serves no route on is recorded under its method
+//! and path and answered 404 with the code `not-found`, as a unit answers a route it does not serve.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use axum::body::Bytes;
@@ -13,6 +14,7 @@ use axum::response::{IntoResponse, Response};
 use axum::{Json, Router};
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
+use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use url::Url;
 
@@ -46,7 +48,8 @@ enum Said {
 #[derive(Default)]
 pub struct Book {
   calls: Vec<Call>,
-  fixtures: HashMap<String, Fixture>,
+  fixtures: HashMap<String, VecDeque<Fixture>>,
+  held: HashMap<String, Arc<Notify>>,
 }
 
 /// What every route of a stand-in shares.
@@ -74,7 +77,7 @@ pub async fn take(
   let authorization = headers
     .get(header::AUTHORIZATION)
     .map(|value| value.to_str().expect("an authorization header is text").to_owned());
-  let fixture = {
+  let (fixture, held) = {
     let mut book = book.lock().expect("the book is not poisoned");
 
     book.calls.push(Call {
@@ -83,8 +86,19 @@ pub async fn take(
       body,
       authorization,
     });
-    book.fixtures.get(&route).cloned()
+
+    let fixture = match book.fixtures.get_mut(&route) {
+      Some(answers) if answers.len() > 1 => answers.pop_front(),
+      Some(answers) => answers.front().cloned(),
+      None => None,
+    };
+
+    (fixture, book.held.get(&route).cloned())
   };
+
+  if let Some(held) = held {
+    held.notified().await;
+  }
 
   match fixture {
     Some(Fixture {
@@ -164,10 +178,47 @@ impl Stub {
     self.set(route, status, None);
   }
 
+  /// Sets `route` to answer each of `answers` in turn, a status with a body, the last for every call after.
+  pub fn answer_each(&self, route: &str, answers: Vec<(u16, Value)>) {
+    let answers = answers
+      .into_iter()
+      .map(|(status, body)| Fixture {
+        status: StatusCode::from_u16(status).expect("a fixture's status is a status"),
+        body: Some(Said::Json(body)),
+      })
+      .collect();
+
+    self.book().fixtures.insert(route.to_owned(), answers);
+  }
+
+  /// Holds every call on `route` until the test lets it go: each `notify_one` on what this answers lets one go.
+  pub fn hold(&self, route: &str) -> Arc<Notify> {
+    let held = Arc::new(Notify::new());
+
+    self.book().held.insert(route.to_owned(), Arc::clone(&held));
+    held
+  }
+
+  /// Waits, a bounded while, until a call on `route` has been taken.
+  pub async fn taken(&self, route: &str) {
+    for _ in 0..1000 {
+      if self.calls().iter().any(|call| call.route == route) {
+        return;
+      }
+
+      tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+
+    panic!("no call was taken on {route}: {:?}", self.calls());
+  }
+
   fn set(&self, route: &str, status: u16, body: Option<Said>) {
     let status = StatusCode::from_u16(status).expect("a fixture's status is a status");
 
-    self.book().fixtures.insert(route.to_owned(), Fixture { status, body });
+    self
+      .book()
+      .fixtures
+      .insert(route.to_owned(), VecDeque::from([Fixture { status, body }]));
   }
 
   /// Every call taken so far, in order.

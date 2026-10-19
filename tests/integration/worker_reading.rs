@@ -168,6 +168,7 @@ macro_rules! with_ground {
       agent_key: queue.agent_key.clone(),
       agent_name: $desk.stand.names.agent.clone(),
       owner_name: $desk.stand.names.owner.clone(),
+      turn_poll: bmo_job::job_run::claude::turn::TURN_POLL,
     };
 
     $body

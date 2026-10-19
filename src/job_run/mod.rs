@@ -94,7 +94,7 @@ const SSH_BATCH: [&str; 4] = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"];
 /// the closing's patterns, the words the owner banned, the telling its ending goes through, the host its locks
 /// stand on, the checkout the built-in worker works in, the platform's tree, where its documents and records
 /// are written, the testbed's log folder, the cache siren, the owner's chat, the deployment's agent by its key
-/// and its name, and the owner's name.
+/// and its name, the owner's name, and how often a running turn is read.
 pub struct Ground<'a> {
   pub db: &'a DatabaseConnection,
   pub units: &'a dyn Units,
@@ -114,6 +114,8 @@ pub struct Ground<'a> {
   pub agent_name: String,
   /// The deployment's owner, as the deployment names them.
   pub owner_name: String,
+  /// How often a running turn is read again.
+  pub turn_poll: Duration,
 }
 
 impl Ground<'_> {

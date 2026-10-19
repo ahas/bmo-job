@@ -1486,6 +1486,7 @@ id of its own, and the job's runner and a research run read it by that id as it 
 | Answer its question | `POST /session/answer` on its session, with the question's id and the answer |
 | Interrupt it | `POST /session/interrupt` on its session |
 | Read what it wrote | `GET /session/output` on its session, answered the output's `text` and whether it is still `running` |
+| Read what a worker's turn would continue | the worker's session started, then its state read with the model, answered its `continues`: what a job's end reads to tell whether the session it answered on still stands for a handover |
 
 - **The session a preparing continues** is a harness session: under `auto`, the `continues` the worker's
   state answers read with the asking's `model`; under `session`, the one named; none under `fresh`, and

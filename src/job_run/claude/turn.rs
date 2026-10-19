@@ -42,8 +42,8 @@ const UNKNOWN_SESSION: &str = "No conversation found with session ID";
 // How long a turn that refused words while it waits on a person is left before it is offered them again.
 const ASIDE_RETRY_MS: i64 = 60_000;
 
-// How often a running turn is read.
-const POLL: Duration = Duration::from_secs(2);
+/// How often a running turn is read, as a job's run stands on it.
+pub const TURN_POLL: Duration = Duration::from_secs(2);
 
 // How long a session's sent results and served item are kept after the session's last write.
 const KEPT_MS: i64 = 7 * 86_400_000;
@@ -262,7 +262,7 @@ impl<'a> ClaudeRoad<'a> {
         TurnState::Running { question } => {
           watch.question(self, &prepared.turn, question.as_ref()).await;
           watch.offer(self, &prepared.turn).await;
-          tokio::time::sleep(POLL).await;
+          tokio::time::sleep(ground.turn_poll).await;
         }
         TurnState::Reprepared => {
           sent = self.send(&prepared.turn, asked, turn.session.as_deref()).await?;

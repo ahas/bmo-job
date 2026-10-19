@@ -9,9 +9,9 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use job_agency::{
-  Agency, AgencyClient, AgencyError, AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LiveTask,
-  LogNote, ModelSpend, Reply, Resume, RunWorkflow, TurnAsking, TurnFailure, TurnMapping, TurnSeat,
-  TurnState, WentOut, WorkTurn, WorkTurns,
+  AccountFailure, Agency, AgencyClient, AgencyError, AsideOutcome, ConfirmAnswer, Confirmation, Handover,
+  JobDocuments, LiveTask, LogNote, ModelSpend, Question, Reply, Resume, RunEnding, RunWorkflow, TurnAsking,
+  TurnFailure, TurnMapping, TurnSeat, TurnState, WentOut, WorkTurn, WorkTurns,
 };
 use serde_json::{Value, json};
 use support::agency::Stub;
@@ -309,15 +309,6 @@ async fn a_turn_that_did_not_answer_reads_by_how_it_ended() {
         evidence: Some("it died\nengine error: rate_limit".into()),
       },
     ),
-    (
-      json!({ "outcome": "failed", "reason": "gone", "failure": { "kind": "transport", "message": "gone" } }),
-      TurnState::Failed {
-        failure: Some(TurnFailure::Transport {
-          message: "gone".into(),
-        }),
-        evidence: None,
-      },
-    ),
   ];
 
   for (end, read) in cases {
@@ -381,13 +372,30 @@ async fn a_question_s_answer_is_posted_and_a_second_prompt_and_an_unknown_turn_a
   let prepared = turns.prepare(&worker_asking()).await.unwrap();
 
   turns.send(&prepared.turn, "Do the work.").await.unwrap();
-  turns.answer(&prepared.turn, "q-1", &ConfirmAnswer::Allow).await.unwrap();
 
-  let answered = stub.calls().into_iter().find(|call| call.route == "POST /session/answer").unwrap();
+  let refusal = ConfirmAnswer::Refuse {
+    words: Some("Not that one.".into()),
+  };
+
+  for answer in [ConfirmAnswer::Allow, ConfirmAnswer::Leave, refusal] {
+    turns.answer(&prepared.turn, "q-1", &answer).await.unwrap();
+  }
+
+  let answered: Vec<Option<Value>> = stub
+    .calls()
+    .into_iter()
+    .filter(|call| call.route == "POST /session/answer")
+    .map(|call| call.body)
+    .collect();
+  let body = |answer: Value| Some(json!({ "session": SESSION, "question": "q-1", "answer": answer }));
 
   assert_eq!(
-    answered.body,
-    Some(json!({ "session": SESSION, "question": "q-1", "answer": { "kind": "allow" } }))
+    answered,
+    [
+      body(json!({ "kind": "allow" })),
+      body(json!({ "kind": "leave" })),
+      body(json!({ "kind": "refuse", "words": "Not that one." })),
+    ]
   );
 
   let again = turns.send(&prepared.turn, "Do the work.").await.unwrap_err();
@@ -426,6 +434,218 @@ async fn a_question_s_answer_is_posted_and_a_second_prompt_and_an_unknown_turn_a
   );
   assert_eq!(turns.read("t-9"), None);
   ending(&turns, &prepared.turn).await;
+}
+
+#[tokio::test]
+async fn every_kind_of_failure_an_end_names_is_read_as_its_kind() {
+  let cases = [
+    (
+      json!({ "kind": "limit", "resets_at": 9, "account": "a-1", "silenced": true }),
+      TurnFailure::Limit {
+        resets_at: Some(9),
+        account: Some("a-1".into()),
+        silenced: true,
+      },
+    ),
+    (
+      json!({ "kind": "account", "failure": "node_token", "detail": "no token" }),
+      TurnFailure::Account {
+        failure: AccountFailure::NodeToken,
+        detail: "no token".into(),
+      },
+    ),
+    (
+      json!({ "kind": "died", "ending": { "kind": "exit", "code": 1 }, "said": "bye", "message": "it exited" }),
+      TurnFailure::Died {
+        ending: RunEnding::Exit { code: 1 },
+        said: Some("bye".into()),
+        message: "it exited".into(),
+      },
+    ),
+    (json!({ "kind": "person" }), TurnFailure::Person),
+    (
+      json!({ "kind": "untrusted", "folder": "/srv/checkout", "config": "/srv/config" }),
+      TurnFailure::Untrusted {
+        folder: "/srv/checkout".into(),
+        config: "/srv/config".into(),
+      },
+    ),
+    (json!({ "kind": "stopped" }), TurnFailure::Stopped),
+    (
+      json!({ "kind": "transport", "message": "gone" }),
+      TurnFailure::Transport {
+        message: "gone".into(),
+      },
+    ),
+    (
+      json!({ "kind": "refused", "message": "no" }),
+      TurnFailure::Refused {
+        message: "no".into(),
+      },
+    ),
+    (
+      json!({ "kind": "unavailable", "scope": "worker", "mode": "claude-code", "reason": "switched off" }),
+      TurnFailure::Unavailable {
+        scope: "worker".into(),
+        mode: "claude-code".into(),
+        reason: "switched off".into(),
+      },
+    ),
+    (
+      json!({ "kind": "error", "name": "Thrown", "message": "it broke" }),
+      TurnFailure::Error {
+        name: "Thrown".into(),
+        message: "it broke".into(),
+      },
+    ),
+  ];
+
+  for (failure, kind) in cases {
+    let stub = Stub::start().await;
+
+    carrying(&stub, json!({ "outcome": "failed", "reason": "it failed", "failure": failure }));
+    assert_eq!(
+      carried(&stub).await.state,
+      TurnState::Failed {
+        failure: Some(kind),
+        evidence: None,
+      }
+    );
+  }
+}
+
+#[tokio::test]
+async fn a_reprepared_turn_names_the_session_it_would_continue_and_goes_again_on_it() {
+  let stub = Stub::start().await;
+  let end = |outcome: &str, continues: Value| {
+    json!({ "delivery": "taken", "run": "r-1", "outcome": outcome, "answer": "done", "spans": [],
+            "compacted": false, "continues": continues })
+  };
+
+  carrying(&stub, json!({}));
+  stub.answer_each(
+    "POST /session/turn",
+    vec![
+      (200, end("reprepared", json!("h-2"))),
+      (200, end("reprepared", Value::Null)),
+      (200, end("answered", Value::Null)),
+    ],
+  );
+
+  let turns = WorkTurns::new(stub.client());
+  let prepared = turns.prepare(&worker_asking()).await.unwrap();
+
+  turns.send(&prepared.turn, "Do the work.").await.unwrap();
+
+  let read = ending(&turns, &prepared.turn).await;
+
+  assert_eq!((read.state, read.session.as_deref()), (TurnState::Reprepared, Some("h-2")));
+  turns.send(&prepared.turn, "Do the work again.").await.unwrap();
+
+  let read = ending(&turns, &prepared.turn).await;
+
+  assert_eq!((read.state, read.session), (TurnState::Reprepared, None));
+  turns.send(&prepared.turn, "Do the work afresh.").await.unwrap();
+  assert!(matches!(ending(&turns, &prepared.turn).await.state, TurnState::Answered { .. }));
+
+  let resumed: Vec<Value> = stub
+    .calls()
+    .into_iter()
+    .filter(|call| call.route == "POST /session/turn")
+    .filter_map(|call| call.body.map(|body| body["resume"].clone()))
+    .collect();
+
+  assert_eq!(
+    resumed,
+    [
+      json!({ "kind": "session", "id": CONTINUES }),
+      json!({ "kind": "session", "id": "h-2" }),
+      json!({ "kind": "fresh" }),
+    ]
+  );
+}
+
+/// The turn read, a bounded while, until it stands as `stands` says.
+async fn standing(
+  turns: &WorkTurns<AgencyClient>,
+  turn: &str,
+  stands: impl Fn(&WorkTurn) -> bool,
+) -> WorkTurn {
+  for _ in 0..500 {
+    let read = turns.read(turn).expect("the turn is carried");
+
+    if stands(&read) {
+      return read;
+    }
+
+    tokio::time::sleep(Duration::from_millis(5)).await;
+  }
+
+  panic!("the turn never stood as asked");
+}
+
+#[tokio::test]
+async fn a_question_the_session_s_state_shows_is_read_while_the_turn_goes_and_gone_once_withdrawn() {
+  let stub = Stub::start().await;
+  let state = |question: Value| {
+    json!({ "session": SESSION, "provider": "claude-code", "model": "model-a", "place": "place-1",
+            "generation": 1, "context": null, "run": "r-1", "question": question, "continues": CONTINUES })
+  };
+  let asked = json!({ "id": "q-1", "kind": "permission", "text": "rm -rf build", "amendable": true });
+
+  carrying(&stub, json!({ "outcome": "answered", "answer": "done" }));
+  stub.answer_each(
+    "GET /session/state",
+    vec![
+      (200, state(Value::Null)),
+      (200, state(asked.clone())),
+      (200, state(asked)),
+      (200, state(Value::Null)),
+    ],
+  );
+
+  let released = stub.hold("POST /session/turn");
+  let turns = WorkTurns::new(stub.client()).watching_every(Duration::from_millis(5));
+  let prepared = turns.prepare(&worker_asking()).await.unwrap();
+
+  turns.send(&prepared.turn, "Do the work.").await.unwrap();
+
+  let shown = standing(&turns, &prepared.turn, |read| {
+    matches!(read.state, TurnState::Running { question: Some(_) })
+  })
+  .await;
+
+  assert_eq!(
+    shown.state,
+    TurnState::Running {
+      question: Some(Question {
+        id: "q-1".into(),
+        kind: Confirmation::Permission {
+          text: "rm -rf build".into(),
+          amendable: true,
+        },
+      }),
+    }
+  );
+  standing(&turns, &prepared.turn, |read| read.state == TurnState::Running { question: None }).await;
+  released.notify_one();
+  assert!(matches!(ending(&turns, &prepared.turn).await.state, TurnState::Answered { .. }));
+}
+
+#[tokio::test]
+async fn what_a_worker_s_turn_would_continue_is_read_off_its_state_for_the_model() {
+  let stub = Stub::start().await;
+
+  carrying(&stub, json!({}));
+
+  let turns = WorkTurns::new(stub.client());
+
+  assert_eq!(turns.continues("worker", "model-a").await.unwrap().as_deref(), Some(CONTINUES));
+
+  let calls = stub.calls();
+
+  assert_eq!(calls[0].body, Some(json!({ "agent": "worker", "scope": { "kind": "worker" } })));
+  assert!(calls[1].target.ends_with("&model=model-a"), "{}", calls[1].target);
 }
 
 #[tokio::test]

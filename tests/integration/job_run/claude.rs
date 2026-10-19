@@ -1,7 +1,7 @@
 //! A job's turn on the Claude road as far as the session it is put into (docs/runs.md, "The turns"; docs/api.md,
-//! "Work turns"): the session bmo-agency holds for the worker resumed and recorded again, one the program no
-//! longer holds opened again fresh, one that came back on a lesser model dropped, a reset the owner asked
-//! carried out before the turn is prepared, and a login whose window is full rested until it resets.
+//! "Work turns"): the session bmo-agency holds for the worker resumed and handed over while its record still
+//! stands, one the program no longer holds opened again fresh, one bmo-agency dropped for coming back on a lesser
+//! model handed over to nobody, and a login whose window is full rested until it resets.
 
 use std::path::PathBuf;
 

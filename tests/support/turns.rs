@@ -8,8 +8,8 @@ use std::sync::{Mutex, MutexGuard};
 
 use futures_util::future::BoxFuture;
 use job_agency::{
-  AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LiveTask, LogNote, ModelSpend, Prepared, Reply,
-  RunWorkflow, SshReach, TurnAsking, TurnFailure, TurnSpan, TurnState, WentOut, WorkTurn,
+  AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LiveTask, LogNote, ModelSpend, Prepared, Question,
+  Reply, RunWorkflow, SshReach, TurnAsking, TurnFailure, TurnSpan, TurnState, WentOut, WorkTurn,
 };
 use job_base::Refusal;
 use job_gate::{KnowledgeAsked, Piece, Sanitise, Sanitised};
@@ -101,6 +101,14 @@ impl Played {
   /// The same turn, leaving these spans.
   pub fn spent(mut self, spans: Vec<TurnSpan>) -> Self {
     self.spans = spans;
+    self
+  }
+
+  /// The same turn, read running first on each of `questions` in turn, none standing where it is none.
+  pub fn asking(mut self, questions: Vec<Option<Question>>) -> Self {
+    let running = questions.into_iter().map(|question| TurnState::Running { question });
+
+    self.states = running.chain(self.states).collect();
     self
   }
 }
@@ -242,6 +250,8 @@ pub struct Agent {
   pub notes: Mutex<Vec<String>>,
   /// Every word pushed into a running turn.
   pub asides: Mutex<Vec<String>>,
+  /// Every answer given a question a turn stood on, by the question's id.
+  pub answers: Mutex<Vec<(String, ConfirmAnswer)>>,
   /// Every login rested, until when.
   pub rests: Mutex<Vec<(String, i64)>>,
   /// The upkeep calls in order, by name.
@@ -276,6 +286,7 @@ impl Default for Agent {
       handed: Mutex::default(),
       notes: Mutex::default(),
       asides: Mutex::default(),
+      answers: Mutex::default(),
       rests: Mutex::default(),
       upkeep: Mutex::default(),
       sanitised: Mutex::default(),
@@ -325,6 +336,10 @@ impl Agent {
 
   pub fn asides(&self) -> Vec<String> {
     locked(&self.asides).clone()
+  }
+
+  pub fn answers(&self) -> Vec<(String, ConfirmAnswer)> {
+    locked(&self.answers).clone()
   }
 
   pub fn rests(&self) -> Vec<(String, i64)> {
@@ -439,9 +454,11 @@ impl Calls for Agent {
   fn answer_question<'a>(
     &'a self,
     _: &'a str,
-    _: &'a str,
-    _: &'a ConfirmAnswer,
+    question: &'a str,
+    answer: &'a ConfirmAnswer,
   ) -> BoxFuture<'a, Result<(), Refusal>> {
+    locked(&self.answers).push((question.to_owned(), answer.clone()));
+
     ready(())
   }
 
