@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use job_agency::{
   Agency, AgencyClient, AgencyError, AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LiveTask,
-  LogNote, ModelSpend, Reply, Resume, RunWorkflow, SessionAnswered, SessionKept, TurnAsking, TurnFailure,
-  TurnMapping, TurnSeat, TurnState, WentOut, WorkTurn, WorkTurns,
+  LogNote, ModelSpend, Reply, Resume, RunWorkflow, TurnAsking, TurnFailure, TurnMapping, TurnSeat,
+  TurnState, WentOut, WorkTurn, WorkTurns,
 };
 use serde_json::{Value, json};
 use support::agency::Stub;
@@ -429,44 +429,6 @@ async fn a_question_s_answer_is_posted_and_a_second_prompt_and_an_unknown_turn_a
 }
 
 #[tokio::test]
-async fn carry_out_reset_reads_whether_one_waited() {
-  let stub = Stub::start().await;
-
-  stub.answer("POST /workers/{worker}/sessions/reset", 200, json!({ "carried": true }));
-  assert!(stub.client().carry_out_reset("worker").await.unwrap());
-  stub.took("POST /workers/{worker}/sessions/reset", "/workers/worker/sessions/reset", None);
-}
-
-#[tokio::test]
-async fn record_session_posts_the_answered_session_and_reads_what_became_of_it() {
-  let stub = Stub::start().await;
-  let answered = SessionAnswered {
-    mode: "claude-code".into(),
-    session_id: Some("s-2".into()),
-    account: None,
-    spend: vec![],
-    context_ratio: None,
-    context_tokens: Some(1200),
-    model: "model-a".into(),
-  };
-
-  stub.answer("POST /workers/{worker}/sessions/record", 200, json!({ "kept": "full" }));
-  assert_eq!(
-    stub.client().record_session("worker", &answered, "/srv/checkout", 41).await.unwrap(),
-    SessionKept::Full
-  );
-  stub.took(
-    "POST /workers/{worker}/sessions/record",
-    "/workers/worker/sessions/record",
-    Some(json!({
-      "answered": { "mode": "claude-code", "sessionId": "s-2", "account": null, "spend": [], "contextRatio": null, "contextTokens": 1200, "model": "model-a" },
-      "cwd": "/srv/checkout",
-      "job": 41,
-    })),
-  );
-}
-
-#[tokio::test]
 async fn hand_over_session_posts_the_handover() {
   let stub = Stub::start().await;
   let handover = Handover {
@@ -499,19 +461,6 @@ async fn note_run_and_make_bench_post_to_the_worker() {
   stub.answer_empty("POST /workers/{worker}/bench", 204);
   stub.client().make_bench("worker").await.unwrap();
   stub.took("POST /workers/{worker}/bench", "/workers/worker/bench", None);
-}
-
-#[tokio::test]
-async fn record_usage_posts_the_reply_and_the_run() {
-  let stub = Stub::start().await;
-
-  stub.answer_empty("POST /workers/{worker}/usage", 204);
-  stub.client().record_usage("worker", &reply(), Some("bmo-job-41")).await.unwrap();
-  stub.took(
-    "POST /workers/{worker}/usage",
-    "/workers/worker/usage",
-    Some(json!({ "reply": serde_json::to_value(reply()).unwrap(), "run": "bmo-job-41" })),
-  );
 }
 
 #[tokio::test]

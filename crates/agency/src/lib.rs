@@ -40,8 +40,8 @@ pub use sessions::{
 };
 pub use turns::{
   AccountFailure, AsideOutcome, ConfirmAnswer, Confirmation, Handover, JobDocuments, LiveTask, ModelSpend,
-  Prepared, Question, Reply, RequestUsage, Resume, RunEnding, RunWorkflow, SessionAnswered, SessionKept,
-  TurnAsking, TurnFailure, TurnMapping, TurnSeat, TurnSpan, TurnState, WentOut, WorkParts, WorkTurn,
+  Prepared, Question, Reply, RequestUsage, Resume, RunEnding, RunWorkflow, TurnAsking, TurnFailure,
+  TurnMapping, TurnSeat, TurnSpan, TurnState, WentOut, WorkParts, WorkTurn,
 };
 pub use work::WorkTurns;
 pub use workers::{Pin, WorkerRuntime};
@@ -278,32 +278,12 @@ pub trait Agency: Send + Sync {
   /// Reads a worker's workbench.
   fn workbench(&self, worker: &str) -> impl Future<Output = Answer<Workbench>> + Send;
 
-  /// Carries out a reset the owner asked of a worker's sessions, answering whether one waited.
-  fn carry_out_reset(&self, worker: &str) -> impl Future<Output = Answer<bool>> + Send;
-
-  /// Records the session a job's last answer came back on.
-  fn record_session(
-    &self,
-    worker: &str,
-    answered: &SessionAnswered,
-    cwd: &str,
-    job: i64,
-  ) -> impl Future<Output = Answer<SessionKept>> + Send;
-
   /// Hands a worker's session over.
   fn hand_over_session(&self, worker: &str, handover: &Handover)
   -> impl Future<Output = Answer<()>> + Send;
 
   /// Notes a run of a worker's.
   fn note_run(&self, worker: &str) -> impl Future<Output = Answer<()>> + Send;
-
-  /// Records what a job's answer spent.
-  fn record_usage(
-    &self,
-    worker: &str,
-    reply: &Reply,
-    run: Option<&str>,
-  ) -> impl Future<Output = Answer<()>> + Send;
 
   /// Makes a worker's bench ready for a job.
   fn make_bench(&self, worker: &str) -> impl Future<Output = Answer<()>> + Send;

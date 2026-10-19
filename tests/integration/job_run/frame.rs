@@ -124,7 +124,6 @@ async fn a_work_order_s_middle_turn_ends_with_its_answer_for_the_order_to_read()
       "POST /routes/resolve",
       json!({ "provider": "claude-code", "tier": "Frontier", "model": "claude-opus-5", "effort": null, "answerTokens": null }),
     ),
-    ("POST /workers/{worker}/sessions/reset", json!({ "carried": false })),
     (
       "GET /workers/{worker}/job-documents",
       json!({ "graph": GRAPH_TOLD, "trailer": TRAILER, "handoff": null }),
@@ -147,28 +146,14 @@ async fn a_work_order_s_middle_turn_ends_with_its_answer_for_the_order_to_read()
       "GET /session/state",
       json!({ "session": session, "provider": "claude-code", "model": "claude-opus-5", "place": "p", "generation": 1, "context": null }),
     ),
-    ("POST /workers/{worker}/sessions/record", json!({ "kept": "recorded" })),
   ] {
     agency.answer(route, 200, body);
   }
 
-  for route in [
-    "POST /workers/{worker}/bench",
-    "POST /log/notes",
-    "POST /workers/{worker}/runs",
-    "POST /workers/{worker}/usage",
-  ] {
+  for route in ["POST /workers/{worker}/bench", "POST /log/notes", "POST /workers/{worker}/runs"] {
     agency.answer_empty(route, 204);
   }
 
-  agency.answer_events(
-    "GET /events",
-    &format!(
-      "event: turn-started\ndata: {}\n\nevent: turn-ended\ndata: {}\n\n",
-      json!({ "session": session, "run": "turn:1", "at": 1 }),
-      json!({ "session": session, "run": "turn:1", "outcome": "answered", "answer": "The step's result" }),
-    ),
-  );
   desk.gate.answer("POST /sanitised", 200, json!({ "text": task, "changed": false }));
 
   let words = [
@@ -218,17 +203,11 @@ async fn a_work_order_s_middle_turn_ends_with_its_answer_for_the_order_to_read()
     sent["prompt"].as_str().unwrap().contains("This is one bot-managed co-work step."),
     "{sent}"
   );
-  let answered = &body("POST /workers/{worker}/sessions/record")["answered"];
-
-  assert_eq!(
-    (&answered["mode"], &answered["sessionId"]),
-    (&json!("claude-code"), &json!(HARNESS_SESSION))
-  );
-  // A middle turn hands nothing over.
-  assert!(
-    !calls.iter().any(|call| call.route == "POST /workers/{worker}/sessions/handover"),
-    "{calls:?}"
-  );
+  // bmo-agency's turn carries out a waiting reset and records the session and the usage, so none is asked; and a
+  // middle turn hands nothing over.
+  for asked in ["/sessions/reset", "/sessions/record", "/usage", "/sessions/handover"] {
+    assert!(!calls.iter().any(|call| call.target.ends_with(asked)), "{asked}: {calls:?}");
+  }
 }
 
 #[tokio::test]

@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use bmo_job::queue::outcomes::JOB_DONE;
-use job_agency::{Reply, Resume, SessionKept, TurnFailure};
+use job_agency::{Reply, Resume, TurnFailure};
 
 use crate::support::job::{Bench, Ran, WORKER};
 use crate::support::turns::{Agent, FINISHED, OPUS, Played, reply, spend};
@@ -29,7 +29,7 @@ async fn claude_run(set: impl FnOnce(&Agent), plays: Vec<Played>) -> (Bench, Ran
 }
 
 #[tokio::test]
-async fn the_session_on_record_is_resumed_and_recorded_again() {
+async fn the_session_on_record_is_resumed_and_handed_over_while_it_still_stands() {
   let (bench, ran, _dir) = claude_run(|_| {}, vec![Played::answered(reply("s0", FINISHED))]).await;
   let asked = bench.agent.asked();
 
@@ -37,7 +37,7 @@ async fn the_session_on_record_is_resumed_and_recorded_again() {
   // The first turn goes on whatever session bmo-agency holds for the worker.
   assert_eq!(asked[0].resume, Resume::Auto);
   assert!(bench.agent.prompts()[0].contains("There is one thing to do in this repository."));
-  assert_eq!(bench.agent.recorded()[0].session_id.as_deref(), Some("s0"));
+  assert_eq!(bench.agent.kept_asked()[0].session, "s0");
   assert_eq!(bench.agent.handed()[0].session.as_deref(), Some("s0"));
 }
 
@@ -57,11 +57,11 @@ async fn a_session_the_program_no_longer_holds_is_opened_again_fresh() {
   assert_eq!(asked.len(), 2);
   assert_eq!(asked[1].resume, Resume::Fresh);
   assert_eq!(asked[1].provider, asked[0].provider);
-  assert_eq!(bench.agent.recorded()[0].session_id.as_deref(), Some("s1"));
+  assert_eq!(bench.agent.kept_asked()[0].session, "s1");
 }
 
-// bmo-agency judges a session that came back on a lesser model and drops it, telling the owner; the job is
-// handed back what became of it.
+// bmo-agency judges a session that came back on a lesser model and drops it as the turn answers, telling the
+// owner; the job reads its record and hands nothing over.
 #[tokio::test]
 async fn a_session_that_came_back_on_a_lesser_model_is_dropped_and_not_handed_over() {
   let fell = Reply {
@@ -69,30 +69,11 @@ async fn a_session_that_came_back_on_a_lesser_model_is_dropped_and_not_handed_ov
     ..reply("s0", FINISHED)
   };
   let (bench, ran, _dir) =
-    claude_run(|agent| Agent::set(&agent.kept, SessionKept::Dropped), vec![Played::answered(fell)]).await;
+    claude_run(|agent| Agent::set(&agent.kept, false), vec![Played::answered(fell)]).await;
 
   assert!(ran.ended(JOB_DONE, true), "{ran:?}");
-  assert_eq!(bench.agent.recorded()[0].spend.len(), 2);
+  assert_eq!(bench.agent.kept_asked()[0].session, "s0");
   assert!(bench.agent.handed().is_empty());
-}
-
-#[tokio::test]
-async fn a_reset_the_owner_asked_of_the_worker_s_sessions_is_carried_out_before_the_turn_is_prepared() {
-  let (bench, ran, _dir) = claude_run(
-    |agent| Agent::set(&agent.reset_waits, true),
-    vec![Played::answered(reply("s1", FINISHED))],
-  )
-  .await;
-  let upkeep = bench.agent.upkeep();
-  let at = |call: &str| {
-    upkeep
-      .iter()
-      .position(|one| one == call)
-      .unwrap_or_else(|| panic!("{call}: {upkeep:?}"))
-  };
-
-  assert!(ran.ended(JOB_DONE, true), "{ran:?}");
-  assert!(at("reset") < at("prepare_turn"), "{upkeep:?}");
 }
 
 // Which login a turn goes out on is bmo-agency's; a window gone full on one rests that login until the moment the

@@ -89,8 +89,8 @@ async fn a_job_that_committed_nothing_of_its_prefix_hands_its_session_over_all_t
 
   assert!(ran.ended(JOB_DONE, true), "{ran:?}");
   assert_eq!(bench.agent.prefix_asked(), [vec!["other.ts".to_owned()]]);
-  // The session was recorded as the one the job answered on, then handed over through a summary.
-  assert_eq!(bench.agent.recorded()[0].session_id.as_deref(), Some("plain-session"));
+  // The session the job answered on still stands on bmo-agency's record, and is handed over through a summary.
+  assert_eq!(bench.agent.kept_asked()[0].session, "plain-session");
   assert_eq!(bench.agent.handed(), [summary_of("plain-session", &dir)]);
   assert_eq!(bench.agent.prompts().len(), 1);
 }
@@ -274,7 +274,7 @@ async fn the_change_is_marked_handed_over_and_the_person_s_words_never_are() {
 async fn the_session_recorded_and_handed_over_is_the_one_that_answered_last() {
   let (bench, _) = added_while_working().await;
 
-  assert_eq!(bench.agent.recorded()[0].session_id.as_deref(), Some("s1-again"));
+  assert_eq!(bench.agent.kept_asked()[0].session, "s1-again");
   assert_eq!(bench.agent.handed()[0].session.as_deref(), Some("s1-again"));
 }
 

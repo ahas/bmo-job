@@ -50,7 +50,7 @@ async fn two_steps() -> (Bench, Ran, Ran) {
 }
 
 #[tokio::test]
-async fn the_first_step_goes_on_the_worker_s_own_seat_and_records_its_session() {
+async fn the_first_step_goes_on_the_worker_s_own_seat_and_leaves_its_record_to_bmo_agency() {
   let (bench, one, _) = two_steps().await;
   let asked = &bench.agent.asked()[0];
 
@@ -59,8 +59,8 @@ async fn the_first_step_goes_on_the_worker_s_own_seat_and_records_its_session() 
     (&asked.seat, &asked.resume, asked.hears_words),
     (&TurnSeat::Worker, &Resume::Auto, true)
   );
-  assert_eq!(bench.agent.recorded()[0].session_id.as_deref(), Some("work-session"));
-  // A middle turn hands nothing over.
+  // A middle turn hands nothing over, so it asks nothing of the record bmo-agency keeps as its turn answers.
+  assert!(bench.agent.kept_asked().is_empty());
   assert!(bench.agent.handed().is_empty());
 }
 
@@ -71,7 +71,7 @@ async fn the_step_after_it_goes_on_the_session_the_first_one_left_recorded() {
 
   assert!(two.ended(JOB_WORK_STEP, true), "{two:?}");
   assert_eq!((&asked.seat, &asked.resume), (&TurnSeat::Worker, &Resume::Auto));
-  assert_eq!(bench.agent.recorded().len(), 2);
+  assert!(bench.agent.kept_asked().is_empty());
   assert!(bench.agent.handed().is_empty());
 }
 
@@ -143,14 +143,12 @@ async fn on_a_fallen_session() -> (Bench, [Ran; 3]) {
 }
 
 #[tokio::test]
-async fn the_fall_is_handed_to_bmo_agency_with_the_tier_s_model_and_the_model_that_answered_beside_it() {
+async fn the_fallen_step_goes_out_on_the_tier_s_model_and_bmo_agency_judges_the_fall_itself() {
   let (bench, [one, ..]) = on_a_fallen_session().await;
-  let recorded = &bench.agent.recorded()[0];
 
   assert!(one.success, "{one:?}");
   assert_eq!(bench.agent.asked()[0].mapping.model, MAPPED);
-  assert_eq!(recorded.model, MAPPED);
-  assert_eq!(recorded.spend.iter().map(|one| one.model.as_str()).collect::<Vec<_>>(), [FALLEN, OPUS]);
+  assert!(bench.agent.kept_asked().is_empty());
 }
 
 #[tokio::test]
@@ -167,7 +165,6 @@ async fn a_session_opened_afresh_goes_out_on_the_tier_s_model_again() {
 
   assert!(three.success, "{three:?}");
   assert_eq!(row_model(&bench, "bmo-work-9-build-2-1").await.0.as_deref(), Some(MAPPED));
-  assert_eq!(bench.agent.recorded()[2].session_id.as_deref(), Some("fresh-session"));
 }
 
 // A scout or a verifier is a branch beside the worker's conversation: it opens a session it keeps none of, and
@@ -206,10 +203,9 @@ async fn a_branch_step_goes_on_a_seat_of_its_own_even_though_the_worker_has_a_wa
 #[tokio::test]
 async fn a_branch_step_keeps_nothing_so_the_worker_s_session_is_where_the_builder_left_it() {
   let (bench, _) = branch_beside().await;
-  let recorded = bench.agent.recorded();
 
-  assert_eq!(recorded.len(), 1);
-  assert_eq!(recorded[0].session_id.as_deref(), Some("work-session"));
+  assert!(bench.agent.kept_asked().is_empty());
+  assert!(bench.agent.handed().is_empty());
 }
 
 // A stopped stage retried a second time runs on a fresh session: the worker's session it would have resumed is
@@ -244,11 +240,14 @@ async fn a_retried_stage_hands_the_worker_s_session_over_once_before_its_turn() 
 }
 
 #[tokio::test]
-async fn and_its_turn_records_a_session_of_its_own_rather_than_the_one_it_handed_over() {
+async fn and_its_turn_goes_on_a_session_of_its_own_rather_than_the_one_it_handed_over() {
   let (bench, ran) = retried_fresh().await;
+  let handed = Resume::Session {
+    id: "work-session".into(),
+  };
 
   assert!(ran.ended(JOB_WORK_STEP, true), "{ran:?}");
-  assert_eq!(bench.agent.recorded()[1].session_id.as_deref(), Some("new-session"));
+  assert_ne!(bench.agent.asked()[1].resume, handed);
 }
 
 const RETRY: &str = "claude-opus-4-8";

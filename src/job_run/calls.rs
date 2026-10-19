@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use futures_util::future::BoxFuture;
 use job_agency::{
-  Agency, AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LogNote, Prepared, Reply, SessionAnswered,
-  SessionKept, SshReach, TurnAsking, WorkTurn, WorkTurns,
+  Agency, AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LogNote, Prepared, Scope, SshReach, Start,
+  TurnAsking, WorkTurn, WorkTurns,
 };
 use job_codes::{JobError, UnitRefusal};
 use job_gate::{Gate, KnowledgeAsked, Piece, Sanitise, Sanitised};
@@ -52,16 +52,13 @@ pub trait Calls: Sync {
     question: &'a str,
     answer: &'a ConfirmAnswer,
   ) -> BoxFuture<'a, Result<(), Refusal>>;
-  /// A reset waiting for a worker's sessions carried out; whether one waited.
-  fn carry_out_reset<'a>(&'a self, worker: &'a str) -> BoxFuture<'a, Result<bool, Refusal>>;
-  /// The session a job's last answer came back on recorded.
-  fn record_session<'a>(
+  /// Whether bmo-agency's record of a worker's session on a model still continues the session named.
+  fn session_kept<'a>(
     &'a self,
     worker: &'a str,
-    answered: &'a SessionAnswered,
-    cwd: &'a str,
-    job: i64,
-  ) -> BoxFuture<'a, Result<SessionKept, Refusal>>;
+    model: &'a str,
+    session: &'a str,
+  ) -> BoxFuture<'a, Result<bool, Refusal>>;
   /// A worker's session handed over.
   fn hand_over_session<'a>(
     &'a self,
@@ -70,13 +67,6 @@ pub trait Calls: Sync {
   ) -> BoxFuture<'a, Result<(), Refusal>>;
   /// A run of a worker's noted.
   fn note_run<'a>(&'a self, worker: &'a str) -> BoxFuture<'a, Result<(), Refusal>>;
-  /// What a job's answer spent recorded.
-  fn record_usage<'a>(
-    &'a self,
-    worker: &'a str,
-    reply: &'a Reply,
-    run: Option<&'a str>,
-  ) -> BoxFuture<'a, Result<(), Refusal>>;
   /// A worker's keepalive woken for a job.
   fn wake_keepalive<'a>(&'a self, worker: &'a str) -> BoxFuture<'a, Result<(), Refusal>>;
   /// A worker's bench made ready for a job.
@@ -171,20 +161,23 @@ impl<A: Agency + Clone + 'static, G: Gate, Gr: Graph + Sync, T: Testbed> Calls
     Box::pin(async move { self.turns.answer(turn, question, answer).await.map_err(agency_failed) })
   }
 
-  fn carry_out_reset<'a>(&'a self, worker: &'a str) -> BoxFuture<'a, Result<bool, Refusal>> {
-    Box::pin(async move { self.agency.carry_out_reset(worker).await.map_err(agency_failed) })
-  }
-
-  fn record_session<'a>(
+  // The worker's session read for the model: the harness session a turn on it would continue now.
+  fn session_kept<'a>(
     &'a self,
     worker: &'a str,
-    answered: &'a SessionAnswered,
-    cwd: &'a str,
-    job: i64,
-  ) -> BoxFuture<'a, Result<SessionKept, Refusal>> {
-    Box::pin(
-      async move { self.agency.record_session(worker, answered, cwd, job).await.map_err(agency_failed) },
-    )
+    model: &'a str,
+    session: &'a str,
+  ) -> BoxFuture<'a, Result<bool, Refusal>> {
+    Box::pin(async move {
+      let start = Start {
+        agent: worker.to_owned(),
+        scope: Scope::Worker,
+      };
+      let held = self.agency.start_session(&start).await.map_err(agency_failed)?;
+      let state = self.agency.session_state(&held.id, Some(model)).await.map_err(agency_failed)?;
+
+      Ok(state.and_then(|state| state.continues).as_deref() == Some(session))
+    })
   }
 
   fn hand_over_session<'a>(
@@ -197,15 +190,6 @@ impl<A: Agency + Clone + 'static, G: Gate, Gr: Graph + Sync, T: Testbed> Calls
 
   fn note_run<'a>(&'a self, worker: &'a str) -> BoxFuture<'a, Result<(), Refusal>> {
     Box::pin(async move { self.agency.note_run(worker).await.map_err(agency_failed) })
-  }
-
-  fn record_usage<'a>(
-    &'a self,
-    worker: &'a str,
-    reply: &'a Reply,
-    run: Option<&'a str>,
-  ) -> BoxFuture<'a, Result<(), Refusal>> {
-    Box::pin(async move { self.agency.record_usage(worker, reply, run).await.map_err(agency_failed) })
   }
 
   fn wake_keepalive<'a>(&'a self, worker: &'a str) -> BoxFuture<'a, Result<(), Refusal>> {

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use bmo_job::job_run::{WORK_SESSION_FRESH, WORK_STEP_PHASE};
 use bmo_job::queue::outcomes::{JOB_DONE, JOB_ERROR, counts_as_attempt};
-use job_agency::{SessionKept, TurnFailure, TurnSpan};
+use job_agency::{TurnFailure, TurnSpan};
 use queue_read::time::RUN_PHASE;
 use queue_read::worker_lines::CHANGE_NOTE;
 use serde_json::json;
@@ -16,7 +16,7 @@ use super::pooled_branch;
 
 use crate::support::job::{Bench, Given, Ran, UNIT, WORKER};
 use crate::support::queue::OWNER;
-use crate::support::turns::{Agent, OPUS, Played, reply, spend, tool_span};
+use crate::support::turns::{Agent, KeptAsked, OPUS, Played, reply, spend, tool_span};
 
 const REPORT: &str = "Owner, the work is done.\n\nWhat changed\nThe file was fixed.\n\n1 done";
 
@@ -32,14 +32,14 @@ async fn bench() -> (Bench, PathBuf) {
 }
 
 // A job asked for in a room of its own whose run answered on the Claude model and on the safeguard's sibling,
-// which is what a fallback looks like from here; bmo-agency drops the session it was given.
+// which is what a fallback looks like from here; bmo-agency dropped the session as the turn answered.
 async fn lesser_model() -> (Bench, Ran) {
   let (bench, dir) = bench().await;
   let job = bench.job_in(ROOM, None, UNIT, WORKER, OPUS).await;
   let mut fell = reply("poisoned-session", REPORT);
 
   fell.spend = vec![spend(OPUS, 120_000), spend("claude-opus-4-8", 40_000)];
-  Agent::set(&bench.agent.kept, SessionKept::Dropped);
+  Agent::set(&bench.agent.kept, false);
   bench.agent.play([Played::answered(fell)]);
 
   let ran = bench
@@ -57,24 +57,24 @@ async fn a_session_that_fell_to_a_lesser_model_is_dropped_and_never_handed_over(
   let (bench, ran) = lesser_model().await;
 
   assert!(ran.success, "{ran:?}");
-  assert_eq!(bench.agent.recorded().len(), 1);
+  assert_eq!(bench.agent.kept_asked().len(), 1);
   // Nor is a note of the refused context carried to the next job.
   assert!(bench.agent.handed().is_empty());
 }
 
-// bmo-agency judges the fall and tells it, so the record carries both models' spending and the model the job
-// went out on.
+// bmo-agency judges the fall from the turn it carried; the job asks its record whether the session it answered
+// on still stands for the model the job went out on.
 #[tokio::test]
-async fn bmo_agency_is_handed_which_models_the_answer_spent_on_to_judge_the_fall_by() {
+async fn bmo_agency_s_record_is_asked_of_the_session_on_the_model_the_job_went_out_on() {
   let (bench, _) = lesser_model().await;
-  let recorded = &bench.agent.recorded()[0];
 
-  assert_eq!(recorded.session_id.as_deref(), Some("poisoned-session"));
   assert_eq!(
-    recorded.spend.iter().map(|one| one.model.as_str()).collect::<Vec<_>>(),
-    [OPUS, "claude-opus-4-8"]
+    bench.agent.kept_asked(),
+    [KeptAsked {
+      model: crate::support::turns::MAPPED.into(),
+      session: "poisoned-session".into(),
+    }]
   );
-  assert_eq!(recorded.model, crate::support::turns::MAPPED);
 }
 
 #[tokio::test]
@@ -128,7 +128,7 @@ async fn a_session_that_answered_on_its_model_is_recorded_and_handed_over_as_eve
   let (bench, ran, _dir) = warm().await;
 
   assert!(ran.success, "{ran:?}");
-  assert_eq!(bench.agent.recorded()[0].session_id.as_deref(), Some("warm-session"));
+  assert_eq!(bench.agent.kept_asked()[0].session, "warm-session");
   assert_eq!(bench.agent.handed()[0].session.as_deref(), Some("warm-session"));
   assert_eq!(bench.agent.handed()[0].note, None);
 }

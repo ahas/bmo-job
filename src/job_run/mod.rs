@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use job_agency::{LiveTask, RunWorkflow, SessionAnswered, TurnSeat};
+use job_agency::{LiveTask, RunWorkflow, TurnSeat};
 use job_codes::Fact;
 use job_policy::Policy;
 use job_receiver::{Instruction, Said};
@@ -1031,18 +1031,6 @@ async fn driven<'g>(
   };
   let step = driver.run.args.phase == WORK_STEP_PHASE;
   let ephemeral = driver.run.args.ephemeral();
-  // The session the reply came back on is recorded, or dropped where it fell to a lesser model, before the reply
-  // is judged; a branch's session was thrown away and leaves none.
-  let answered = SessionAnswered {
-    mode: reply.mode.clone(),
-    session_id: reply.session_id.clone(),
-    account: reply.account.clone(),
-    spend: reply.spend.clone(),
-    context_ratio: reply.context_ratio,
-    context_tokens: reply.context_tokens,
-    model: driver.model().to_owned(),
-  };
-  let kept = if ephemeral { None } else { Some(driver.road.record_session(&answered).await) };
 
   // A middle turn lets the tasks it left running past, and says so in its log.
   if step && !reply.live_tasks.is_empty() {
@@ -1056,6 +1044,9 @@ async fn driven<'g>(
 
   // Why the session is handed over is read before the checkout goes back on main.
   let hands_over = !step && !ephemeral && reply.mode == PROVIDER && reply.session_id.is_some();
+  // bmo-agency recorded the session the reply came back on as the turn answered, or dropped it where it fell to a
+  // lesser model; only a session its record still continues for the job's model is handed over.
+  let stands = hands_over && driver.road.session_stands(&reply, driver.model()).await;
   let reason = if hands_over { driver.handover_reason().await } else { "ended its job".to_owned() };
   let facts = driver.facts();
   let (judged, outcome, gated) = driver.judge(&reply).await;
@@ -1064,7 +1055,7 @@ async fn driven<'g>(
 
   // A work order's middle turn hands nothing over and is told nothing.
   if !step {
-    driver.hand_over(&reply, outcome, kept, &reason).await;
+    driver.hand_over(&reply, outcome, stands, &reason).await;
     driver.run.ending.hand_off(outcome).await;
   }
 

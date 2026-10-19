@@ -6,7 +6,7 @@
 //! the ending is written, the session handed over with the worker's own note or a summary, and the rest a done
 //! job's usage calls for. Every turn goes out on the road its selection names (`carry_turn`).
 
-use job_agency::{Handover, ModelSpend, Reply, Resume, SessionKept, TurnMapping};
+use job_agency::{Handover, ModelSpend, Reply, Resume, TurnMapping};
 use job_codes::job_ended::Selection;
 use job_codes::job_roads::WorkOutput;
 use job_codes::{Fact, JobFact};
@@ -146,19 +146,9 @@ impl<'d, 'g> Driver<'d, 'g> {
     }
   }
 
-  async fn record_usage(&self, reply: &Reply) {
-    let unit = &self.run.args.unit;
-    let run = (!unit.is_empty()).then_some(unit.as_str());
-
-    if let Err(why) = self.run.ground().calls.record_usage(&self.run.worker, reply, run).await {
-      eprintln!("bmo-job: {}'s usage could not be written: {}", self.run.worker, why.error);
-    }
-  }
-
-  // A later turn's answer taken as the run's own: its usage recorded, its spend added to what the run spent, and
-  // its words the report from here on.
+  // A later turn's answer taken as the run's own: its spend added to what the run spent, and its words the report
+  // from here on. Its usage is recorded by bmo-agency as the turn answers.
   async fn adopt(&mut self, reply: &mut Reply, answered: Reply) {
-    self.record_usage(&answered).await;
     self.spend.extend(answered.spend.iter().cloned());
     *reply = answered;
   }
@@ -294,7 +284,6 @@ impl<'d, 'g> Driver<'d, 'g> {
 
     self.run_ended_at = now_ms();
     self.note_run().await;
-    self.record_usage(&reply).await;
     self.spend = reply.spend.clone();
 
     if let Some(kind) = self.run.args.work_output().map(str::to_owned)
@@ -674,12 +663,9 @@ impl<'d, 'g> Driver<'d, 'g> {
   }
 
   /// What follows a written ending that is not a work order's middle turn: the session the last answer came back
-  /// on handed over where its record still stands, and the rest a done job's session usage calls for.
-  pub async fn hand_over(&mut self, reply: &Reply, outcome: &str, kept: Option<SessionKept>, reason: &str) {
-    let stands = !self.run.args.ephemeral()
-      && reply.mode == PROVIDER
-      && kept.is_some_and(|kept| matches!(kept, SessionKept::Recorded | SessionKept::Full));
-
+  /// on handed over where bmo-agency's record of it still `stands`, and the rest a done job's session usage calls
+  /// for.
+  pub async fn hand_over(&mut self, reply: &Reply, outcome: &str, stands: bool, reason: &str) {
     if let (true, Some(held)) = (stands, reply.session_id.clone()) {
       self.hand_over_session(reply, &held, reason).await;
     }
@@ -733,10 +719,7 @@ impl<'d, 'g> Driver<'d, 'g> {
     };
 
     match self.recovering(instruction, &selection_of(reply), resume, None).await {
-      Ok(answered) => {
-        self.record_usage(&answered).await;
-        own_note_of(answered.session_id.as_deref(), held, &answered.text)
-      }
+      Ok(answered) => own_note_of(answered.session_id.as_deref(), held, &answered.text),
       Err(halt) => {
         let why = match halt {
           Halt::Failed(failure) => failure.message(),

@@ -14,10 +14,9 @@ use crate::workers::{AgentRow, runtime_of};
 use crate::{
   Agency, AgencyError, Answer, AsideOutcome, ConfirmAnswer, Execution, Handover, JobDocuments, JobLines,
   LaunchHeld, LogLine, LogNote, Mapping, Node, Output, Pin, PinChoice, PlaceAsk, PlaceRecord, PlaceWrite,
-  PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, Provider, Reply, Reservation,
-  ReservationAsking, Room, RoomReturns, RouteAsk, Run, RunClosing, RunOpening, Session, SessionAnswered,
-  SessionId, SessionKept, SessionState, SshReach, Start, TakenPlace, Tier, Turn, TurnEnd, TurnRecord,
-  Workbench, WorkerRuntime,
+  PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, Provider, Reservation, ReservationAsking,
+  Room, RoomReturns, RouteAsk, Run, RunClosing, RunOpening, Session, SessionId, SessionState, SshReach,
+  Start, TakenPlace, Tier, Turn, TurnEnd, TurnRecord, Workbench, WorkerRuntime,
 };
 
 /// The kind of event bmo-agency publishes once a held launch's notice is let go for the room returned.
@@ -159,16 +158,6 @@ struct Spoken {
 #[derive(Deserialize)]
 struct Listed {
   sessions: Vec<Session>,
-}
-
-#[derive(Deserialize)]
-struct Carried {
-  carried: bool,
-}
-
-#[derive(Deserialize)]
-struct Kept {
-  kept: SessionKept,
 }
 
 #[derive(Deserialize)]
@@ -789,28 +778,6 @@ impl Agency for AgencyClient {
     self.done("retire_places", request).await
   }
 
-  async fn carry_out_reset(&self, worker: &str) -> Answer<bool> {
-    let request = self.request(Method::POST, &["workers", worker, "sessions", "reset"], &[]);
-    let carried: Carried = self.answer("carry_out_reset", request).await?;
-
-    Ok(carried.carried)
-  }
-
-  async fn record_session(
-    &self,
-    worker: &str,
-    answered: &SessionAnswered,
-    cwd: &str,
-    job: i64,
-  ) -> Answer<SessionKept> {
-    let request = self
-      .request(Method::POST, &["workers", worker, "sessions", "record"], &[])
-      .json(&json!({ "answered": answered, "cwd": cwd, "job": job }));
-    let kept: Kept = self.answer("record_session", request).await?;
-
-    Ok(kept.kept)
-  }
-
   async fn hand_over_session(&self, worker: &str, handover: &Handover) -> Answer<()> {
     let request = self
       .request(Method::POST, &["workers", worker, "sessions", "handover"], &[])
@@ -823,14 +790,6 @@ impl Agency for AgencyClient {
     self
       .done("note_run", self.request(Method::POST, &["workers", worker, "runs"], &[]))
       .await
-  }
-
-  async fn record_usage(&self, worker: &str, reply: &Reply, run: Option<&str>) -> Answer<()> {
-    let request = self
-      .request(Method::POST, &["workers", worker, "usage"], &[])
-      .json(&json!({ "reply": reply, "run": run }));
-
-    self.done("record_usage", request).await
   }
 
   async fn make_bench(&self, worker: &str) -> Answer<()> {

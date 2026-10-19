@@ -9,8 +9,7 @@ use std::sync::{Mutex, MutexGuard};
 use futures_util::future::BoxFuture;
 use job_agency::{
   AsideOutcome, ConfirmAnswer, Handover, JobDocuments, LiveTask, LogNote, ModelSpend, Prepared, Reply,
-  RunWorkflow, SessionAnswered, SessionKept, SshReach, TurnAsking, TurnFailure, TurnSpan, TurnState,
-  WentOut, WorkTurn,
+  RunWorkflow, SshReach, TurnAsking, TurnFailure, TurnSpan, TurnState, WentOut, WorkTurn,
 };
 use job_base::Refusal;
 use job_gate::{KnowledgeAsked, Piece, Sanitise, Sanitised};
@@ -217,6 +216,14 @@ fn ready<'a, T: Send + 'a>(value: T) -> BoxFuture<'a, Result<T, Refusal>> {
 }
 
 /// The run's calls, answering what the test set and keeping what each was asked.
+/// What a run asked of bmo-agency's record of the worker's session: whether it still continues `session` on
+/// `model`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeptAsked {
+  pub model: String,
+  pub session: String,
+}
+
 pub struct Agent {
   plays: Mutex<VecDeque<Played>>,
   // The states and session of the last turn played, which every turn past the script plays again.
@@ -227,8 +234,8 @@ pub struct Agent {
   pub asked: Mutex<Vec<TurnAsking>>,
   /// Every prompt sent, in order.
   pub prompts: Mutex<Vec<String>>,
-  /// Every session recorded.
-  pub recorded: Mutex<Vec<SessionAnswered>>,
+  /// Every asking whether a session is still kept, in order.
+  pub kept_asked: Mutex<Vec<KeptAsked>>,
   /// Every session handed over.
   pub handed: Mutex<Vec<Handover>>,
   /// Every line written into the run's log.
@@ -241,10 +248,8 @@ pub struct Agent {
   pub upkeep: Mutex<Vec<String>>,
   /// Every text handed the sanitiser.
   pub sanitised: Mutex<Vec<String>>,
-  /// What a recorded session is kept as.
-  pub kept: Mutex<SessionKept>,
-  /// Whether a reset waits for the worker's sessions.
-  pub reset_waits: Mutex<bool>,
+  /// Whether bmo-agency's record still continues the session asked of; false where it dropped it.
+  pub kept: Mutex<bool>,
   /// What a worker's agent definition gives a job.
   pub documents: Mutex<JobDocuments>,
   /// Which files touch the prefix the worker's session was opened on.
@@ -267,15 +272,14 @@ impl Default for Agent {
       turns: Mutex::default(),
       asked: Mutex::default(),
       prompts: Mutex::default(),
-      recorded: Mutex::default(),
+      kept_asked: Mutex::default(),
       handed: Mutex::default(),
       notes: Mutex::default(),
       asides: Mutex::default(),
       rests: Mutex::default(),
       upkeep: Mutex::default(),
       sanitised: Mutex::default(),
-      kept: Mutex::new(SessionKept::Recorded),
-      reset_waits: Mutex::new(false),
+      kept: Mutex::new(true),
       documents: Mutex::new(JobDocuments {
         graph: GRAPH_TOLD.into(),
         trailer: TRAILER.into(),
@@ -307,8 +311,8 @@ impl Agent {
     locked(&self.prompts).clone()
   }
 
-  pub fn recorded(&self) -> Vec<SessionAnswered> {
-    locked(&self.recorded).clone()
+  pub fn kept_asked(&self) -> Vec<KeptAsked> {
+    locked(&self.kept_asked).clone()
   }
 
   pub fn handed(&self) -> Vec<Handover> {
@@ -441,20 +445,17 @@ impl Calls for Agent {
     ready(())
   }
 
-  fn carry_out_reset<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<bool, Refusal>> {
-    self.did("reset");
-
-    ready(std::mem::take(&mut *locked(&self.reset_waits)))
-  }
-
-  fn record_session<'a>(
+  fn session_kept<'a>(
     &'a self,
     _: &'a str,
-    answered: &'a SessionAnswered,
-    _: &'a str,
-    _: i64,
-  ) -> BoxFuture<'a, Result<SessionKept, Refusal>> {
-    locked(&self.recorded).push(answered.clone());
+    model: &'a str,
+    session: &'a str,
+  ) -> BoxFuture<'a, Result<bool, Refusal>> {
+    self.did("session_kept");
+    locked(&self.kept_asked).push(KeptAsked {
+      model: model.to_owned(),
+      session: session.to_owned(),
+    });
 
     ready(*locked(&self.kept))
   }
@@ -473,15 +474,6 @@ impl Calls for Agent {
   fn note_run<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<(), Refusal>> {
     self.did("note_run");
 
-    ready(())
-  }
-
-  fn record_usage<'a>(
-    &'a self,
-    _: &'a str,
-    _: &'a Reply,
-    _: Option<&'a str>,
-  ) -> BoxFuture<'a, Result<(), Refusal>> {
     ready(())
   }
 

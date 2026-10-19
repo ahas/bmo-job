@@ -101,9 +101,9 @@ fn thrown_away(seen: &Seen) {
   assert_eq!(seen.asked.agent, format!("work-order-{TODO}-stage-0-0-1"));
   assert_eq!(seen.asked.cwd, seen.place.display().to_string());
   assert!(!seen.asked.hears_words);
-  assert!(seen.bench.agent.recorded().is_empty());
+  assert!(seen.bench.agent.kept_asked().is_empty());
   assert!(seen.bench.agent.handed().is_empty());
-  assert!(!seen.bench.agent.upkeep().iter().any(|call| call == "make_bench" || call == "reset"));
+  assert!(!seen.bench.agent.upkeep().iter().any(|call| call == "make_bench"));
 }
 
 fn claude(session: &str) -> Reply {

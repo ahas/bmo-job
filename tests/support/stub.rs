@@ -1,6 +1,7 @@
 //! An in-process stand-in for another unit. It serves the routes it is given on a loopback port, records
 //! each call it takes, and answers each from the fixture set for its route. A route with no fixture
-//! answers 500 with the code `no_fixture`.
+//! answers 500 with the code `no_fixture`; a path it serves no route on is recorded under its method and
+//! path and answered 404 with the code `not-found`, as a unit answers a route it does not serve.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -103,6 +104,23 @@ pub async fn take(
   }
 }
 
+/// Records a call on a path the stand-in serves no route on, and refuses it as a unit refuses a route it does not
+/// serve.
+async fn unrouted(State(book): State<Shared>, method: Method, uri: Uri, body: Bytes) -> Response {
+  let target = uri.path_and_query().map_or_else(|| uri.path().to_owned(), ToString::to_string);
+
+  book.lock().expect("the book is not poisoned").calls.push(Call {
+    route: format!("{method} {}", uri.path()),
+    target,
+    body: serde_json::from_slice(&body).ok(),
+    authorization: None,
+  });
+
+  let said = json!({ "error": format!("No route serves {method} {}.", uri.path()), "code": "not-found" });
+
+  (StatusCode::NOT_FOUND, Json(said)).into_response()
+}
+
 impl Stub {
   /// Starts the stand-in serving `routes` on a free loopback port.
   pub async fn start(routes: Router<Shared>) -> Self {
@@ -110,7 +128,7 @@ impl Stub {
     let bound = listener.local_addr().expect("the port is bound");
     let address = Url::parse(&format!("http://{bound}/")).expect("the address reads");
     let book = Shared::default();
-    let app = routes.with_state(book.clone());
+    let app = routes.fallback(unrouted).with_state(book.clone());
     let server = tokio::spawn(async move {
       axum::serve(listener, app).await.expect("the stand-in serves");
     });

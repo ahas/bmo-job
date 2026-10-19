@@ -1,5 +1,5 @@
 //! Work turns: one turn of a job's work carried by bmo-agency end to end, what it answered or how it failed,
-//! and what a worker's sessions keep of it.
+//! a worker's session handed over, and what its agent definition gives a job.
 
 use std::collections::BTreeMap;
 
@@ -336,33 +336,6 @@ pub enum TurnFailure {
     name: String,
     message: String,
   },
-}
-
-/// The session a job's last answer came back on, as a worker's records keep it.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionAnswered {
-  pub mode: String,
-  pub session_id: Option<String>,
-  pub account: Option<String>,
-  #[serde(default)]
-  pub spend: Vec<ModelSpend>,
-  pub context_ratio: Option<f64>,
-  pub context_tokens: Option<i64>,
-  /// The model the job's last attempt went out on.
-  pub model: String,
-}
-
-/// What became of a session's record.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SessionKept {
-  Recorded,
-  /// Recorded, and past the fold's line.
-  Full,
-  /// It answered on a lesser model, so it was dropped.
-  Dropped,
-  None,
 }
 
 /// A session handed over: the kept one on the model where none is named, its record dropped after.

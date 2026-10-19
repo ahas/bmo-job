@@ -13,8 +13,8 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use job_agency::{
-  AsideOutcome, ConfirmAnswer, Confirmation, LogNote, Reply, Resume, SessionAnswered, SessionKept,
-  TurnAsking, TurnMapping, TurnSeat, TurnSpan, TurnState, WentOut,
+  AsideOutcome, ConfirmAnswer, Confirmation, LogNote, Reply, Resume, TurnAsking, TurnMapping, TurnSeat,
+  TurnSpan, TurnState, WentOut,
 };
 use job_gate::Sanitise;
 use regex::Regex;
@@ -23,7 +23,7 @@ use serde::Deserialize;
 use super::confirm::{Asker, Asking, OWN_WORK_NOTE, is_destructive};
 use super::failure::{Failure, of_unanswered};
 use super::own_work::{Places, own_work};
-use super::reset::ask_worker_reset;
+
 use crate::job_run::Ground;
 use crate::job_run::notes::{self, Note};
 use crate::job_run::prompt::{LABEL, item_scratch};
@@ -171,16 +171,9 @@ impl<'a> ClaudeRoad<'a> {
     }
   }
 
-  /// One turn, carried by bmo-agency on the logins the job's key is offered.
+  /// One turn, carried by bmo-agency on the logins the job's key is offered; a reset the owner asked of the
+  /// worker's sessions is bmo-agency's to carry out before the turn goes.
   pub async fn turn(&mut self, asked: &Asked) -> Result<Reply, Failure> {
-    // A branch's session is thrown away, so nothing of the worker's own sessions is read or cleared for it.
-    if !self.throws_session_away() && ask_worker_reset(self.ground, &self.worker).await.map_err(refused)? {
-      println!(
-        "{}: its sessions are cleared as the owner asked, so this job opens a new one",
-        self.worker
-      );
-    }
-
     match self.once(asked, asked.resume.clone()).await? {
       Carried::Answered(reply) => Ok(*reply),
       // A session the program no longer holds is opened again fresh.
@@ -440,49 +433,41 @@ impl<'a> ClaudeRoad<'a> {
     Ok(())
   }
 
-  /// The session the run's last reply came back on, recorded as the one the next job on the worker and model
-  /// resumes — unless it answered on a lesser model, when bmo-agency drops it instead. Answers what became of it.
-  pub async fn record_session(&self, answered: &SessionAnswered) -> SessionKept {
+  /// Whether the session the run's last reply came back on is the one bmo-agency's record of the worker's
+  /// session on `model` still continues: bmo-agency records it as the turn answers, and drops it where it
+  /// answered on a lesser model. A branch's session was thrown away, and a reply on another provider or naming no
+  /// session leaves no Claude session to stand.
+  pub async fn session_stands(&self, reply: &Reply, model: &str) -> bool {
     let worker = &self.worker;
-    let model = &answered.model;
 
-    // A branch's session was thrown away, and the record is the worker's own.
     if self.throws_session_away() {
-      return SessionKept::None;
+      return false;
     }
 
-    if answered.mode != PROVIDER {
-      println!(
-        "{worker}: {} keeps its own session contract; the Claude session record is unchanged",
-        answered.mode
-      );
-      return SessionKept::None;
+    if reply.mode != PROVIDER {
+      println!("{worker}: {} keeps its own session contract; no Claude session stands", reply.mode);
+      return false;
     }
 
-    let Some(session) = &answered.session_id else {
-      println!("{worker}: the Claude answer named no session; the old record is unchanged");
-      return SessionKept::None;
+    let Some(session) = &reply.session_id else {
+      println!("{worker}: the Claude answer named no session; none stands");
+      return false;
     };
 
-    match self.ground.calls.record_session(worker, answered, &self.cwd, self.job_id).await {
-      Ok(kept) => {
-        println!("{worker} session for {model}: {session} {}", kept_word(kept));
-        kept
+    match self.ground.calls.session_kept(worker, model, session).await {
+      Ok(true) => {
+        println!("{worker} session for {model}: {session} kept");
+        true
+      }
+      Ok(false) => {
+        println!("{worker} session for {model}: {session} dropped, so the next job opens a fresh one");
+        false
       }
       Err(why) => {
-        eprintln!("bmo-job: {worker} session for {model}: the record could not be written — {}", why.error);
-        SessionKept::None
+        eprintln!("bmo-job: {worker} session for {model}: its record could not be read — {}", why.error);
+        false
       }
     }
-  }
-}
-
-fn kept_word(kept: SessionKept) -> &'static str {
-  match kept {
-    SessionKept::Recorded => "recorded",
-    SessionKept::Full => "recorded, and full",
-    SessionKept::Dropped => "dropped, so the next job opens a fresh one",
-    SessionKept::None => "left unrecorded",
   }
 }
 
