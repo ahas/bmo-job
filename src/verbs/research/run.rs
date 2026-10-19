@@ -1,8 +1,9 @@
 //! One research run, from its opening in bmo-agency's run ledger to its closing there (docs/verbs.md,
-//! "Research runs"): its model carried as a work turn on the search line's route, its web server told the
-//! run's settings in the turn's variables, a stop asked from outside interrupting the turn's session and
-//! keeping what it had written, and the run closed once with how it ended and the context it ended carrying,
-//! every place it holds in the pool given back.
+//! "Research runs"): its model carried as a work turn on the search line's route, on a session thrown away, its
+//! web server told the run's settings in the turn's variables, a question its program stops on left standing
+//! for a person, a stop asked from outside interrupting the turn and keeping what bmo-agency read it had
+//! written, and the run closed once with how it ended and the context it ended carrying, every place it holds
+//! in the pool given back.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -16,7 +17,6 @@ use job_agency::{
 use job_base::Refusal;
 use job_gate::{Gate, KnowledgeAsked};
 use serde::Serialize;
-use serde_json::Value;
 
 use super::admission::{Branches, Demand, PLACE_POLL, await_place, unit_running};
 use super::{
@@ -30,26 +30,6 @@ use crate::{now_ms, now_seconds};
 
 // How often a running turn is read again.
 const POLL: Duration = Duration::from_secs(1);
-
-// What a research run's turn answers a question its program stops on with: nobody is there to answer it.
-const NO_QUESTION: &str = "A research run answers no question; carry on with what you have.";
-
-/// Every text block a stream of the program's records says its assistant turns wrote, in order: what a run
-/// stopped from outside had written.
-pub fn assistant_texts(stream: &str) -> Vec<String> {
-  stream
-    .lines()
-    .map(str::trim)
-    .filter(|line| line.starts_with('{'))
-    .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-    .filter(|event| event.get("type").and_then(Value::as_str) == Some("assistant"))
-    .flat_map(|event| {
-      event.pointer("/message/content").and_then(Value::as_array).cloned().unwrap_or_default()
-    })
-    .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
-    .filter_map(|block| block.get("text").and_then(Value::as_str).map(str::to_owned))
-    .collect()
-}
 
 /// What one run's web server is told, laid over what every run of the line is: the close its profile's clock
 /// gives it where it holds one, the owner its branches are held under, its source and role, its branch
@@ -126,8 +106,9 @@ pub struct Carry<'a> {
 }
 
 /// The turn carried on bmo-agency to its answer, `prompt` on its input, read again until it answers or fails;
-/// once `stopping` is set or `closes_at` passes, its session is interrupted. What the interrupted turn wrote is
-/// not told by the session contract, so a stopped turn keeps nothing of it.
+/// once `stopping` is set or `closes_at` passes, it is interrupted, and what bmo-agency reads it had written by
+/// its end is what a stopped turn keeps. A question its program stops on is left standing for a person: nobody
+/// answers one for a research run.
 pub async fn carry_turn(
   stand: &Stand,
   carry: &Carry<'_>,
@@ -180,19 +161,28 @@ pub async fn carry_turn(
   turns.send(&prepared.turn, prompt).await.map_err(agency_failed)?;
 
   let mut interrupted: Option<String> = None;
+  let mut left: Option<String> = None;
 
   loop {
     tokio::time::sleep(POLL).await;
 
-    let Some(turn) = turns.read(&prepared.turn) else {
-      return Ok(Carried::Failed("the turn is gone".to_owned()));
-    };
     let stop = stopping.load(Ordering::SeqCst) || closes_at.is_some_and(|at| now_ms() >= at);
 
     if stop && interrupted.is_none() {
       let _ = turns.interrupt(&prepared.turn).await;
       interrupted = Some(String::new());
     }
+
+    // What the interrupted turn has written, read while it is still carried: the reading of its ending lets it go.
+    if let Some(written) = interrupted.as_mut()
+      && let Ok(Some(output)) = turns.output(&prepared.turn).await
+    {
+      *written = output.text;
+    }
+
+    let Some(turn) = turns.read(&prepared.turn) else {
+      return Ok(Carried::Failed("the turn is gone".to_owned()));
+    };
 
     match turn.state {
       TurnState::Answered { reply } => return Ok(Carried::Answered(reply)),
@@ -209,14 +199,15 @@ pub async fn carry_turn(
       TurnState::Reprepared => turns.send(&prepared.turn, prompt).await.map_err(agency_failed)?,
       TurnState::Running {
         question: Some(question),
-      } => {
-        let answer = ConfirmAnswer::Refuse {
-          words: Some(NO_QUESTION.to_owned()),
-        };
+      } if left.as_deref() != Some(question.id.as_str()) => {
+        // A question already gone from the turn, answered in the pane or withdrawn, is nothing to leave.
+        if let Err(why) = turns.answer(&prepared.turn, &question.id, &ConfirmAnswer::Leave).await {
+          eprintln!("bmo-job: research turn {}: its question was not left standing: {why}", carry.name);
+        }
 
-        turns.answer(&prepared.turn, &question.id, &answer).await.map_err(agency_failed)?;
+        left = Some(question.id);
       }
-      TurnState::Running { question: None } => {}
+      TurnState::Running { .. } => {}
     }
   }
 }

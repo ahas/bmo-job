@@ -6,7 +6,7 @@ mod support;
 
 use bmo_job::verbs::research::admission::{Demand, DepthAdmission, PoolRoom, admit_depth, parse_demand};
 use bmo_job::verbs::research::branch::{branch_task, place_key, report, request_key, spoken_duration};
-use bmo_job::verbs::research::run::{assistant_texts, run_told};
+use bmo_job::verbs::research::run::run_told;
 use bmo_job::verbs::research::{Clock, Profile, Told, Values, asked_at_text, clock, owner, owner_run};
 use serde_json::{Value, json};
 use support::queue::policy;
@@ -150,20 +150,6 @@ fn a_run_s_web_server_is_told_its_owner_allowance_room_and_pacing_and_no_close_w
   assert!(owned.contains(&("BMO_RESEARCH_CHAT", "42".to_owned())));
   assert!(owned.contains(&("BMO_WEB_ENGINE_INTERVAL_MS", "3000".to_owned())));
   assert!(told(None).contains(&("BMO_RESEARCH_BRANCHES", "0".to_owned())));
-}
-
-#[test]
-fn a_record_names_its_written_words_in_order() {
-  let line = |value: Value| format!("{value}\n");
-  let stream = [
-    "not json\n".to_owned(),
-    line(json!({ "type": "system", "subtype": "init", "sessionId": "s-9" })),
-    line(json!({ "type": "assistant", "message": { "content": [{ "type": "text", "text": "TITLE: a" }, { "type": "tool_use", "name": "x" }] } })),
-    line(json!({ "type": "assistant", "message": { "content": [{ "type": "text", "text": "more" }] } })),
-  ]
-  .concat();
-
-  assert_eq!(assistant_texts(&stream), vec!["TITLE: a".to_owned(), "more".to_owned()]);
 }
 
 #[test]

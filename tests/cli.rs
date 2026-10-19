@@ -408,8 +408,29 @@ async fn research_admit_lowers_an_optional_depth_the_full_pool_cannot_take_and_k
   assert_eq!(ran.status.code(), Some(2));
 }
 
+/// The stand-in answering a session thrown away started as `id`, and its turn ending failed for a reason of its
+/// own.
+fn carried_apart(world: &World, id: &str) {
+  let agency = &world.served.agency;
+
+  agency.answer(
+    "POST /session/start",
+    200,
+    json!({
+      "id": id,
+      "agent": "search",
+      "scope": { "kind": "apart", "provider": "claude-code", "model": "small", "cwd": "/w", "todo": null, "role": null }
+    }),
+  );
+  agency.answer(
+    "POST /session/turn",
+    200,
+    json!({ "delivery": "taken", "run": "r-1", "outcome": "failed", "reason": "it died", "spans": [], "compacted": false }),
+  );
+}
+
 #[tokio::test(flavor = "multi_thread")]
-async fn research_run_opens_its_ledger_entry_closes_it_on_a_turn_the_session_contract_cannot_carry_and_refuses_another_key_s_profile()
+async fn research_run_opens_its_ledger_entry_carries_its_turn_on_a_session_thrown_away_and_refuses_another_key_s_profile()
  {
   let world = world().await;
   let profile = thorough_profile();
@@ -443,15 +464,17 @@ async fn research_run_opens_its_ledger_entry_closes_it_on_a_turn_the_session_con
     }),
   );
 
+  carried_apart(&world, "search@apart:1");
+
   let before = now_seconds();
   let ran = world.run_fed(&words, "Find what the question asks.\n").await;
   let after = now_seconds();
   // The ledger's times are epoch seconds.
   let in_seconds = |at: &Value| at.as_i64().is_some_and(|at| (before..=after).contains(&at));
 
-  // A research run's turn goes on a session thrown away, which the session contract keeps none of.
+  // A research run's turn goes on a session thrown away, here ending failed.
   assert_eq!(ran.status.code(), Some(1), "{}", said(&ran));
-  assert!(said(&ran).contains("keeps no session thrown away"), "{}", said(&ran));
+  assert_eq!(said(&ran).trim(), "search run failed: it died");
 
   let opened = &world.agency_took("POST /runs")[0];
 
@@ -463,8 +486,25 @@ async fn research_run_opens_its_ledger_entry_closes_it_on_a_turn_the_session_con
   assert_eq!(opened["search_id"], 7);
   assert_eq!(world.agency_took("POST /pool/reserve")[0]["owner"], "search-run:42");
 
-  assert!(world.agency_took("POST /session/start").is_empty());
-  assert!(world.agency_took("POST /session/turn").is_empty());
+  let scope = &world.agency_took("POST /session/start")[0]["scope"];
+  let sent = &world.agency_took("POST /session/turn")[0];
+
+  assert_eq!(
+    (&scope["kind"], &scope["provider"], &scope["model"], &scope["todo"], &scope["role"]),
+    (&json!("apart"), &json!("claude-code"), &json!("small"), &Value::Null, &Value::Null)
+  );
+  assert_eq!(scope["cwd"], sent["cwd"]);
+  assert_eq!(
+    (&sent["session"], &sent["resume"], &sent["work_key"], &sent["job"], &sent["hears_words"]),
+    (
+      &json!("search@apart:1"),
+      &json!({ "kind": "fresh" }),
+      &json!("search"),
+      &Value::Null,
+      &json!(false)
+    )
+  );
+  assert_eq!(sent["variables"]["BMO_RESEARCH_OWNER"], "search-run:42");
 
   let closed = &world.agency_took("POST /runs/{id}/close")[0];
 
@@ -534,23 +574,18 @@ async fn research_branch_fails_its_angle_in_a_pool_place_and_refuses_one_after_r
   world.served.agency.answer("POST /pool/bind", 200, pool_request("active"));
   world.served.agency.answer("POST /pool/finish", 200, json!({ "held": true }));
   world.served.agency.answer_empty("PUT /pool/places/{place}/write", 204);
+  carried_apart(&world, "search-run:42:branch:1@apart:1");
 
   let ran = world.run_fed(&words, "Which sources agree.\n").await;
 
-  // A branch's turn goes on a session thrown away, which the session contract keeps none of.
+  // A branch's turn goes on a session thrown away under its role, here ending failed.
   assert_eq!(ran.status.code(), Some(0), "{}", said(&ran));
-  assert!(
-    out(&ran).starts_with("BRANCH 1 FAILED: prepare_turn: bmo-agency's session contract keeps no session"),
-    "{}",
-    out(&ran)
+  assert_eq!(
+    out(&ran).trim(),
+    "BRANCH 1 FAILED: it died. Write the result from what you already have."
   );
-  assert!(world.agency_took("POST /session/turn").is_empty());
-  let finished = &world.agency_took("POST /pool/finish")[0]["outcome"];
-
-  assert!(
-    finished.as_str().is_some_and(|outcome| outcome.starts_with("failed: prepare_turn")),
-    "{finished}"
-  );
+  assert_eq!(world.agency_took("POST /session/start")[0]["scope"]["role"], "scout");
+  assert_eq!(world.agency_took("POST /pool/finish")[0]["outcome"], "failed: it died");
 
   let ran = world.run_fed(&[&words[..], &["--closes-at", "1"]].concat(), "Too late.\n").await;
 
