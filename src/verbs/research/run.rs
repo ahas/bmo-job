@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use job_agency::{
-  Agency, ConfirmAnswer, Mapping, Reply, Resume, RouteAsk, RunClosing, RunOpening, SessionId, TurnAsking,
-  TurnMapping, TurnSeat, TurnState,
+  Agency, ConfirmAnswer, Mapping, Reply, Resume, RouteAsk, RunClosing, RunOpening, TurnAsking, TurnMapping,
+  TurnSeat, TurnState,
 };
 use job_base::Refusal;
 use job_gate::{Gate, KnowledgeAsked};
@@ -135,7 +135,6 @@ pub async fn carry_turn(
   stopping: &AtomicBool,
   closes_at: Option<i64>,
 ) -> Result<Carried, Refusal> {
-  let agency = &stand.ground.agency;
   let turns = &stand.ground.turns;
   let variables: BTreeMap<String, String> = carry
     .told
@@ -190,11 +189,8 @@ pub async fn carry_turn(
     };
     let stop = stopping.load(Ordering::SeqCst) || closes_at.is_some_and(|at| now_ms() >= at);
 
-    if stop
-      && interrupted.is_none()
-      && let Some(session) = turn.session.clone()
-    {
-      let _ = agency.interrupt_session(&SessionId(session)).await;
+    if stop && interrupted.is_none() {
+      let _ = turns.interrupt(&prepared.turn).await;
       interrupted = Some(String::new());
     }
 
@@ -218,7 +214,7 @@ pub async fn carry_turn(
           words: Some(NO_QUESTION.to_owned()),
         };
 
-        turns.answer(&prepared.turn, &question.id, &answer).map_err(agency_failed)?;
+        turns.answer(&prepared.turn, &question.id, &answer).await.map_err(agency_failed)?;
       }
       TurnState::Running { question: None } => {}
     }

@@ -1,6 +1,6 @@
 //! Agent sessions: one agent's conversation on a provider, kept by bmo-agency and carried on its session
 //! contract: how a turn sent into one ended, what the session stands on, the question its turn waits on and
-//! what the turn has written; and the starts and ends of their turns its event stream tells.
+//! what the turn has written.
 
 use std::fmt;
 
@@ -114,14 +114,6 @@ pub struct Turn {
   pub context: TurnContext,
 }
 
-/// A turn put into a session began: the session and the run it goes out as.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TurnStarted {
-  pub session: SessionId,
-  pub run: String,
-  pub at: i64,
-}
-
 /// What a turn came to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -179,34 +171,4 @@ pub struct Output {
   pub run: String,
   pub running: bool,
   pub text: String,
-}
-
-/// How a turn put into a session ended: its answer where it answered, why where it failed, and the engine's
-/// error where its engine ended it with one.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TurnEnded {
-  pub session: SessionId,
-  pub run: String,
-  pub outcome: TurnOutcome,
-  pub answer: Option<String>,
-  pub reason: Option<String>,
-  pub engine_error: Option<EngineError>,
-}
-
-/// One event of a session's turns, as the event stream tells it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TurnEvent {
-  Started(TurnStarted),
-  Ended(TurnEnded),
-}
-
-impl TurnEvent {
-  /// The session the event is of.
-  pub fn session(&self) -> &SessionId {
-    match self {
-      Self::Started(started) => &started.session,
-      Self::Ended(ended) => &ended.session,
-    }
-  }
 }

@@ -16,18 +16,12 @@ use crate::{
   LaunchHeld, LogLine, LogNote, Mapping, Node, Output, Pin, PinChoice, PlaceAsk, PlaceRecord, PlaceWrite,
   PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, Provider, Reply, Reservation,
   ReservationAsking, Room, RoomReturns, RouteAsk, Run, RunClosing, RunOpening, Session, SessionAnswered,
-  SessionId, SessionKept, SessionState, SshReach, Start, TakenPlace, Tier, Turn, TurnEnd, TurnEvent,
-  TurnEvents, TurnRecord, Workbench, WorkerRuntime,
+  SessionId, SessionKept, SessionState, SshReach, Start, TakenPlace, Tier, Turn, TurnEnd, TurnRecord,
+  Workbench, WorkerRuntime,
 };
 
 /// The kind of event bmo-agency publishes once a held launch's notice is let go for the room returned.
 const ROOM_RETURNED: &str = "machine-room-returned";
-
-/// The kind of event bmo-agency publishes as a turn put into a session begins.
-const TURN_STARTED: &str = "turn-started";
-
-/// The kind of event bmo-agency publishes as a turn put into a session ends.
-const TURN_ENDED: &str = "turn-ended";
 
 /// The code bmo-agency refuses a read by an id with where it keeps nothing there, as the base chat library
 /// names it. Any other 404, a path it serves no route on among them, is a refusal.
@@ -473,18 +467,6 @@ impl Agency for AgencyClient {
       self.answer("sessions", self.request(Method::GET, &["session", "list"], &[])).await?;
 
     Ok(listed.sessions)
-  }
-
-  async fn turn_events(&self) -> Answer<TurnEvents> {
-    let kinds = format!("{TURN_STARTED},{TURN_ENDED}");
-
-    self
-      .events("turn_events", &kinds, |kind, data| match kind {
-        TURN_STARTED => Some(serde_json::from_str(data).map(TurnEvent::Started)),
-        TURN_ENDED => Some(serde_json::from_str(data).map(TurnEvent::Ended)),
-        _ => None,
-      })
-      .await
   }
 
   async fn executions(&self, open_only: bool) -> Answer<Vec<Execution>> {

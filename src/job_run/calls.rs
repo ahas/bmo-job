@@ -168,7 +168,7 @@ impl<A: Agency + Clone + 'static, G: Gate, Gr: Graph + Sync, T: Testbed> Calls
     question: &'a str,
     answer: &'a ConfirmAnswer,
   ) -> BoxFuture<'a, Result<(), Refusal>> {
-    Box::pin(async move { self.turns.answer(turn, question, answer).map_err(agency_failed) })
+    Box::pin(async move { self.turns.answer(turn, question, answer).await.map_err(agency_failed) })
   }
 
   fn carry_out_reset<'a>(&'a self, worker: &'a str) -> BoxFuture<'a, Result<bool, Refusal>> {

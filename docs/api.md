@@ -1489,7 +1489,10 @@ id of its own, and the job's runner and a research run read it by that id as it 
 
 - **The session a preparing continues** is a harness session: under `auto`, the `continues` the worker's
   state answers read with the asking's `model`; under `session`, the one named; none under `fresh`, and
-  none for a session thrown away, whose every turn is fresh.
+  none for a session thrown away, whose every turn is fresh. A worker's prompt is composed for that
+  session, so its send goes with `resume` naming it, or `fresh` where the preparing named none: a session
+  the turn settles on that is not the one named, a lost one among them, comes back `reprepared` for the
+  prompt to be composed again, never answered on a prompt composed for another.
 - **A work turn's parts** are sent as the asking names them: `provider`, `model`, `mapping`, `resume`,
   `cwd`, `name`, `title`, `thread`, `chat`, `unit`, `user`, `work_key`, `hears_words` and `variables`. The
   asking's `agent` and `seat` choose the session and are not sent; its `job` and `item` go as the turn's

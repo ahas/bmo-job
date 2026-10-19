@@ -36,7 +36,7 @@ pub use routes::{Mapping, PinChoice, Provider, RouteAsk, Tier};
 pub use runs::{Run, RunClosing, RunOpening};
 pub use sessions::{
   Context, Delivery, EngineError, Output, Scope, Session, SessionId, SessionState, Start, Turn,
-  TurnContext, TurnEnd, TurnEnded, TurnEvent, TurnOutcome, TurnStarted,
+  TurnContext, TurnEnd, TurnOutcome,
 };
 pub use turns::{
   AccountFailure, AsideOutcome, ConfirmAnswer, Confirmation, Handover, JobDocuments, LiveTask, ModelSpend,
@@ -77,10 +77,6 @@ pub enum AgencyError {
 
 /// What a call on bmo-agency comes back with.
 pub type Answer<T> = Result<T, AgencyError>;
-
-/// Each start and end of a session's turn bmo-agency tells, from the moment the stream opens until it ends; a
-/// failure reading it ends the stream.
-pub type TurnEvents = BoxStream<'static, Answer<TurnEvent>>;
 
 /// Each time bmo-agency says the machine's room returned, for as long as its stream stays open; a failure
 /// reading it ends the stream.
@@ -132,9 +128,6 @@ pub trait Agency: Send + Sync {
 
   /// Lists the sessions.
   fn sessions(&self) -> impl Future<Output = Answer<Vec<Session>>> + Send;
-
-  /// Hears the starts and ends of the sessions' turns, from the moment the stream opens until it ends.
-  fn turn_events(&self) -> impl Future<Output = Answer<TurnEvents>> + Send;
 
   /// Lists the executions, only those not yet ended where `open_only`.
   fn executions(&self, open_only: bool) -> impl Future<Output = Answer<Vec<Execution>>> + Send;

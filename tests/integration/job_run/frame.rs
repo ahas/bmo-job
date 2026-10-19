@@ -13,6 +13,9 @@ use crate::support::desk::{Desk, OWNER_CHAT};
 use crate::support::job::{Bench, WORKER, git};
 use crate::support::turns::{Agent, FINISHED, GRAPH_TOLD, Played, TRAILER, commit_work, reply};
 
+/// The harness session a work order's middle turn answered on.
+const HARNESS_SESSION: &str = "h-step";
+
 #[tokio::test]
 async fn a_done_job_on_a_base_checkout_beside_support_workers_works_on_its_branch_and_is_put_back_on_main()
 {
@@ -132,7 +135,13 @@ async fn a_work_order_s_middle_turn_ends_with_its_answer_for_the_order_to_read()
     ),
     (
       "POST /session/turn",
-      json!({ "delivery": "taken", "run": "turn:1", "outcome": "answered", "answer": "The step's result" }),
+      json!({
+        "delivery": "taken",
+        "run": "turn:1",
+        "outcome": "answered",
+        "answer": "The step's result",
+        "reply": { "mode": "claude-code", "model": "claude-opus-5", "text": "The step's result", "sessionId": HARNESS_SESSION }
+      }),
     ),
     (
       "GET /session/state",
@@ -211,7 +220,10 @@ async fn a_work_order_s_middle_turn_ends_with_its_answer_for_the_order_to_read()
   );
   let answered = &body("POST /workers/{worker}/sessions/record")["answered"];
 
-  assert_eq!((&answered["mode"], &answered["sessionId"]), (&json!("claude-code"), &json!(session)));
+  assert_eq!(
+    (&answered["mode"], &answered["sessionId"]),
+    (&json!("claude-code"), &json!(HARNESS_SESSION))
+  );
   // A middle turn hands nothing over.
   assert!(
     !calls.iter().any(|call| call.route == "POST /workers/{worker}/sessions/handover"),

@@ -22,6 +22,8 @@ fn routes() -> Router<Shared> {
     .route("/session/turn", post(take))
     .route("/session/push", post(take))
     .route("/session/state", get(take))
+    .route("/session/answer", post(take))
+    .route("/session/output", get(take))
     .route("/session/interrupt", post(take))
     .route("/session/fold", post(take))
     .route("/session/end", post(take))

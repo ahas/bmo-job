@@ -7,13 +7,13 @@ use std::path::PathBuf;
 
 use futures_util::StreamExt;
 use job_agency::{
-  Agency, AgencyClient, AgencyError, AsideOutcome, Confirmation, Context, Delivery, EngineError, Execution,
-  HeldPlace, JobLines, LaunchHeld, LogLine, Mapping, Node, Pin, PinChoice, PlaceAsk, PlaceRecord,
-  PlaceWrite, PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, PoolState, Provider, Question,
+  Agency, AgencyClient, AgencyError, AsideOutcome, Confirmation, Context, Delivery, Execution, HeldPlace,
+  JobLines, LaunchHeld, LogLine, Mapping, Node, Pin, PinChoice, PlaceAsk, PlaceRecord, PlaceWrite,
+  PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, PoolState, Provider, Question,
   Reservation, ReservationAsking, ReservationState, Resume, Room, RoomReturned, RouteAsk, Run, RunClosing,
   RunOpening, Scope, Session, SessionId, SessionState, SshReach, Start, TakenPlace, Tier, ToolCall,
-  ToolResult, Turn, TurnContext, TurnEnded, TurnEvent, TurnMapping, TurnOutcome, TurnRecord,
-  TurnRecordKind, TurnStarted, WentOut, WorkParts, Workbench, WorkerRuntime,
+  ToolResult, Turn, TurnContext, TurnMapping, TurnOutcome, TurnRecord, TurnRecordKind, WentOut, WorkParts,
+  Workbench, WorkerRuntime,
 };
 use serde_json::{Map, Value, json};
 use support::agency::{Stub, TOKEN};
@@ -509,47 +509,6 @@ async fn sessions_lists_every_session() {
 
   assert_eq!(scopes, [Scope::Agent, Scope::Worker]);
   stub.took("GET /session/list", "/session/list", None);
-}
-
-#[tokio::test]
-async fn turn_events_hears_the_starts_and_ends_of_turns_until_the_stream_ends() {
-  let stub = Stub::start().await;
-
-  stub.answer_events(
-    "GET /events",
-    concat!(
-      ": a comment between events\n\n",
-      "event: turn-started\ndata: {\"session\":\"s-1\",\"run\":\"turn:a:1\",\"at\":1}\n\n",
-      "event: road-walked\ndata: {\"stage\":\"chat\"}\n\n",
-      "event: turn-ended\ndata: {\"session\":\"s-1\",\"run\":\"turn:a:1\",\"outcome\":\"failed\",",
-      "\"answer\":null,\"reason\":\"it died\",\"engineError\":{\"kind\":\"rate_limit\"}}\n\n",
-    ),
-  );
-
-  let events: Vec<TurnEvent> =
-    stub.client().turn_events().await.unwrap().map(|event| event.unwrap()).collect().await;
-
-  assert_eq!(
-    events,
-    [
-      TurnEvent::Started(TurnStarted {
-        session: session_id(),
-        run: "turn:a:1".into(),
-        at: 1,
-      }),
-      TurnEvent::Ended(TurnEnded {
-        session: session_id(),
-        run: "turn:a:1".into(),
-        outcome: TurnOutcome::Failed,
-        answer: None,
-        reason: Some("it died".into()),
-        engine_error: Some(EngineError {
-          kind: Some("rate_limit".into()),
-        }),
-      }),
-    ]
-  );
-  stub.took("GET /events", "/events?kinds=turn-started%2Cturn-ended", None);
 }
 
 #[tokio::test]
