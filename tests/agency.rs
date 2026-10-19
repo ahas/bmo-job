@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use futures_util::StreamExt;
 use job_agency::{
   Agency, AgencyClient, AgencyError, AsideOutcome, Confirmation, Context, Delivery, Execution, HeldPlace,
-  JobLines, LaunchHeld, LogLine, Mapping, Node, Pin, PinChoice, PlaceAsk, PlaceRecord, PlaceWrite,
-  PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, PoolState, Provider, Question,
+  HookPoint, JobLines, LaunchHeld, LogLine, Mapping, Node, Pin, PinChoice, PlaceAsk, PlaceRecord,
+  PlaceWrite, PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, PoolState, Provider, Question,
   Reservation, ReservationAsking, ReservationState, Resume, Room, RoomReturned, RouteAsk, Run, RunClosing,
   RunOpening, Scope, Session, SessionId, SessionState, SshReach, Start, TakenPlace, Tier, ToolCall,
   ToolResult, Turn, TurnContext, TurnMapping, TurnOutcome, TurnRecord, TurnRecordKind, WentOut, WorkParts,
@@ -123,6 +123,7 @@ fn reservation_asking() -> ReservationAsking {
     owner: "owner-1".into(),
     source: "research".into(),
     role: "builder".into(),
+    work_key: "search".into(),
     provider: "provider-a".into(),
     model: "model-a".into(),
     effort: None,
@@ -139,6 +140,7 @@ fn reservation_json() -> Value {
     "owner": "owner-1",
     "source": "research",
     "role": "builder",
+    "workKey": "search",
     "provider": "provider-a",
     "model": "model-a",
     "effort": null,
@@ -712,13 +714,13 @@ async fn run_tool_calls_counts_the_agent_s_tool_lines_in_the_run_s_log() {
 }
 
 #[tokio::test]
-async fn job_last_line_reads_the_line() {
+async fn job_last_line_reads_the_line_and_its_seconds_as_milliseconds() {
   let stub = Stub::start().await;
 
   stub.answer(
     "GET /log/jobs/{job}/last",
     200,
-    json!({ "id": 80, "at": 5_000, "kind": "tool", "name": "Bash" }),
+    json!({ "id": 80, "at": 5, "kind": "tool", "name": "Bash" }),
   );
 
   let line = stub.client().job_last_line(12).await.unwrap();
@@ -736,7 +738,7 @@ async fn job_last_line_reads_the_line() {
 }
 
 #[tokio::test]
-async fn job_lines_reads_the_calls_results_and_counts() {
+async fn job_lines_reads_the_calls_results_and_counts_with_runs_named_and_seconds_as_milliseconds() {
   let stub = Stub::start().await;
 
   stub.answer(
@@ -746,22 +748,22 @@ async fn job_lines_reads_the_calls_results_and_counts() {
       "calls": [{
         "id": 81,
         "agent": "agent",
-        "run": 17,
+        "run": "job-17",
         "reference": "call-1",
         "name": "Bash",
         "source": "event-1",
-        "at": 5_100,
+        "at": 5,
         "command": "cargo check",
         "args": "{\"command\":\"cargo check\"}"
       }],
       "results": [{
         "id": 82,
         "agent": "agent",
-        "run": 17,
+        "run": "job-17",
         "reference": "call-1",
         "complete": false,
         "length": 90_000,
-        "at": 5_200
+        "at": 7
       }],
       "requests": 4,
       "compactions": 1
@@ -776,22 +778,22 @@ async fn job_lines_reads_the_calls_results_and_counts() {
       calls: vec![ToolCall {
         id: 81,
         agent: "agent".into(),
-        run: Some(17),
+        run: Some("job-17".into()),
         reference: Some("call-1".into()),
         name: "Bash".into(),
         source: Some("event-1".into()),
-        at: 5_100,
+        at: 5_000,
         command: Some("cargo check".into()),
         args: Some("{\"command\":\"cargo check\"}".into()),
       }],
       results: vec![ToolResult {
         id: 82,
         agent: "agent".into(),
-        run: Some(17),
+        run: Some("job-17".into()),
         reference: Some("call-1".into()),
         complete: false,
         length: Some(90_000),
-        at: 5_200,
+        at: 7_000,
       }],
       requests: 4,
       compactions: 1,
@@ -1373,6 +1375,7 @@ async fn enqueue_request_posts_what_agency_resolves_the_request_from() {
       "selection": "top",
       "tier": "top",
       "provider": "provider-a",
+      "workKey": "job-worker",
       "yielding": false,
       "placeKey": null
     })),
@@ -1380,17 +1383,24 @@ async fn enqueue_request_posts_what_agency_resolves_the_request_from() {
 }
 
 #[tokio::test]
-async fn a_branch_s_seat_is_enqueued_as_co_work() {
+async fn a_branch_s_seat_is_enqueued_under_its_own_source_and_work_key() {
   let stub = Stub::start().await;
-  let asking = PoolAsking {
-    turn: false,
-    ..pool_asking()
-  };
 
-  stub.answer("POST /pool/enqueue", 200, pool_request_json("waiting", None));
-  stub.client().enqueue_request(&asking).await.unwrap();
+  for (source, work_key) in [("cowork", "role:builder"), ("search", "search")] {
+    let asking = PoolAsking {
+      turn: false,
+      source: source.into(),
+      work_key: work_key.into(),
+      ..pool_asking()
+    };
 
-  assert_eq!(stub.calls()[0].body.as_ref().unwrap()["source"], "cowork");
+    stub.answer("POST /pool/enqueue", 200, pool_request_json("waiting", None));
+    stub.client().enqueue_request(&asking).await.unwrap();
+
+    let sent = stub.calls().last().and_then(|call| call.body.clone()).unwrap();
+
+    assert_eq!((sent["source"].as_str(), sent["workKey"].as_str()), (Some(source), Some(work_key)));
+  }
 }
 
 #[tokio::test]
@@ -1499,6 +1509,7 @@ async fn reserve_seats_posts_what_agency_resolves_the_seats_from() {
       "selection": "top",
       "tier": "top",
       "provider": "provider-a",
+      "workKey": "search",
       "count": 3
     })),
   );
@@ -1943,5 +1954,52 @@ async fn a_path_segment_is_percent_encoded() {
     "POST /workers/{worker}/words",
     "/workers/a%20b%2Fc%3Fd/words",
     Some(json!({ "text": "hello" })),
+  );
+}
+
+// Hooks.
+
+#[tokio::test]
+async fn hook_points_reads_each_point_and_whether_it_is_registered() {
+  let stub = Stub::start().await;
+
+  stub.answer(
+    "GET /hooks",
+    200,
+    json!({ "points": [{ "point": "open-items", "registered": true }, { "point": "worker-words", "registered": false }] }),
+  );
+
+  let points = stub.client().hook_points().await.unwrap();
+
+  assert_eq!(
+    points,
+    [
+      HookPoint {
+        point: "open-items".into(),
+        registered: true
+      },
+      HookPoint {
+        point: "worker-words".into(),
+        registered: false
+      }
+    ]
+  );
+  stub.took("GET /hooks", "/hooks", None);
+}
+
+#[tokio::test]
+async fn register_hook_posts_the_point_and_its_address() {
+  let stub = Stub::start().await;
+
+  stub.answer("POST /hooks", 200, json!({ "ok": true }));
+  stub
+    .client()
+    .register_hook("open-items", "http://job.invalid/agency/hooks/open-items")
+    .await
+    .unwrap();
+  stub.took(
+    "POST /hooks",
+    "/hooks",
+    Some(json!({ "point": "open-items", "url": "http://job.invalid/agency/hooks/open-items" })),
   );
 }

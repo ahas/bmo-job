@@ -1,12 +1,12 @@
 //! The co-worker pool: requests for a co-worker's place, reservations of seats, and the writes a place
-//! was given. bmo-agency resolves the provider, model, effort and work key a request or a reservation runs
-//! on itself, from its role, its tier and the provider it names, and answers what it resolved.
+//! was given. bmo-agency resolves the provider, model and effort a request or a reservation runs on itself,
+//! from its role, its tier and the provider it names under the work key sent, and answers what it resolved.
 
 use serde::{Deserialize, Serialize};
 
 /// A pool request's asking: what it is enqueued with, and, as a request answers it, what bmo-agency
-/// resolved it to. Of the asking only the key, the owner, whether it is a turn's, the role, the tier, the
-/// provider, `yielding` and the place key are sent.
+/// resolved it to. Of the asking only the key, the owner, the source, the role, the work key, the tier,
+/// the provider, `yielding` and the place key are sent; a turn's is sent under the source `turn`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PoolAsking {
@@ -64,6 +64,8 @@ pub struct ReservationAsking {
   pub owner: String,
   pub source: String,
   pub role: String,
+  /// The work key the seats are resolved and kept under.
+  pub work_key: String,
   pub provider: String,
   pub model: String,
   pub effort: Option<String>,

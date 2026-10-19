@@ -1,7 +1,7 @@
 //! `serve` (docs/api.md, "Routes"): the database migrated up, the routes served on `[server] listen` over the
 //! service's verbs until the process is told to stop, the work-order runner started beside them, the
-//! service declared to bmo-receiver as a holder of rooms' rows, and bmo-agency heard for the machine's room
-//! returning.
+//! service declared to bmo-receiver as a holder of rooms' rows, bmo-agency heard for the machine's room
+//! returning, and the service's hooks kept registered at bmo-agency.
 
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -61,6 +61,9 @@ async fn served(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> {
 
   // The room on the machine returning tells the queue again; bmo-agency says so on its event stream.
   tokio::spawn(server::hear_room_returns(server.clone()));
+
+  // bmo-agency asks the service at the hooks it registers, and forgets them when it starts again.
+  tokio::spawn(server::keep_hooks(server.agency.clone(), standing.address.url().to_string()));
 
   eprintln!("bmo-job: serving on {}", listener.local_addr()?);
   server::serve(listener, server, stopping()).await?;

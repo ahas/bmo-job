@@ -67,7 +67,7 @@ fn call(id: i64, name: &str, at: i64, reference: &str, command: Option<&str>) ->
   ToolCall {
     id,
     agent: "worker".into(),
-    run: Some(1),
+    run: Some("job-1".into()),
     reference: Some(reference.into()),
     name: name.into(),
     source: None,
@@ -81,7 +81,7 @@ fn result(id: i64, at: i64, reference: &str) -> ToolResult {
   ToolResult {
     id,
     agent: "worker".into(),
-    run: Some(1),
+    run: Some("job-1".into()),
     reference: Some(reference.into()),
     complete: true,
     length: Some(10),

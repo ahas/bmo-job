@@ -32,4 +32,5 @@ pub mod word_files;
 pub mod work_orders;
 pub mod work_turns;
 pub mod worker_rules;
+pub mod worker_words;
 pub mod workers;

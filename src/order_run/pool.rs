@@ -264,6 +264,7 @@ pub async fn reserve_next_stage(ground: &Ground<'_>, roster: &Roster, order: &Va
       owner: owner_of(order),
       source: COWORK.to_owned(),
       role: seat.role.clone(),
+      work_key: role_key(&seat.role),
       provider: found.provider,
       model: found.model,
       effort: found.effort,

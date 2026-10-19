@@ -412,6 +412,7 @@ pub async fn reserve_places(
     owner: owner.to_owned(),
     source: source.to_owned(),
     role: role.to_owned(),
+    work_key: LINE.to_owned(),
     provider: mapping.provider,
     model: mapping.model,
     effort: mapping.effort,

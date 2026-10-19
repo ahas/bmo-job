@@ -4,6 +4,7 @@
 
 pub mod client;
 pub mod executions;
+pub mod hooks;
 pub mod log;
 pub mod machine;
 pub mod nodes;
@@ -23,6 +24,7 @@ use futures_util::stream::BoxStream;
 
 pub use client::AgencyClient;
 pub use executions::Execution;
+pub use hooks::HookPoint;
 pub use log::{JobLines, LogLine, LogNote, ToolCall, ToolResult};
 pub use machine::{LaunchHeld, Room, RoomReturned};
 pub use nodes::{Node, SshReach};
@@ -316,4 +318,10 @@ pub trait Agency: Send + Sync {
 
   /// Where the copy of a node's checkout is kept on this machine.
   fn node_copy(&self, node: &str, checkout: &str) -> impl Future<Output = Answer<String>> + Send;
+
+  /// Lists the hook points and whether one is registered at each.
+  fn hook_points(&self) -> impl Future<Output = Answer<Vec<HookPoint>>> + Send;
+
+  /// Registers an address at a hook point, in place of any before.
+  fn register_hook(&self, point: &str, url: &str) -> impl Future<Output = Answer<()>> + Send;
 }

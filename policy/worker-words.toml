@@ -1,26 +1,5 @@
-# A word said to a worker (docs/policy.md), by every process that hands one over. Each `{name}` is filled
-# in with what it names; {owner} and {agent} are the deployment's names.
-
-# How long a word's turn on the worker's session is given before the agent is asked whether to cut it. It
-# is longer than the keepalive's ping, which wants nothing back, and shorter than a job, which has a whole
-# item to do; a word on a pinned provider's road has no clock.
-answer_minutes = 10
-
-# How often the words still waiting for a worker are offered again: a word is offered the moment it is
-# said, so this carries a word whose pane was busy with a ping, a fold or a job that ended without it.
-tick_seconds = 5
-
-# How long a word held by a pane waiting on a person's answer is left before it is offered again; a word
-# said meanwhile is offered at once all the same.
-person_wait_seconds = 60
-
-# How much of the words the agent's question at the clock carries, in characters: the words stand whole
-# in the worker's log.
-head_chars = 300
-
-# What the agent's question at the clock names the turn and its clock by, with `{worker}` and `{words}`.
-question_what = 'a word {owner} said straight to worker {worker}, answered in a turn of its own (no TODO item): "{words}"'
-question_clock = "the clock on a word said to a worker"
+# What a worker is told the words said to it in (docs/policy.md), answered at bmo-agency's hook
+# `worker-words`. Each `{name}` is filled in with what it names; {owner} is the deployment's name.
 
 # The label each word's block carries as the worker reads it, the one an item's own words carry beside it.
 block_label = "Said to you by {owner}"
@@ -34,25 +13,3 @@ task_open = "{owner} said this to you directly rather than through the bot. It i
 task_close = "Do what it asks and answer {owner}. Your answer is shown to {owner} as it stands on your own screen in the console, under what was said there, so write it to {owner} in Korean and keep it as short as the thing itself allows."
 more_open = "{owner} said more to you directly while you were answering. It goes with what you are answering and is not a job."
 more_close = "Take it in and answer everything {owner} said in the one answer you write, in Korean."
-
-# The line written under a word for what held it, once for each reason.
-[held]
-person = "The pane is stopped at a question waiting for a person's answer, so the word could not be put in. It is put in again once that question is answered"
-untrusted = "The folder trust question did not clear, so the word could not be put in. It is put in again"
-unsubmitted = "The word did not go from the input box into a turn, so it is put in again"
-stopped = "The turn was stopped and the word did not go in. It is put in again"
-disabled = "The Claude Code provider is off, so the word could not be put in. It is put in once the provider is on"
-lost = "The CLI lost its session, so the word is put in again in a new session"
-resting = "The worker is resting, so the word could not be put in. It is put in once the rest ends"
-job_waiting = "The running job is waiting for a person's answer, so the word could not be put in. It is put in once that answer is done"
-in_job = "Put into the running job's turn"
-
-# The line written under the last word a turn took where it wrote no answer. `{clock}` is the clock in
-# minutes, `{why}` the agent's reason, `{provider}` the pinned provider and `{failure}` what its run
-# failed with.
-[ended]
-silent = "The worker ended the turn without an answer"
-cut_by_agent = "The turn reached its {clock}-minute clock and was cut on {agent}'s judgement"
-cut_by_agent_why = "The turn reached its {clock}-minute clock and was cut on {agent}'s judgement: {why}"
-cut_by_bot = "The turn reached its {clock}-minute clock, {agent} did not answer, and the bot cut it"
-pinned_failed = "No answer came from {provider}: {failure}"

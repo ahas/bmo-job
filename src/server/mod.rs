@@ -33,6 +33,9 @@ use crate::verbs::{Moment, Verbs};
 /// How often the service declares itself a holder again until bmo-receiver takes it.
 const DECLARE_AGAIN: Duration = Duration::from_secs(60);
 
+/// How often the service looks at bmo-agency's hook points to register its own where they stand unregistered.
+const HOOKS_AGAIN: Duration = Duration::from_secs(60);
+
 /// How long the service waits to open bmo-agency's event stream again once it could not or it ended.
 const LISTEN_AGAIN: Duration = Duration::from_secs(5);
 
@@ -163,6 +166,39 @@ pub async fn declare_holder(receiver: ReceiverClient, unit: String, holder: Hold
     }
 
     tokio::time::sleep(DECLARE_AGAIN).await;
+  }
+}
+
+/// One look at bmo-agency's hook points: each the service answers that stands unregistered is registered at
+/// the service's route for it, under `address`, the service's own (docs/api.md, "Hooks" under bmo-agency).
+/// Answers the points it registered.
+pub async fn register_hooks(agency: &impl Agency, address: &str) -> Result<Vec<&'static str>, Refusal> {
+  let points = agency.hook_points().await.map_err(units::agency)?;
+  let mut registered = vec![];
+
+  for point in routes::hooks::POINTS {
+    if points.iter().any(|one| one.point == point && one.registered) {
+      continue;
+    }
+
+    let url = format!("{}{}/{point}", address.trim_end_matches('/'), routes::hooks::HOOKS_PATH);
+
+    agency.register_hook(point, &url).await.map_err(units::agency)?;
+    registered.push(point);
+  }
+
+  Ok(registered)
+}
+
+/// The service's hooks kept registered at bmo-agency for as long as the process runs: looked at every
+/// minute, since a registration lasts only as long as bmo-agency's own process.
+pub async fn keep_hooks(agency: AgencyClient, address: String) {
+  loop {
+    if let Err(failed) = register_hooks(&agency, &address).await {
+      eprintln!("bmo-job: bmo-agency's hooks are not registered: {failed}");
+    }
+
+    tokio::time::sleep(HOOKS_AGAIN).await;
   }
 }
 

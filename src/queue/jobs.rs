@@ -128,6 +128,16 @@ pub async fn unfinished(db: &impl ConnectionTrait) -> Result<Vec<OpenJob>, Refus
     .collect()
 }
 
+/// The items a job of which is not yet finished, each once, in order.
+pub async fn items_at_work(db: &impl ConnectionTrait) -> Result<Vec<i64>, Refusal> {
+  let mut items: Vec<i64> = unfinished(db).await?.into_iter().filter_map(|job| job.todo_id).collect();
+
+  items.sort_unstable();
+  items.dedup();
+
+  Ok(items)
+}
+
 /// The last job a unit ran, where one is: its row and whether it has finished.
 pub async fn of_unit(db: &impl ConnectionTrait, unit: &str) -> Result<Option<(i64, bool)>, Refusal> {
   let row = one(

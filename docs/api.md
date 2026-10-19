@@ -1038,8 +1038,8 @@ What the service serves, on the address `[server] listen` binds and other units 
   questions, run stops, runners, workers, a worker's word and the co-worker pool board are the
   service's own verb code, each behind a trait the server is built on; the build that carries none for
   a verb answers its routes `not_built`. The queue's holds, the readings, the open items, a room's open
-  questions, the work a worker session holds, a room's holdings, the talk about an item and the event
-  stream are served by the server itself.
+  questions, the work a worker session holds, a room's holdings, the talk about an item, the event
+  stream and the hooks bmo-agency asks are served by the server itself.
 
 ### Health
 
@@ -1366,6 +1366,25 @@ sends only what changed and a fold forgets what it folded away.
 - Nothing of the stream is kept: the last five hundred events are held in memory, and the ids count the
   running service's own run.
 
+### Hooks bmo-agency asks
+
+| Route | Request | Answer |
+|---|---|---|
+| `POST /agency/hooks/{point}` | `point`, `ask` | `answer`: the point's answer, null where it has none |
+
+- **bmo-agency asks the service at the points it answers,** each registered there under this route with
+  the point's name in the path ("Hooks" under bmo-agency). The body is bmo-agency's own, so its keys are
+  camelCase. A point the service does not answer is refused `route_absent`, and an ask that does not read
+  as its point's `field_wrong`.
+- **`open-items`:** asked with nothing, it answers `items`, the numbers of every item a job of which is
+  open, each once, in order. bmo-agency removes the scratch of every other item.
+- **`worker-words`:** asked with `worker`, `way` and `words`, each `text` and `saidAt`, it answers the
+  whole text the worker is told the words in. `way` is how they reach it: `task`, a turn of their own;
+  `aside`, into the turn a job of the worker's is working; `more`, into the turn answering earlier words.
+  The text opens with the paragraph of its way, puts each word in a block labelled as said by the owner
+  with the moment it was said, and closes with the way's closing paragraph (docs/policy.md,
+  `worker-words.toml`).
+
 ## Calls on other units
 
 ### bmo-agency
@@ -1381,9 +1400,10 @@ HTTP to the address it is given.
 - **Every call carries bmo-agency's control token** as a bearer token in its `Authorization` header.
   The token is given with the address.
 - **A body is JSON, both ways,** with camelCase keys, but for the run ledger's, whose keys are its
-  columns' names in snake_case. A time is epoch milliseconds, but for the run ledger's and a rest's,
-  which are epoch seconds; a count and a token count are whole numbers, and a field written with a
-  question mark may be null.
+  columns' names in snake_case. A time is epoch milliseconds, but for the run ledger's, a rest's and a
+  job's log lines', which are epoch seconds; the crate hands a log line's time on in milliseconds, as
+  every other time of the service's stands. A count and a token count are whole numbers, and a field
+  written with a question mark may be null.
 - **A path segment is an id as it stands,** percent-encoded where it needs to be.
 - **An answer with no body is 204.** An answer with a body is 200, or 201 where the call creates
   something.
@@ -1393,9 +1413,6 @@ HTTP to the address it is given.
   route on among them, is a refusal.
 - **Any other refusal** carries the body of "A refused request": `error` and `code`. The client hands
   both on as they stand, with the status, and decides nothing on the sentence.
-- **A call bmo-agency serves no route for yet** is marked so where it stands below. The service makes it
-  as written there, on that path and with that body, so it stands ready for the route bmo-agency adds;
-  until then bmo-agency refuses it 404 `not-found`, which the call hands on as a refusal.
 - **A call that does not reach bmo-agency,** or an answer that does not read as its shape, is a failure
   of the call naming which call it was.
 
@@ -1564,10 +1581,9 @@ before a run of that name starts again.
 | List the executions | `GET /executions?open={true or false}` | | a list of executions: only those not yet ended where `open` is true |
 | Read one | `GET /executions/{id}` | | an execution |
 | Stop a run | `POST /runs/stop` | `run`: a unit's name or an execution's | `ok` |
-| Drop the cancels it covers | `DELETE /executions/{id}/cancel` | | `dropped`: the list of executions whose asked cancel was dropped |
+| Drop the cancels it covers | `DELETE /executions/{id}/cancel` | | `dropped`: the names whose cancel stood until then |
 
-- **bmo-agency serves the stop alone.** The two reads and the drop are served by no route of its yet; it
-  takes a stop's cancellations back only inside a stop of several runs at once, never on its own.
+- **The executions are listed latest first.** A read of an execution no row holds is nothing found.
 - **An execution:** `id`, `parent?`, `root?`, `line?`, `sharedPane` (true where it runs in a pane it
   shares), `startedAt?`, `endedAt?`, `outcome?` (the outcome it recorded as it ended, as an object),
   `cancelled` (true where a cancel asked of it, or of an execution that covers it, still stands), and
@@ -1616,18 +1632,19 @@ note into it.
   last line of the one before, until a page holds fewer than five hundred lines, and counts the lines of
   the kind `start` the agent wrote. **Counting its tool calls** reads it the same way and counts the
   lines of the kind `tool` the agent wrote.
-- **bmo-agency serves the counts' read alone.** Its run log is read by the run's name, not by a job's, and
-  nothing writes a line into it across its boundary, so the two reads by job and the note are served by
-  no route of its yet.
+- **A job's lines are read by the job,** across every run its turns were logged under; each line's `at`
+  is in epoch seconds.
 - **A job's lines:**
-  - `calls`: each top-level tool call, as `id`, `agent`, `run?`, `reference?`, `name`, `source?`, `at`,
-    `command?` (the command it ran, where it ran one) and `args?` (its arguments, cut to 2000
-    characters);
-  - `results`: each tool result, as `id`, `agent`, `run?`, `reference?`, `complete` (false where the
-    result was cut), `length?` and `at`;
+  - `calls`: each top-level tool call, as `id`, `agent`, `run?` (the name the line is kept under),
+    `reference?`, `name`, `source?`, `at`, `command?` (the command it ran, where it ran one) and `args?`
+    (its arguments, cut to 2000 characters);
+  - `results`: each tool result, as `id`, `agent`, `run?` (the name the line is kept under),
+    `reference?`, `complete` (false where the result was cut), `length?` and `at`;
   - `requests`: how many model requests the job's run made;
   - `compactions`: how many times its context was compacted.
 - A job with no line has nothing found as its last line and empty lists as its lines.
+- **A note** is written as a line of the kind `note`; its `state?` is one of `requested`, `running`,
+  `succeeded`, `failed` and `unverified`.
 
 #### Turn records
 
@@ -1639,8 +1656,6 @@ beside the agent log, which those checks read for a run that kept none; the serv
 |---|---|---|---|
 | Keep a turn record | `POST /turn-records` | a turn record | 204 |
 
-- **bmo-agency serves no route that keeps one yet;** it answers a run's records (`GET /run-records`) but
-  takes none across its boundary.
 - **A turn record:** `run` (the run's name, as the run was handed it), `kind`, `text` (what was written:
   the row's title or the words appended), `recordId?` (the row it landed in), `wakes` (whether it set
   something that wakes the agent) and `at`.
@@ -1672,13 +1687,15 @@ agent row.
   bmo-agency refuses with 400 a choice that names nothing that could run the worker.
 - **Words said to a worker** are the owner's to it rather than to the agent: bmo-agency writes them
   down with their line in the worker's log and offers them to the worker's session at once, and a work
-  turn that hears words takes them in while it runs. bmo-agency serves no route for them yet; the
-  session contract's push reaches only a turn already working.
+  turn that hears words takes them in while it runs; where no turn takes them, they go in a turn of
+  their own. The clocks they are offered on and the lines written under them are bmo-agency's; what the
+  worker is told them in is the service's, answered at the hook `worker-words` ("Hooks bmo-agency
+  asks"). bmo-agency refuses with 400 an empty text or a worker no row names.
 
 A worker's sessions, its records and its bench are kept by bmo-agency too. A reset the owner asked of the
 worker's sessions, the record of the session a job's turn answered on and that turn's usage are carried
 out by bmo-agency's worker turn itself ("Sessions"), so a job's run asks none of them; it asks for the
-rest its turns leave behind below. bmo-agency serves none of these calls yet.
+rest its turns leave behind below.
 
 | Call | Method and path | Request | Answer |
 |---|---|---|---|
@@ -1700,11 +1717,6 @@ rest its turns leave behind below. bmo-agency serves none of these calls yet.
 
 #### Routes, tiers and pins
 
-bmo-agency serves none of these calls yet. Its tier settings (`GET /model-tiers`) name the tier ladder and
-each provider with whether it is on, but not which providers lend co-workers, which are registered, the
-lines each carries or the order they are walked in, nor which tiers a co-worker may run at; and it
-resolves a route and checks a pin only inside the calls that need one, a pool request and a worker's pin.
-
 | Call | Method and path | Request | Answer |
 |---|---|---|---|
 | List the providers | `GET /providers` | | a list of `name`, `enabled`, `registered`, `coworker` (true where it lends co-workers), `lines` (the work lines it carries) |
@@ -1719,6 +1731,9 @@ resolves a route and checks a pin only inside the calls that need one, a pool re
 - **A pin's value** is `auto`, a provider's name, or a provider and a model joined by `::`.
 - **A pin choice** is an object holding `kind`: `auto`, or `pinned` with the fields of a pin. A value
   that names no provider that is on, or a model with no address, is refused with 400.
+- **A route nothing serves** is answered 404 `nothing-held`: a provider that is off, a tier its provider
+  maps to nothing, or an effort the provider would not launch. A tier not on the ladder is refused 400.
+- **A provider's cache lifetime** is bmo-agency's own reading, asked by no call.
 
 #### The co-worker pool
 
@@ -1727,34 +1742,35 @@ as the tiers' capacity allows.
 
 | Call | Method and path | Request | Answer |
 |---|---|---|---|
-| Enqueue a request | `POST /pool/enqueue` | `source`, `requestKey`, `owner`, `role`, `selection`, `tier`, `provider`, `yielding`, `placeKey?` | a pool request |
+| Enqueue a request | `POST /pool/enqueue` | `source`, `requestKey`, `owner`, `role`, `selection`, `tier`, `provider`, `workKey`, `yielding`, `placeKey?` | a pool request |
 | Read a request | `GET /pool/requests/{token}` | | a pool request |
 | List open requests | `GET /pool/requests?owner={owner}` | | a list of pool requests waiting or active; the owner may be left out |
 | Let it in | `POST /pool/acquire` | `token` | `request`: the pool request let in, or null while it waits |
 | Bind its child | `POST /pool/bind` | `token`, `childId` | a pool request |
 | Finish it | `POST /pool/finish` | `token`, `outcome`, `cancel` | `held`: false where it had already ended |
-| Reserve seats | `POST /pool/reserve` | `reservationKey`, `owner`, `source`, `role`, `selection`, `tier`, `provider`, `count` | a reservation |
+| Reserve seats | `POST /pool/reserve` | `reservationKey`, `owner`, `source`, `role`, `selection`, `tier`, `provider`, `workKey`, `count` | a reservation |
 | List held reservations | `GET /pool/reservations?owner={owner}` | | `reservations`: those held; the owner may be left out |
 | Release a reservation | `POST /pool/reservations/release` | `token`, `outcome` | `held`: false where it was no longer held |
 | Record a place's write | `PUT /pool/places/{place}/write` | `provider`, `model`, `effort?`, `upstream?` | 204 |
 | List the roles | `GET /pool/roles` | | a list of `name`, `description`, `enabled`, `pooled` (true where the pool lends it as a co-worker), `tier` (the tier it runs at by default) |
 | Read a tier's room | `GET /coworker-pool` | | `buckets`: each provider's tier the pool holds, with `provider`, `tier`, `capacity`, `tiles` (each place's `state`: `working`, `held` or `idle`) and `waiting` (the requests waiting on it) |
 
-- **bmo-agency serves no route yet** for reading a request by its token, listing the open requests,
-  recording a place's write or listing the pool's roles.
 - **bmo-agency resolves what a request or a reservation runs on itself:** the provider, model and effort
-  from its role, its tier and the provider it names, under the work key `role:<role>`. So the asking's
-  model, effort and work key are not sent; the `selection` sent is the asking's tier, which names no
-  provider of its own; and the request or the reservation answers what bmo-agency resolved.
-- **A request's source** is sent as `turn` for a builder turn's place and `cowork` for any other, a
-  branch's seat; bmo-agency enqueues no other. A request answers `worker` for a builder turn's and
-  `cowork` for a branch's. A reservation's source is sent as it stands.
+  from its role, its tier and the provider it names, under the work key sent, and keeps that key for
+  every later reading of it. A work order's request or reservation sends `role:<role>`, a research run's
+  the research line's own key. So the asking's model and effort are not sent; the `selection` sent is
+  the asking's tier, which names no provider of its own; and the request or the reservation answers what
+  bmo-agency resolved.
+- **A request's source** is sent as `turn` for a builder turn's place and as the asking's own label for
+  any other, a branch's seat: `cowork` for a co-work branch, the run's source (`search` or `browse`) for
+  a research branch. A request answers `worker` for a builder turn's and its label as sent for a
+  branch's. A reservation's source is sent as it stands.
 - **A pool request:** `token`, `requestKey`, `owner`, `source`, `role`, `workKey`, `provider`, `model`,
   `effort?`, `tier`, `yielding`, `placeKey?`, `turn`, `reservation?`, `state` (`waiting`, `reserved`,
   `active`, or `released` or `cancelled`, both read as ended), `enqueuedAt`, `leasedAt?`, `childId?`
   (the unit launched into its place), `endedAt?` and `outcome?`; a field beyond these is not read.
-- **A reservation:** `token`, `reservationKey`, `owner`, `source`, `role`, `provider`, `model`,
-  `effort?`, `tier`, `wanted` (how many seats), `state` (`held` or `released`) and `createdAt`.
+- **A reservation:** `token`, `reservationKey`, `owner`, `source`, `role`, `workKey`, `provider`,
+  `model`, `effort?`, `tier`, `wanted` (how many seats), `state` (`held` or `released`) and `createdAt`.
 - **A tier's room** is read off its bucket: its `capacity`, its tiles `working` as the places leased,
   its tiles `held` as those reserved, and its `waiting` as those asked for. A provider's tier the pool
   holds no bucket for has no room.
@@ -1766,14 +1782,16 @@ as the tiers' capacity allows.
 
 #### Nodes
 
-bmo-agency serves none of these calls yet. Its health (`GET /health`) carries the nodes as its node
-service keeps them, each its `node`, `label`, `state` and `detail`, but not their `kind`.
+bmo-agency hands on the nodes as its node service reads them.
 
 | Call | Method and path | Request | Answer |
 |---|---|---|---|
 | List the nodes | `GET /nodes` | | a list of `name`, `label`, `kind`, `role?`, `state`, `checkedAt?` |
 | Read a node's SSH reach | `GET /nodes/{name}/reach` | | `host`, `port`, `user`, `keyPath?`, `shell?` |
 | Read a node checkout's copy | `GET /nodes/{name}/copy?checkout={path}` | | `path`: where the copy of the node's checkout is kept on this machine |
+
+- **A node's `kind`** is `ssh`, or `jake` for a node reached through a hub. A node reached through a hub,
+  or one not listed, has no SSH reach: nothing found.
 
 #### Claude accounts
 
@@ -1784,8 +1802,6 @@ service keeps them, each its `node`, `label`, `state` and `detail`, but not thei
 | Rest a login | `POST /rest` | `until` (epoch seconds), `kind` `limit`, `account` | `silenced`: whether this rest is the one that silenced the deployment |
 | Rest after a job's usage | `POST /accounts/claude/{account}/usage-rest` | `usage` | 204 |
 
-- **bmo-agency serves the rest alone.** The account check, the record homes and the rest after a job's
-  usage are served by no route of its yet.
 - **A rest** keeps every run off the login until the moment given: its window went full.
 - **The rest a job's usage calls for** is judged by bmo-agency from the session usage a done job's
   reply reported, handed on as it stands.
@@ -1821,11 +1837,29 @@ service keeps them, each its `node`, `label`, `state` and `detail`, but not thei
   A stream that cannot be opened or that ends is opened again a few seconds later; what was published
   while none was open is heard by nobody, and the queue's next moment tells it.
 
+#### Hooks
+
+bmo-agency hands up a decision at a hook point a consumer registers at, and asks it there; a point no
+consumer registered answers bmo-agency's default.
+
+| Call | Method and path | Request | Answer |
+|---|---|---|---|
+| List the points | `GET /hooks` | | `points`: each `point` and whether one is `registered` |
+| Register at a point | `POST /hooks` | `point`, `url` | `ok` |
+
+- **The service answers two points,** `open-items` and `worker-words`, at its own route for each
+  ("Hooks bmo-agency asks"), the address being `[server] address` (docs/settings.md). It sends no token,
+  since its routes take none.
+- **A registration lasts as long as bmo-agency's process.** From the moment it starts, the service lists
+  the points every minute and registers each of its own that stands unregistered, so a bmo-agency started
+  again is registered within the minute. A list or a registration that fails is logged and asked again
+  the next minute.
+
 #### Places
 
 bmo-agency keeps a work order's branch places itself, as its standing checkouts, and chooses among them
 (docs/queue.md, "Branch places"). The service names, with each ask, the places its tasks sit in now; it
-keeps no list of places of its own. bmo-agency serves no route yet for reading a worker's workbench.
+keeps no list of places of its own.
 
 | Call | Method and path | Request | Answer |
 |---|---|---|---|

@@ -1,6 +1,7 @@
 //! The routes the server answers itself, each through the real server over a scratch database (docs/api.md,
 //! "Routes"): health, the queue's holds, the work a worker session holds, the workers and branch agents, a
-//! room's holdings, the readings, the talk about an item and the event stream, and what any route refuses.
+//! room's holdings, the readings, the talk about an item, the event stream and the hooks bmo-agency asks,
+//! and what any route refuses.
 
 mod support;
 
@@ -260,6 +261,118 @@ async fn the_open_items_are_those_not_finished_merged_or_held_oldest_first_with_
 
     assert_eq!((status, code(&body)), (400, "field_wrong"), "{asked}");
   }
+}
+
+#[tokio::test]
+async fn the_open_items_hook_answers_each_item_a_job_of_which_is_open_once() {
+  let served = Served::start().await;
+
+  served
+    .seed(
+      r#"INSERT INTO "jobs" ("chat_id", "unit", "launched_at", "finished_at", "prompt", "todo_id", "worker") VALUES
+         (-100, 'bmo-task-a', 1, NULL, 'Do it.', 9, 'worker'),
+         (-100, 'bmo-task-b', 2, NULL, 'Do it.', 4, 'worker'),
+         (-100, 'bmo-task-c', 3, NULL, 'Do it.', 9, 'worker'),
+         (-100, 'bmo-task-d', 4, 5, 'Do it.', 6, 'worker'),
+         (-100, 'bmo-task-e', 5, NULL, 'Do it.', NULL, 'worker')"#,
+      vec![],
+    )
+    .await;
+
+  assert_eq!(
+    served
+      .post("/agency/hooks/open-items", json!({ "point": "open-items", "ask": null }))
+      .await,
+    (200, json!({ "answer": { "items": [4, 9] } }))
+  );
+}
+
+#[tokio::test]
+async fn the_worker_words_hook_words_them_by_their_way_as_the_owner_s() {
+  let served = Served::start().await;
+  let ask = |way: &str| {
+    json!({
+      "point": "worker-words",
+      "ask": { "worker": "worker-a", "way": way, "words": [{ "text": "Look at the logs.", "saidAt": 0 }, { "text": "Then stop.", "saidAt": 1_000 }] }
+    })
+  };
+  let (status, body) = served.post("/agency/hooks/worker-words", ask("aside")).await;
+  let told = body["answer"].as_str().unwrap_or_default();
+  let blocks: Vec<&str> = told.split("\n\n").collect();
+
+  assert_eq!(status, 200);
+  assert!(
+    blocks[0].starts_with("Owner said this to you directly, right now in this turn"),
+    "{told}"
+  );
+  assert!(blocks[1].starts_with("Said to you by Owner (1970-01-01T00:00:00.000Z):"), "{told}");
+  assert!(blocks[1].contains("Look at the logs."), "{told}");
+  assert!(blocks[2].starts_with("Said to you by Owner (1970-01-01T00:00:01.000Z):"), "{told}");
+  assert!(blocks[3].starts_with("Take it into what you are doing now"), "{told}");
+
+  let (_, body) = served.post("/agency/hooks/worker-words", ask("task")).await;
+
+  assert!(
+    body["answer"]
+      .as_str()
+      .unwrap_or_default()
+      .starts_with("Owner said this to you directly rather than")
+  );
+
+  let (_, body) = served.post("/agency/hooks/worker-words", ask("more")).await;
+
+  assert!(
+    body["answer"]
+      .as_str()
+      .unwrap_or_default()
+      .starts_with("Owner said more to you directly")
+  );
+
+  let (status, body) = served.post("/agency/hooks/worker-words", ask("sideways")).await;
+
+  assert_eq!((status, code(&body)), (400, "field_wrong"));
+
+  let (status, body) = served
+    .post("/agency/hooks/room-title", json!({ "point": "room-title", "ask": 1 }))
+    .await;
+
+  assert_eq!((status, code(&body)), (404, "route_absent"));
+}
+
+#[tokio::test]
+async fn the_hooks_standing_unregistered_are_registered_at_the_service_s_address() {
+  let served = Served::start().await;
+
+  served.agency.answer(
+    "GET /hooks",
+    200,
+    json!({ "points": [
+      { "point": "open-items", "registered": true },
+      { "point": "worker-words", "registered": false },
+      { "point": "room-title", "registered": false }
+    ] }),
+  );
+  served.agency.answer("POST /hooks", 200, json!({ "ok": true }));
+
+  let registered = bmo_job::server::register_hooks(&served.server.agency, "http://job.invalid/")
+    .await
+    .unwrap();
+
+  let posted: Vec<Option<Value>> = served
+    .agency
+    .calls()
+    .into_iter()
+    .filter(|call| call.route == "POST /hooks")
+    .map(|call| call.body)
+    .collect();
+
+  assert_eq!(registered, ["worker-words"]);
+  assert_eq!(
+    posted,
+    [Some(
+      json!({ "point": "worker-words", "url": "http://job.invalid/agency/hooks/worker-words" })
+    )]
+  );
 }
 
 #[tokio::test]

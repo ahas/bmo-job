@@ -12,11 +12,11 @@ use url::Url;
 
 use crate::workers::{AgentRow, runtime_of};
 use crate::{
-  Agency, AgencyError, Answer, AsideOutcome, ConfirmAnswer, Execution, Handover, JobDocuments, JobLines,
-  LaunchHeld, LogLine, LogNote, Mapping, Node, Output, Pin, PinChoice, PlaceAsk, PlaceRecord, PlaceWrite,
-  PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, Provider, Reservation, ReservationAsking,
-  Room, RoomReturns, RouteAsk, Run, RunClosing, RunOpening, Session, SessionId, SessionState, SshReach,
-  Start, TakenPlace, Tier, Turn, TurnEnd, TurnRecord, Workbench, WorkerRuntime,
+  Agency, AgencyError, Answer, AsideOutcome, ConfirmAnswer, Execution, Handover, HookPoint, JobDocuments,
+  JobLines, LaunchHeld, LogLine, LogNote, Mapping, Node, Output, Pin, PinChoice, PlaceAsk, PlaceRecord,
+  PlaceWrite, PlacesRetirement, PoolAsking, PoolRequest, PoolRole, PoolRoom, Provider, Reservation,
+  ReservationAsking, Room, RoomReturns, RouteAsk, Run, RunClosing, RunOpening, Session, SessionId,
+  SessionState, SshReach, Start, TakenPlace, Tier, Turn, TurnEnd, TurnRecord, Workbench, WorkerRuntime,
 };
 
 /// The kind of event bmo-agency publishes once a held launch's notice is let go for the room returned.
@@ -50,11 +50,9 @@ const KEEPALIVE_STOPPED: &str = "keepaliveStopped";
 /// The kind of the rest a full window writes on a login.
 const LIMIT_REST: &str = "limit";
 
-/// The source bmo-agency enqueues a builder turn's place under; any other request is a branch's seat.
+/// The source bmo-agency enqueues a builder turn's place under; any other request is a branch's seat, kept
+/// under the label it is sent with.
 const TURN_SOURCE: &str = "turn";
-
-/// The source bmo-agency enqueues a branch's seat under.
-const COWORK_SOURCE: &str = "cowork";
 
 /// The state a tile of the pool's board stands in while its request is let in.
 const WORKING_TILE: &str = "working";
@@ -178,6 +176,11 @@ struct Health {
 #[derive(Deserialize)]
 struct Copy {
   path: String,
+}
+
+#[derive(Deserialize)]
+struct Points {
+  points: Vec<HookPoint>,
 }
 
 /// The failure a status that is no success stands for: bmo-agency's refusal where its body reads as one.
@@ -583,7 +586,7 @@ impl Agency for AgencyClient {
   }
 
   async fn enqueue_request(&self, asking: &PoolAsking) -> Answer<PoolRequest> {
-    let source = if asking.turn { TURN_SOURCE } else { COWORK_SOURCE };
+    let source = if asking.turn { TURN_SOURCE } else { asking.source.as_str() };
     let request = self.request(Method::POST, &["pool", "enqueue"], &[]).json(&json!({
       "source": source,
       "requestKey": asking.request_key,
@@ -592,6 +595,7 @@ impl Agency for AgencyClient {
       "selection": asking.tier,
       "tier": asking.tier,
       "provider": asking.provider,
+      "workKey": asking.work_key,
       "yielding": asking.yielding,
       "placeKey": asking.place_key,
     }));
@@ -645,6 +649,7 @@ impl Agency for AgencyClient {
       "selection": asking.tier,
       "tier": asking.tier,
       "provider": asking.provider,
+      "workKey": asking.work_key,
       "count": asking.wanted,
     }));
 
@@ -855,5 +860,17 @@ impl Agency for AgencyClient {
     let copy: Copy = self.answer("node_copy", request).await?;
 
     Ok(copy.path)
+  }
+
+  async fn hook_points(&self) -> Answer<Vec<HookPoint>> {
+    let listed: Points = self.answer("hook_points", self.request(Method::GET, &["hooks"], &[])).await?;
+
+    Ok(listed.points)
+  }
+
+  async fn register_hook(&self, point: &str, url: &str) -> Answer<()> {
+    let request = self.request(Method::POST, &["hooks"], &[]).json(&json!({ "point": point, "url": url }));
+
+    self.done("register_hook", request).await
   }
 }

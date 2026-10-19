@@ -44,7 +44,7 @@ fn call(id: i64, reference: &str, at: i64, command: &str) -> ToolCall {
   ToolCall {
     id,
     agent: "worker".into(),
-    run: Some(1),
+    run: Some("job-1".into()),
     reference: Some(reference.into()),
     name: "Bash".into(),
     source: Some("claude-code".into()),
@@ -58,7 +58,7 @@ fn answer(id: i64, reference: &str, at: i64, length: u64) -> ToolResult {
   ToolResult {
     id,
     agent: "worker".into(),
-    run: Some(1),
+    run: Some("job-1".into()),
     reference: Some(reference.into()),
     complete: true,
     length: Some(length),

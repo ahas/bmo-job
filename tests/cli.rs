@@ -459,7 +459,7 @@ async fn research_run_opens_its_ledger_entry_carries_its_turn_on_a_session_throw
     200,
     json!({
       "reservationKey": "search-run:42:branches", "owner": "search-run:42", "source": "search", "role": "scout",
-      "provider": "claude-code", "model": "small", "effort": null, "tier": "Simple", "wanted": 2,
+      "workKey": "search", "provider": "claude-code", "model": "small", "effort": null, "tier": "Simple", "wanted": 2,
       "token": "reservation-1", "state": "held", "createdAt": 1
     }),
   );
@@ -484,7 +484,10 @@ async fn research_run_opens_its_ledger_entry_carries_its_turn_on_a_session_throw
   );
   assert!(in_seconds(&opened["started_at"]), "{opened}");
   assert_eq!(opened["search_id"], 7);
-  assert_eq!(world.agency_took("POST /pool/reserve")[0]["owner"], "search-run:42");
+  let reserved = &world.agency_took("POST /pool/reserve")[0];
+
+  // The branches' seats are resolved under the research line's own key.
+  assert_eq!((&reserved["owner"], &reserved["workKey"]), (&json!("search-run:42"), &json!("search")));
 
   let scope = &world.agency_took("POST /session/start")[0]["scope"];
   let sent = &world.agency_took("POST /session/turn")[0];
@@ -586,6 +589,11 @@ async fn research_branch_fails_its_angle_in_a_pool_place_and_refuses_one_after_r
   );
   assert_eq!(world.agency_took("POST /session/start")[0]["scope"]["role"], "scout");
   assert_eq!(world.agency_took("POST /pool/finish")[0]["outcome"], "failed: it died");
+
+  let asked = &world.agency_took("POST /pool/enqueue")[0];
+
+  // A research branch's seat is kept under the run's own source and the research line's key.
+  assert_eq!((&asked["source"], &asked["workKey"]), (&json!("search"), &json!("search")));
 
   let ran = world.run_fed(&[&words[..], &["--closes-at", "1"]].concat(), "Too late.\n").await;
 

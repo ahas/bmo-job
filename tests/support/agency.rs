@@ -81,6 +81,7 @@ fn routes() -> Router<Shared> {
     .route("/accounts/claude/{account}/usage-rest", post(take))
     .route("/log/notes", post(take))
     .route("/nodes/{name}/copy", get(take))
+    .route("/hooks", get(take).post(take))
 }
 
 impl Stub {

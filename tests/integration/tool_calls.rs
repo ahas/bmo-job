@@ -18,7 +18,7 @@ fn used(seconds: i64, reference: &str, name: &str, input: Value) -> ToolCall {
   ToolCall {
     id: seconds,
     agent: "worker".into(),
-    run: Some(1),
+    run: Some("job-1".into()),
     reference: Some(reference.into()),
     name: name.into(),
     source: None,
@@ -36,7 +36,7 @@ fn answered(seconds: i64, reference: &str) -> ToolResult {
   ToolResult {
     id: 10_000 + seconds,
     agent: "worker".into(),
-    run: Some(1),
+    run: Some("job-1".into()),
     reference: Some(reference.into()),
     complete: true,
     length: Some(2),

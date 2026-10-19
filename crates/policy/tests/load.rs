@@ -22,7 +22,7 @@ fn every_part_loads_from_the_checked_in_example() {
   assert!(policy.research.holds("browse"));
   assert!(!policy.work_keys.profile.is_empty());
   assert!(!policy.work_turns.plan.is_empty());
-  assert!(policy.worker_words.answer_minutes > 0);
+  assert!(!policy.worker_words.paragraphs.task_open.is_empty());
   assert!(policy.workers.name_pattern.starts_with('^'));
   assert!(!policy.close.usage.close.is_empty());
   assert!(!policy.closing.words.proposing.is_empty());
@@ -58,15 +58,16 @@ fn the_rules_read_and_the_first_support_worker_follows_the_base() {
 }
 
 #[test]
-fn a_word_is_offered_again_before_a_held_one_and_answered_inside_its_clock() {
+fn a_word_said_to_a_worker_is_labelled_and_told_as_the_owner_said_it() {
   let words = &policy().worker_words;
+  let said = &words.paragraphs;
 
-  assert!(words.tick_seconds < words.person_wait_seconds);
-  assert!(words.person_wait_seconds < words.answer_minutes * 60);
-  assert!(words.question_what.contains("{worker}") && words.question_what.contains("{words}"));
-  assert!(words.question_what.contains("{owner}") && words.block_label.contains("{owner}"));
-  assert!(words.ended.cut_by_agent.contains("{agent}"));
-  assert!(words.ended.cut_by_agent_why.contains("{why}"));
+  assert!(words.block_label.contains("{owner}"));
+  assert!(
+    [&said.aside_open, &said.task_open, &said.more_open]
+      .iter()
+      .all(|open| open.contains("{owner}"))
+  );
 }
 
 #[test]
