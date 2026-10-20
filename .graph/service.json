@@ -5,6 +5,7 @@
     "what": "The repository rules held as tests of the root package: no Hangul, no personal data, the contract naming nothing of its callers, the committed contract being generated, the layout and the dependencies.",
     "files": [
       "docs/checks.md",
+      "docs/PERSONAL-DATA.md",
       "tests/hangul.rs",
       "tests/personal.rs",
       "tests/openapi.rs",
@@ -14,8 +15,8 @@
     "symbols": [],
     "aliases": [],
     "needs": [],
-    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
-    "changed": 1792499162950
+    "base": "0ecc411c9eff8ca9bd5fc150090d65d6b055d714",
+    "changed": 1792523080182
   },
   {
     "id": "service/deploy",

@@ -15,12 +15,22 @@ carries them and a change that breaks a rule fails like any other test.
 
 ## No personal data
 
+- **The rule:** `docs/PERSONAL-DATA.md` states what the repository may not hold, where a value goes instead,
+  and the values it allows.
 - **What it reads:** every file in the repository, at any depth, skipping build output, git's directory,
   installed packages and a deployment's `settings.toml`.
-- **What fails:** a home directory, `/home/` followed by a name, as a user's home is written; and the name of
-  the machine the check runs on, as a whole word in any case. A failure names each file and line, and what it
-  found there.
-- **The check writes down no name of its own:** the machine's name is read where it stands.
+- **What fails:** each of these, with every line named by file, line and what was found there:
+  - a home directory: a Unix-like `/home/`, `/Users/` or `/root/` followed by a name, or a Windows path's
+    `Users` folder followed by one;
+  - an email address, other than the address the rule allows;
+  - a telephone number written in groups, with an optional country or area code;
+  - a credential: a long value assigned to a token, key, secret or password name, and the shape a vendor
+    gives its keys;
+  - a private network address in the RFC 1918 ranges or the link-local range; a loopback address is
+    neither and passes;
+  - the name of the machine the check runs on, as a whole word in any case.
+- **The check keeps no list of personal terms:** it matches shapes, reads the machine's name where it stands,
+  and allows only the values the rule names.
 
 ## The contract names nothing of its callers
 

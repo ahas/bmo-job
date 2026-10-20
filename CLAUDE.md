@@ -35,7 +35,7 @@ These rules hold every change to this repository.
   for a machine. Words a person reads in another language are the web console's language packs.
 - No personal data: no user names, home directories, machine names or names of any agent. The personal-data
   check in `tests/` holds this over the whole tree, and the contract check holds the API, its tools and the
-  skill free of every caller's concepts.
+  skill free of every caller's concepts. `docs/PERSONAL-DATA.md` states the rule and the values it allows.
 
 ## Layout
 

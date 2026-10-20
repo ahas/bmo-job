@@ -34,6 +34,7 @@ this repository is tested, checked, built and deployed, docs/deploy.md), `rustfm
 | `docs/schema.md` | The schema: the tables and the rules they keep |
 | `docs/deploy.md` | Deploying the service: what a release holds, where the service stands, and what gates a deployment |
 | `docs/checks.md` | The repository checks |
+| `docs/PERSONAL-DATA.md` | The personal data the repository may not hold, where a value goes instead, and the values it allows |
 
 ## Version
 
