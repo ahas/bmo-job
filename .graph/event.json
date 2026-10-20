@@ -1,0 +1,76 @@
+[
+  {
+    "id": "event/delivery",
+    "title": "Webhook delivery",
+    "what": "The one call the service makes: each matching event posted to a subscription url in order, signed under its secret, retried, and moved to failing after a run of failures.",
+    "files": [
+      "docs/api.md",
+      "src/delivery.rs",
+      "crates/client/src/signature.rs"
+    ],
+    "symbols": [
+      "deliver",
+      "DeliveryPolicy",
+      "signature",
+      "signed_by",
+      "SUBSCRIPTION_HEADER",
+      "SIGNATURE_HEADER"
+    ],
+    "aliases": [],
+    "needs": [
+      "event/events",
+      "event/subscriptions"
+    ],
+    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "changed": 1792499162913
+  },
+  {
+    "id": "event/events",
+    "title": "Events and the stream",
+    "what": "The one event stream and the page of it, kept for a seven-day window and narrowed by kinds, scope, item and subscription; events told by every change.",
+    "files": [
+      "docs/api.md",
+      "src/store/events.rs",
+      "src/server/stream.rs",
+      "crates/client/src/events.rs"
+    ],
+    "symbols": [
+      "events",
+      "publish",
+      "EVENT_WINDOW_MS",
+      "EventFilter",
+      "EventKeys",
+      "Event",
+      "EventQuery",
+      "NewEvent"
+    ],
+    "aliases": [],
+    "needs": [],
+    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "changed": 1792499170042
+  },
+  {
+    "id": "event/subscriptions",
+    "title": "Subscriptions",
+    "what": "Subscriptions to events by kind, queue, scope and item, pushed to a url or read as a stream, with their span, failures and moves.",
+    "files": [
+      "docs/api.md",
+      "src/store/subscriptions.rs",
+      "crates/client/src/subscriptions.rs"
+    ],
+    "symbols": [
+      "subscriptions",
+      "subscribe",
+      "subscription",
+      "change_subscription",
+      "unsubscribe",
+      "Subscription"
+    ],
+    "aliases": [],
+    "needs": [
+      "event/events"
+    ],
+    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "changed": 1792499162910
+  }
+]

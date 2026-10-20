@@ -1,0 +1,29 @@
+[
+  {
+    "id": "question/questions",
+    "title": "Questions and replies",
+    "what": "Questions asked about an item or on their own, with their choices, due clock and states, and the replies that settle them or add a word.",
+    "files": [
+      "docs/api.md",
+      "src/store/questions.rs",
+      "crates/client/src/questions.rs"
+    ],
+    "symbols": [
+      "questions",
+      "ask",
+      "question",
+      "change_question",
+      "replies",
+      "reply",
+      "Question",
+      "Reply"
+    ],
+    "aliases": [],
+    "needs": [
+      "item/items",
+      "event/events"
+    ],
+    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "changed": 1792499162933
+  }
+]

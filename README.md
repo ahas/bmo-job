@@ -17,6 +17,7 @@ through the `bmo-job` plugin: the MCP server `bmo-job mcp` and its skill.
 | `deploy/` | The service's user unit, which runs `bmo-job serve` out of the deploy tree (docs/deploy.md) |
 | `tests/` | The root package's tests: the repository checks, the contract's checks, every route through the real server, and the binary as a unit and a harness run it |
 | `docs/` | The canonical statements of what the service does, and `openapi.json`, the contract as the code generates it |
+| `.graph/` | The code dependency graph: the repository's settings, one node per feature with its files and the features it needs, and a boundary node for each API the service exposes |
 
 At the root stand the Cargo workspace manifest, the version, `testbed.toml` (bmo-testbed's declaration of how
 this repository is tested, checked, built and deployed, docs/deploy.md), `rustfmt.toml`, `CLAUDE.md` and

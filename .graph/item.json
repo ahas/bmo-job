@@ -1,0 +1,132 @@
+[
+  {
+    "id": "item/items",
+    "title": "Items",
+    "what": "Items raised as drafts, read in queue order, and moved through their states by a change: the fields, approvals, merge and standing lease the API document states.",
+    "files": [
+      "docs/api.md",
+      "src/store/items.rs",
+      "crates/client/src/items.rs"
+    ],
+    "symbols": [
+      "create_item",
+      "item",
+      "items",
+      "change_item",
+      "Item",
+      "Approval",
+      "NewItem",
+      "ItemChange"
+    ],
+    "aliases": [],
+    "needs": [
+      "queue/queues",
+      "event/events"
+    ],
+    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "changed": 1792499170045
+  },
+  {
+    "id": "item/notes",
+    "title": "Notes",
+    "what": "Notes appended to an item after it was raised, read past a cursor with a wait, and taken back, each told as an event.",
+    "files": [
+      "docs/api.md",
+      "src/store/notes.rs",
+      "crates/client/src/notes.rs"
+    ],
+    "symbols": [
+      "notes",
+      "add_note",
+      "delete_note",
+      "Note",
+      "NewNote"
+    ],
+    "aliases": [],
+    "needs": [
+      "item/items",
+      "event/events"
+    ],
+    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "changed": 1792499162922
+  },
+  {
+    "id": "item/reports",
+    "title": "Reports",
+    "what": "Reports the one doing an item appends to it, of a progress, final or held kind, which move no state.",
+    "files": [
+      "docs/api.md",
+      "src/store/reports.rs",
+      "crates/client/src/reports.rs"
+    ],
+    "symbols": [
+      "reports",
+      "add_report",
+      "Report",
+      "NewReport"
+    ],
+    "aliases": [],
+    "needs": [
+      "item/items",
+      "event/events"
+    ],
+    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "changed": 1792499170048
+  },
+  {
+    "id": "item/scopes",
+    "title": "Scopes",
+    "what": "What the service holds under the scope a caller gives, counted, and letting all of it go, each member told as its deleted event, with a dry run that changes nothing.",
+    "files": [
+      "docs/api.md",
+      "src/store/scopes.rs",
+      "crates/client/src/scopes.rs"
+    ],
+    "symbols": [
+      "scope",
+      "delete_scope",
+      "ScopeHolding",
+      "ScopeCounts"
+    ],
+    "aliases": [],
+    "needs": [
+      "item/items",
+      "item/notes",
+      "item/reports",
+      "item/work-orders",
+      "queue/leases",
+      "question/questions",
+      "event/subscriptions"
+    ],
+    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "changed": 1792499162935
+  },
+  {
+    "id": "item/work-orders",
+    "title": "Work orders and tasks",
+    "what": "The one work order an item has, and the tasks its steps make, with their states and moves, saved whole or changed, as the API document states them.",
+    "files": [
+      "docs/api.md",
+      "src/store/work_orders.rs",
+      "crates/client/src/work_orders.rs"
+    ],
+    "symbols": [
+      "work_order",
+      "put_work_order",
+      "change_work_order",
+      "tasks",
+      "task",
+      "change_task",
+      "WorkOrder",
+      "Task",
+      "TaskQuery"
+    ],
+    "aliases": [],
+    "needs": [
+      "item/items",
+      "event/events"
+    ],
+    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "changed": 1792499170061
+  }
+]
