@@ -1,50 +1,9 @@
-# The service's settings (docs/settings.md). A deployment copies this file to `settings.toml`, which
-# git ignores, and gives its own database, names and addresses.
-
-[database]
-url = "sqlite://job.db?mode=rwc"
-
-[deployment]
-owner_name = "Owner"
-agent_name = "Agent"
-agent_key = "agent"
-sender_name = "Agent"
-receiver_unit = "receiver"
-owner_chat = 100
-wording = "/srv/owner/WORDING.md"
+# The service's settings (docs/settings.md). A deployment gives its own as `settings.toml`, which git ignores,
+# or names another file in BMO_JOB_SETTINGS.
 
 [server]
 listen = "127.0.0.1:7841"
-address = "http://127.0.0.1:7841"
-unit = "job"
+token_file = "/srv/job/token"
 
-[units]
-agency = "http://127.0.0.1:7842"
-agency_token = "/srv/job/agency.token"
-gate = "http://127.0.0.1:7843"
-receiver = "http://127.0.0.1:7844"
-web = "http://127.0.0.1:7845"
-graph = "http://127.0.0.1:7846"
-brain = "http://127.0.0.1:7848"
-brain_token = "/srv/job/brain.token"
-siren = "http://127.0.0.1:7847"
-
-[host]
-source = "/srv/job/source"
-testbed = "/srv/job/bin/testbed"
-systemctl = "/usr/bin/systemctl"
-systemd_run = "/usr/bin/systemd-run"
-runner = "/srv/job/bin/bmo-job"
-runner_directory = "/srv/job"
-runner_path = "/usr/local/bin:/usr/bin:/bin"
-runner_environment = "/srv/job/job.env"
-locks = "/srv/job/locks"
-prompts = "/srv/job/prompts"
-lock_wait_seconds = 20
-launcher = "/srv/job/bin/launcher"
-launcher_directory = "/srv/job"
-documents = "/srv/job/work-orders"
-tree = "/srv/platform"
-testbed_logs = "/srv/job/testbed-logs"
-brain = "/srv/brain"
-worker_homes = "/srv/job/worker-homes"
+[database]
+url = "sqlite://job.db?mode=rwc"

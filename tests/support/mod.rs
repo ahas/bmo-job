@@ -1,41 +1,36 @@
-//! What the root package's tests share: the root and the walk over the files the repository checks read,
-//! and the stand-ins for bmo-agency, bmo-brain, bmo-gate, bmo-graph, bmo-receiver, bmo-testbed and bmo-web
-//! the ports' contract tests call.
+//! What the root package's tests share: the root and the walk over the files the repository checks read, and
+//! the service run in process on loopback over a scratch database, its clock moved by hand.
 
 // Each test file is its own crate and uses only part of this module.
 #![allow(dead_code)]
 
-pub mod agency;
-pub mod brain;
-pub mod desk;
-pub mod gate;
-pub mod graph;
-pub mod job;
-pub mod program;
-pub mod queue;
-pub mod receiver;
-pub mod runner;
-pub mod server;
-pub mod stub;
-pub mod testbed;
-pub mod todo;
-pub mod turns;
-pub mod web;
-
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use bmo_job::{App, Clock, DeliveryPolicy, Store};
+use bmo_job_client::{ApprovalGiven, Item, ItemChange, ItemState, JobClient, NewItem};
+use tempfile::TempDir;
+use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
 
 pub const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
-/// Directories no check reads: build output and git's own.
-const SKIPPED: [&str; 2] = ["target", ".git"];
+/// The token every test's service takes.
+pub const TOKEN: &str = "test-token";
+
+/// Where every test's clock starts.
+pub const START: i64 = 1_700_000_000_000;
+
+/// Directories no check reads: build output, git's own and installed packages.
+const SKIPPED: [&str; 3] = ["target", ".git", "node_modules"];
 
 pub fn is_skipped(name: &str) -> bool {
   SKIPPED.contains(&name)
 }
 
-/// Every file under `dir`, at any depth, skipping build output and git's directory. A directory that
-/// does not exist holds no files.
+/// Every file under `dir`, at any depth, skipping build output and git's directory. A directory that does not
+/// exist holds no files.
 pub fn files_under(dir: &Path) -> Vec<PathBuf> {
   let mut files = Vec::new();
   if dir.is_dir() {
@@ -62,4 +57,104 @@ fn collect(dir: &Path, files: &mut Vec<PathBuf>) {
 /// A path as it reads relative to the root, for a failure's message.
 pub fn shown(path: &Path) -> String {
   path.strip_prefix(ROOT).unwrap_or(path).display().to_string()
+}
+
+/// Delivery that retries at once and gives up after three failures, so no test waits on its backoff.
+pub fn quick_delivery() -> DeliveryPolicy {
+  DeliveryPolicy {
+    answer_within: Duration::from_secs(5),
+    first_retry: Duration::from_millis(1),
+    longest_retry: Duration::from_millis(4),
+    failures_to_failing: 3,
+  }
+}
+
+/// The service running in this process, taken down when it is dropped.
+pub struct Service {
+  pub url: String,
+  pub clock: Clock,
+  pub store: Store,
+  pub app: App,
+  _dir: TempDir,
+  tasks: Vec<JoinHandle<()>>,
+}
+
+impl Drop for Service {
+  fn drop(&mut self) {
+    self.app.stop();
+    self.tasks.iter().for_each(JoinHandle::abort);
+  }
+}
+
+impl Service {
+  pub async fn start() -> Self {
+    Self::start_with(quick_delivery()).await
+  }
+
+  pub async fn start_with(policy: DeliveryPolicy) -> Self {
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let url = format!("sqlite://{}?mode=rwc", dir.path().join("job.db").display());
+    let clock = Clock::manual(START);
+    let store = Store::open(&url, clock.clone()).await.expect("the store opens");
+    let app = App::new(store.clone(), TOKEN);
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a loopback port");
+    let address = listener.local_addr().expect("the port's address");
+    let mut tasks = bmo_job::spawn_background(store.clone(), policy);
+    let served = app.clone();
+    tasks.push(tokio::spawn(async move {
+      let _ = bmo_job::serve_on(listener, served, std::future::pending()).await;
+    }));
+    Self {
+      url: format!("http://{address}"),
+      clock,
+      store,
+      app,
+      _dir: dir,
+      tasks,
+    }
+  }
+
+  pub fn client(&self) -> JobClient {
+    JobClient::new(&self.url, TOKEN).expect("the client takes the address")
+  }
+
+  /// A request on the raw route, with the token.
+  pub fn raw(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+    reqwest::Client::new().request(method, format!("{}{path}", self.url)).bearer_auth(TOKEN)
+  }
+
+  /// Moves the clock on and tells what has come due.
+  pub async fn pass(&self, ms: i64) {
+    self.clock.advance(ms);
+    self.store.sweep().await.expect("the sweep runs");
+  }
+
+  /// Raises an item in `queue` and opens it with an approval.
+  pub async fn open_item(&self, queue: &str, title: &str) -> Item {
+    let client = self.client();
+    let item = client
+      .create_item(&NewItem {
+        title: title.to_owned(),
+        brief: format!("the brief of {title}"),
+        queue_name: queue.to_owned(),
+        ..NewItem::default()
+      })
+      .await
+      .expect("the item is raised");
+    let opened = client
+      .change_item(
+        item.id,
+        &ItemChange {
+          approval: Some(ApprovalGiven {
+            actor_name: "reviewer".to_owned(),
+            at: None,
+          }),
+          ..ItemChange::default()
+        },
+      )
+      .await
+      .expect("the item is approved");
+    assert_eq!(opened.state, ItemState::Open);
+    opened
+  }
 }

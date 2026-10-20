@@ -1,0 +1,343 @@
+//! Items: raised, read in queue order, and changed by the moves docs/api.md lists (docs/api.md, "Items").
+
+use bmo_job_client::{Approval, EventKind, Item, ItemChange, ItemQuery, ItemState, NewItem, Page};
+use sqlx::sqlite::SqliteRow;
+use sqlx::{QueryBuilder, Row, Sqlite};
+
+use super::events::{EventKeys, emit};
+use super::leases::end_standing_lease;
+use super::queues::ensure_queue;
+use super::{Store, Tx, filled, from_json, listed, page_limit, paged, queue_name, stored, to_json};
+use crate::refusal::Refusal;
+
+const ITEM_COLUMNS: &str = "id, title, brief, state, queue_name, position, priority, assignee_name, requester_name, \
+  scope, labels, approvals, cowork, merged_into, lease_id, created_at, changed_at, ended_at";
+
+fn item_from(row: &SqliteRow) -> Result<Item, Refusal> {
+  Ok(Item {
+    id: row.try_get("id")?,
+    title: row.try_get("title")?,
+    brief: row.try_get("brief")?,
+    state: stored(row.try_get("state")?, ItemState::parse)?,
+    queue_name: row.try_get("queue_name")?,
+    position: row.try_get("position")?,
+    priority: row.try_get("priority")?,
+    assignee_name: row.try_get("assignee_name")?,
+    requester_name: row.try_get("requester_name")?,
+    scope: row.try_get("scope")?,
+    labels: from_json(row.try_get::<&str, _>("labels")?)?,
+    approvals: from_json(row.try_get::<&str, _>("approvals")?)?,
+    cowork: row.try_get::<i64, _>("cowork")? != 0,
+    merged_into: row.try_get("merged_into")?,
+    lease_id: row.try_get("lease_id")?,
+    created_at: row.try_get("created_at")?,
+    changed_at: row.try_get("changed_at")?,
+    ended_at: row.try_get("ended_at")?,
+  })
+}
+
+/// The item at `id`, or none.
+pub(crate) async fn find_item(tx: &mut Tx, id: i64) -> Result<Option<Item>, Refusal> {
+  let row = sqlx::query(&format!("SELECT {ITEM_COLUMNS} FROM items WHERE id = $1"))
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await?;
+  row.as_ref().map(item_from).transpose()
+}
+
+/// The item at `id`, or a refusal saying there is none.
+pub(crate) async fn item_at(tx: &mut Tx, id: i64) -> Result<Item, Refusal> {
+  find_item(tx, id)
+    .await?
+    .ok_or_else(|| Refusal::not_found(format!("There is no item {id}.")))
+}
+
+/// Writes every field of `item` back.
+pub(crate) async fn save_item(tx: &mut Tx, item: &Item) -> Result<(), Refusal> {
+  sqlx::query(
+    "UPDATE items SET title = $1, brief = $2, state = $3, queue_name = $4, position = $5, priority = $6, \
+     assignee_name = $7, requester_name = $8, scope = $9, labels = $10, approvals = $11, cowork = $12, \
+     merged_into = $13, lease_id = $14, changed_at = $15, ended_at = $16 WHERE id = $17",
+  )
+  .bind(&item.title)
+  .bind(&item.brief)
+  .bind(item.state.as_str())
+  .bind(&item.queue_name)
+  .bind(item.position)
+  .bind(item.priority)
+  .bind(&item.assignee_name)
+  .bind(&item.requester_name)
+  .bind(&item.scope)
+  .bind(to_json(&item.labels))
+  .bind(to_json(&item.approvals))
+  .bind(i64::from(item.cowork))
+  .bind(item.merged_into)
+  .bind(item.lease_id)
+  .bind(item.changed_at)
+  .bind(item.ended_at)
+  .bind(item.id)
+  .execute(&mut **tx)
+  .await?;
+  Ok(())
+}
+
+/// What an event about the item, or a member of it, is narrowed by.
+pub(crate) fn item_keys(item: &Item) -> EventKeys {
+  EventKeys {
+    queue_name: Some(item.queue_name.clone()),
+    scope: item.scope.clone(),
+    item_id: Some(item.id),
+  }
+}
+
+/// Tells that the item changed.
+pub(crate) async fn told_changed(tx: &mut Tx, at: i64, item: &Item) -> Result<(), Refusal> {
+  emit(tx, at, EventKind::ItemChanged.as_str(), item, &item_keys(item)).await?;
+  Ok(())
+}
+
+/// Whether a state may move to another by a change (docs/api.md, "States and moves"); `leased` is reached
+/// only by a lease.
+fn may_move(from: ItemState, to: ItemState) -> bool {
+  use ItemState::*;
+  match to {
+    Open => matches!(from, Draft | Held),
+    Held => matches!(from, Open | Leased),
+    Done => from == Leased,
+    Dropped | Merged => !from.is_final(),
+    Draft | Leased => false,
+  }
+}
+
+impl Store {
+  /// Raises an item as a draft.
+  pub async fn create_item(&self, new: NewItem) -> Result<Item, Refusal> {
+    filled("title", &new.title)?;
+    queue_name(&new.queue_name)?;
+    let now = self.now();
+    let mut tx = self.begin().await?;
+    ensure_queue(&mut tx, &new.queue_name, now).await?;
+    let position: i64 =
+      sqlx::query_scalar("SELECT COALESCE(MAX(position), 0) + 1 FROM items WHERE queue_name = $1")
+        .bind(&new.queue_name)
+        .fetch_one(&mut *tx)
+        .await?;
+    let id: i64 = sqlx::query_scalar(
+      "INSERT INTO items (title, brief, state, queue_name, position, priority, assignee_name, requester_name, scope, \
+       labels, approvals, cowork, created_at, changed_at) \
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '[]', $11, $12, $12) RETURNING id",
+    )
+    .bind(&new.title)
+    .bind(&new.brief)
+    .bind(ItemState::Draft.as_str())
+    .bind(&new.queue_name)
+    .bind(position)
+    .bind(new.priority.unwrap_or(0))
+    .bind(&new.assignee_name)
+    .bind(&new.requester_name)
+    .bind(&new.scope)
+    .bind(to_json(&new.labels))
+    .bind(i64::from(new.cowork))
+    .bind(now)
+    .fetch_one(&mut *tx)
+    .await?;
+    let item = item_at(&mut tx, id).await?;
+    emit(&mut tx, now, EventKind::ItemCreated.as_str(), &item, &item_keys(&item)).await?;
+    self.commit(tx).await?;
+    Ok(item)
+  }
+
+  pub async fn item(&self, id: i64) -> Result<Item, Refusal> {
+    let mut tx = self.begin().await?;
+    let item = item_at(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(item)
+  }
+
+  /// Items in queue order, filtered as the query asks.
+  pub async fn items(&self, query: &ItemQuery) -> Result<Page<Item>, Refusal> {
+    let limit = page_limit(query.limit)?;
+    let states = listed("state", query.state.as_deref(), ItemState::parse)?;
+    let ids = listed("id", query.ids.as_deref(), |id| id.parse::<i64>().ok())?;
+    let mut tx = self.begin().await?;
+
+    let mut select: QueryBuilder<Sqlite> =
+      QueryBuilder::new(format!("SELECT {ITEM_COLUMNS} FROM items WHERE 1 = 1"));
+    if !states.is_empty() {
+      select.push(" AND state IN (");
+      let mut list = select.separated(", ");
+      for state in &states {
+        list.push_bind(state.as_str());
+      }
+      select.push(")");
+    }
+    if !ids.is_empty() {
+      select.push(" AND id IN (");
+      let mut list = select.separated(", ");
+      for id in &ids {
+        list.push_bind(*id);
+      }
+      select.push(")");
+    }
+    if let Some(queue) = &query.queue_name {
+      select.push(" AND queue_name = ").push_bind(queue.clone());
+    }
+    if let Some(assignee) = &query.assignee_name {
+      select.push(" AND assignee_name = ").push_bind(assignee.clone());
+    }
+    if let Some(scope) = &query.scope {
+      select.push(" AND scope = ").push_bind(scope.clone());
+    }
+    if let Some(label) = &query.label {
+      let (key, value) = match label.split_once('=') {
+        Some((key, value)) => (key.to_owned(), Some(value.to_owned())),
+        None => (label.clone(), None),
+      };
+      select
+        .push(" AND EXISTS (SELECT 1 FROM json_each(items.labels) WHERE json_each.key = ")
+        .push_bind(key);
+      if let Some(value) = value {
+        select.push(" AND json_each.value = ").push_bind(value);
+      }
+      select.push(")");
+    }
+    if let Some(words) = &query.q {
+      for word in words.split_whitespace() {
+        let word = word.to_lowercase();
+        select
+          .push(" AND (instr(lower(title), ")
+          .push_bind(word.clone())
+          .push(") > 0 OR instr(lower(brief), ")
+          .push_bind(word)
+          .push(") > 0)");
+      }
+    }
+    if let Some(after) = query.after {
+      let Some(last) = find_item(&mut tx, after).await? else {
+        return Err(Refusal::bad_request(format!("The cursor names no item: {after}.")));
+      };
+      select
+        .push(" AND (priority < ")
+        .push_bind(last.priority)
+        .push(" OR (priority = ")
+        .push_bind(last.priority)
+        .push(" AND (position > ")
+        .push_bind(last.position)
+        .push(" OR (position = ")
+        .push_bind(last.position)
+        .push(" AND id > ")
+        .push_bind(last.id)
+        .push("))))");
+    }
+    select.push(" ORDER BY priority DESC, position, id LIMIT ").push_bind(limit + 1);
+    let rows = select.build().fetch_all(&mut *tx).await?;
+    tx.commit().await?;
+    let items = rows.iter().map(item_from).collect::<Result<Vec<_>, _>>()?;
+    Ok(paged(items, limit))
+  }
+
+  /// Changes an item as a merge patch, its state by the moves allowed.
+  pub async fn change_item(&self, id: i64, change: ItemChange) -> Result<Item, Refusal> {
+    let now = self.now();
+    let mut tx = self.begin().await?;
+    let mut item = item_at(&mut tx, id).await?;
+
+    if let Some(title) = change.title {
+      filled("title", &title)?;
+      item.title = title;
+    }
+    if let Some(brief) = change.brief {
+      item.brief = brief;
+    }
+    if let Some(queue) = change.queue_name
+      && queue != item.queue_name
+    {
+      queue_name(&queue)?;
+      if item.state == ItemState::Leased {
+        return Err(Refusal::conflict("A leased item stays in its queue until its lease ends."));
+      }
+      ensure_queue(&mut tx, &queue, now).await?;
+      item.queue_name = queue;
+    }
+    if let Some(priority) = change.priority {
+      item.priority = priority;
+    }
+    if let Some(position) = change.position {
+      item.position = position;
+    }
+    if let Some(assignee) = change.assignee_name {
+      item.assignee_name = assignee;
+    }
+    if let Some(requester) = change.requester_name {
+      item.requester_name = requester;
+    }
+    if let Some(scope) = change.scope {
+      item.scope = scope;
+    }
+    if let Some(labels) = change.labels {
+      item.labels = labels;
+    }
+    if let Some(cowork) = change.cowork {
+      item.cowork = cowork;
+    }
+
+    let approved = change.approval.is_some();
+    if let Some(approval) = change.approval {
+      filled("approval's actorName", &approval.actor_name)?;
+      item.approvals.push(Approval {
+        actor_name: approval.actor_name,
+        at: approval.at.unwrap_or(now),
+      });
+    }
+
+    let target = match change.state {
+      Some(state) => Some(state),
+      None if approved && item.state == ItemState::Draft => Some(ItemState::Open),
+      None => None,
+    };
+    if change.merged_into.is_some() && target != Some(ItemState::Merged) {
+      return Err(Refusal::bad_request("A mergedInto goes with the state merged."));
+    }
+    if let Some(target) = target
+      && target != item.state
+    {
+      if !may_move(item.state, target) {
+        return Err(Refusal::conflict(format!("An item {} cannot move to {}.", item.state, target)));
+      }
+      if item.state == ItemState::Draft && target == ItemState::Open && item.approvals.is_empty() {
+        return Err(Refusal::conflict("A draft opens with an approval."));
+      }
+      if target == ItemState::Merged {
+        let Some(into) = change.merged_into else {
+          return Err(Refusal::bad_request("A merge names the item it goes into, as mergedInto."));
+        };
+        if into == item.id {
+          return Err(Refusal::conflict("An item cannot be merged into itself."));
+        }
+        let Some(other) = find_item(&mut tx, into).await? else {
+          return Err(Refusal::new(
+            bmo_job_client::Code::UnknownItem,
+            format!("There is no item {into} to merge into."),
+          ));
+        };
+        if matches!(other.state, ItemState::Dropped | ItemState::Merged) {
+          return Err(Refusal::conflict(format!("The item {into} is {} and takes no merge.", other.state)));
+        }
+        item.merged_into = Some(into);
+      }
+      if matches!(target, ItemState::Held | ItemState::Done | ItemState::Dropped | ItemState::Merged) {
+        end_standing_lease(&mut tx, &mut item, now).await?;
+      }
+      if target.is_final() {
+        item.ended_at = Some(now);
+      }
+      item.state = target;
+    }
+
+    item.changed_at = now;
+    save_item(&mut tx, &item).await?;
+    told_changed(&mut tx, now, &item).await?;
+    self.commit(tx).await?;
+    Ok(item)
+  }
+}

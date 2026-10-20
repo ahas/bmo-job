@@ -1,0 +1,15 @@
+[package]
+name = "bmo-job-plugin"
+description = "The job service's harness plugin, bmo-job: the MCP server the bmo-job binary starts, each tool a thin call through bmo-job-client, the bmo-job skill, and the OpenAPI document with its tools."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+bmo-job-client.workspace = true
+futures-util.workspace = true
+rmcp.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }

@@ -7,8 +7,8 @@ use std::path::Path;
 
 use support::{ROOT, files_under, shown};
 
-/// The directories holding code, policy and tests.
-const READ: [&str; 6] = ["src", "crates", "migration", "policy", "tools", "tests"];
+/// The directories holding code and tests.
+const READ: [&str; 4] = ["src", "crates", "tests", "package"];
 
 /// The Hangul syllables block, U+AC00 to U+D7A3, named by code point so this file holds none of it.
 fn is_hangul(c: char) -> bool {
@@ -26,7 +26,7 @@ fn hangul_lines(path: &Path, text: &str) -> Vec<String> {
 }
 
 #[test]
-fn no_hangul_in_code_policy_or_tests() {
+fn no_hangul_in_code_or_tests() {
   let found: Vec<String> = READ
     .iter()
     .flat_map(|dir| files_under(&Path::new(ROOT).join(dir)))

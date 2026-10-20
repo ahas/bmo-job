@@ -1,0 +1,86 @@
+---
+name: bmo-job
+description: Take work from a job service and do it, through the bmo-job MCP server. Use when work is kept as items in a job service's queues, when told of an item opened in a queue you serve, when picking up the next piece of work, or when reporting on, asking about or closing an item you hold.
+---
+
+# bmo-job
+
+A job service keeps work as items waiting in queues. It never does the work itself: whoever does it is told
+of an item, takes it with a lease, does it, reports on it and closes it. The `bmo-job` MCP server reaches one
+service through its API, one tool for each step, and keeps the leases and subscriptions you take alive while
+the server runs.
+
+## Starting the server
+
+Register the server with the harness as a stdio MCP server:
+
+```
+bmo-job mcp --service http://127.0.0.1:7841
+```
+
+The address is the service's base address. Its bearer token goes in the `BMO_JOB_TOKEN` environment variable
+of the server, or `--token`; a wrong one answers every tool with a 401 `unauthorized` error.
+
+To be told of items from the start, name the queues you serve and the name you hold work under:
+
+```
+bmo-job mcp --service http://127.0.0.1:7841 --holder builder-1 --queue build --queue review
+```
+
+Where the harness takes messages pushed into its session on an experimental capability, give that capability
+with `--channel`, and each event also arrives as such a message.
+
+## Being told of work
+
+`job_subscribe` with your `holderName`, the `queueNames` you serve and the `kinds` to hear of (`item.created`
+and `item.changed` for new and reopened work, `note.created` for words added to an item, `reply.created` for
+answers to your questions, `lease.expired` for a lease you lost). Leave `url` out: the server reads the
+subscription itself and tells you of each event as a `notifications/resources/updated` on
+`job://items/{itemId}` or `job://queues/{queueName}`, which you read as a resource. Give a `ttlMs`, such as
+60000: the server renews it while it runs, and when the server stops nobody is told of work on your behalf.
+
+A notification hands nothing over. Several harnesses may be told of the same item; the one that takes its
+lease first has it.
+
+## Taking an item
+
+`job_lease_next` with `queueName`, `holderName` and `ttlMs` takes the next open item of the queue, or, with
+`itemId`, the item a notification named. `lease` is null when nothing waits; give `waitMs` (at most 60000) to
+wait for one. A 409 `conflict` means another holder took that item first: leave it and take the next. An item
+assigned to a name is only taken by a lease asking with that same `assigneeName`.
+
+The lease holds the item for `ttlMs` (at most 3600000). The server renews it at half its span while it runs;
+`job_lease_renew` renews it yourself. A lease that runs out gives the item back to the queue for someone else.
+
+## Doing it
+
+1. `job_item`: the title, the brief, who asked (`requesterName`) and the caller's `labels`.
+2. `job_work_order`: the purpose, the directive and the steps, where the item has a work order (a 404 means it
+   has none). `job_tasks` with `current: true` lists the tasks of the stage under way.
+3. `job_notes`: words added after the item was raised. Pass the last note's `id` as `after` and a `waitMs` to
+   wait for the next one, or subscribe to `note.created` on the item.
+4. `job_report` with `kind: "progress"` as you go, so whoever watches the item knows where it stands.
+5. Blocked on a decision that is not yours: `job_question_ask` with the `itemId`, your name as `askerName`,
+   the `text` and the `choices` (empty for an open question), then `job_replies` with a `waitMs` until a reply
+   settles it. Keep the lease meanwhile.
+
+## Ending it
+
+- **Done:** `job_report` with `kind: "final"` and the account of the work, then `job_item_update` with
+  `state: "done"`. The lease ends with it.
+- **Cannot go on now:** `job_report` with `kind: "held"` saying why, then `job_item_update` with
+  `state: "held"`. Whoever can release it sets it back to `open`.
+- **Giving it back undone:** `job_lease_release`; the item is open again for the next taker.
+
+## Raising work
+
+`job_item_create` raises an item as a `draft` in a queue; it is taken only once it is approved, by
+`job_item_update` with an `approval` naming who approved it. `job_items` lists items by `state`, `queueName`,
+`assigneeName`, `scope`, `label` or words (`q`), in queue order; `job_queues` lists the queues, whether each is
+paused or held, and how many items are open and leased in it.
+
+## Failures
+
+A refused call comes back as a tool error whose text is the service's `status`, `code` and `error` sentence.
+`not-found` names nothing at that key; `conflict` is a move the member's state does not allow; `gone` is a
+lease or subscription that has ended; `queue-not-open` is a queue paused or under a hold.

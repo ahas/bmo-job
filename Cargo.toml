@@ -1,77 +1,42 @@
-# The workspace: the service's own package at the root, the library base, the codes, the policy loader, the
-# two queue crates, the agency, brain, gate, graph, receiver, testbed and web ports and the tools' call under
-# `crates/`, the service's tools under `tools/`, and the migration crate. The root package holds the server and
-# its binary, and in `tests/` the repository checks, the ports' contract tests and the server's request tests.
+# The workspace: the client the service publishes and its harness plugin under `crates/`, and the service's own
+# package at the root, which holds the server, its store and the binary, and in `tests/` the repository checks,
+# the server's request tests and the plugin's tests over the real server.
 [workspace]
-members = [
-  "crates/agency",
-  "crates/base",
-  "crates/brain",
-  "crates/codes",
-  "crates/gate",
-  "crates/graph",
-  "crates/policy",
-  "crates/queue-read",
-  "crates/queue-rows",
-  "crates/receiver",
-  "crates/testbed",
-  "crates/tool-call",
-  "crates/web",
-  "migration",
-  "tools/launch",
-  "tools/state",
-  "tools/todo",
-]
+members = ["crates/client", "crates/plugin"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0-rev.4"
+version = "0.1.0-rev.5"
 edition = "2024"
 publish = false
 
 [workspace.dependencies]
-axum = { version = "0.8.9", default-features = false, features = ["json"] }
-brush-parser = "0.4.0"
-chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
-clap = { version = "4.5.40", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"] }
+bmo-job-client = { path = "crates/client" }
+bmo-job-plugin = { path = "crates/plugin" }
+clap = { version = "4.5.40", default-features = false, features = ["std", "derive", "env", "help", "usage", "error-context"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
-indexmap = { version = "2.14.2", features = ["serde"] }
-job-agency = { path = "crates/agency" }
-job-base = { path = "crates/base" }
-job-brain = { path = "crates/brain" }
-job-codes = { path = "crates/codes" }
-job-gate = { path = "crates/gate" }
-job-graph = { path = "crates/graph" }
-job-policy = { path = "crates/policy" }
-job-receiver = { path = "crates/receiver" }
-job-testbed = { path = "crates/testbed" }
-job-tool-call = { path = "crates/tool-call" }
-job-web = { path = "crates/web" }
-libc = "0.2.190"
-migration = { path = "migration" }
-pulldown-cmark = { version = "0.13.4", default-features = false }
-queue-read = { path = "crates/queue-read" }
-queue-rows = { path = "crates/queue-rows" }
+hex = "0.4.3"
+hmac = "0.12.1"
 regex = "1.13.1"
-reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
-sea-orm = { version = "1.1.20", default-features = false, features = ["runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite"] }
-sea-orm-migration = { version = "1.1.20", default-features = false, features = ["runtime-tokio-rustls", "sqlx-postgres", "sqlx-sqlite"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "query"] }
+rmcp = { version = "3.5.1", default-features = false, features = ["server", "transport-io"] }
+schemars = "1.2.3"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.138"
 sha2 = "0.10.9"
-sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "sqlite", "runtime-tokio"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["sqlite", "runtime-tokio"] }
 sse-stream = "0.2.6"
-strum = { version = "0.28.0", features = ["derive"] }
+subtle = "2.6.1"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 tokio = { version = "1.53.2", features = ["macros", "rt"] }
-tokio-stream = { version = "0.1.19", default-features = false, features = ["sync"] }
 toml = { version = "0.8.23", default-features = false, features = ["parse"] }
 url = "2.5.8"
 
 [package]
 name = "bmo-job"
-description = "The TODO, work orders and the job queue as one service with its own API."
+description = "A todo kept as middleware: items, notes, reports, work orders, queues, leases, questions and subscriptions, stored and served through one API."
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
@@ -81,43 +46,27 @@ name = "bmo-job"
 path = "src/bin/bmo-job.rs"
 
 [dependencies]
-axum = { workspace = true, features = ["http1", "multipart", "query", "tokio"] }
-brush-parser.workspace = true
-chrono.workspace = true
+axum.workspace = true
+bmo-job-client.workspace = true
+bmo-job-plugin.workspace = true
 clap.workspace = true
 futures-util.workspace = true
-indexmap.workspace = true
-job-agency.workspace = true
-job-base.workspace = true
-job-brain.workspace = true
-job-codes.workspace = true
-job-gate.workspace = true
-job-graph.workspace = true
-job-policy.workspace = true
-job-receiver.workspace = true
-job-testbed.workspace = true
-job-web.workspace = true
-libc.workspace = true
-migration.workspace = true
-pulldown-cmark.workspace = true
-queue-read.workspace = true
-queue-rows.workspace = true
-regex.workspace = true
 reqwest.workspace = true
-sea-orm.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
+sqlx.workspace = true
+subtle.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["net", "process", "rt-multi-thread", "signal", "sync", "time"] }
-tokio-stream.workspace = true
+tokio = { workspace = true, features = ["net", "rt-multi-thread", "signal", "sync", "time"] }
+toml.workspace = true
 url.workspace = true
 
 [dev-dependencies]
-# The ports' contract tests run each against a stand-in: an in-process server on loopback for an HTTP
-# port, and a stand-in program in a scratch directory for the testbed's. The server's request tests run
-# it on loopback over a scratch database, beside the stand-ins of the units it calls.
-axum = { workspace = true, features = ["http1", "matched-path", "tokio"] }
-reqwest = { workspace = true, features = ["multipart", "stream"] }
+# The request tests run the server on loopback over a scratch database, and stand a webhook receiver of their
+# own beside it; the plugin's tests drive the `bmo-job mcp` command over its pipes against that same server.
+axum = { workspace = true, features = ["http1", "tokio"] }
+jsonschema = { version = "0.58.6", default-features = false }
+libc = "0.2.190"
+regex.workspace = true
 tempfile.workspace = true
-toml.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }

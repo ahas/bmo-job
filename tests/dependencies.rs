@@ -71,7 +71,10 @@ fn violations(root: &Path, manifest_dir: &Path, manifest: &Table, shown_as: &str
       let detail = spec.as_table();
       let name = detail.and_then(|d| d.get("package")).and_then(Value::as_str).unwrap_or(key);
       let path = detail.and_then(|d| d.get("path")).and_then(Value::as_str);
+      // A dependency taken from the workspace is checked where the workspace's shared table names it.
+      let inherited = detail.and_then(|d| d.get("workspace")).and_then(Value::as_bool) == Some(true);
       match path {
+        _ if inherited => {}
         Some(path) if !lexical(&manifest_dir.join(path)).starts_with(root) => {
           found.push(format!("{shown_as}: {key} reaches outside the repository through {path}"));
         }
@@ -113,6 +116,7 @@ fn a_manifest_breaking_the_rules_is_named() {
     queue-read = { path = "crates/queue-read" }
     inside = { package = "bmo-inside", path = "../repository/crates/inside" }
     outside = { path = "../../elsewhere" }
+    shared = { workspace = true }
 
     [target.'cfg(unix)'.dev-dependencies]
     bmo-ui = "0.1"

@@ -2,7 +2,7 @@
 # repository's one service; it runs the release binary as `bmo-job serve` in the release, whose settings.toml
 # each release links to the data root's env/bmo-job.toml.
 [Unit]
-Description=bmo-job: the TODO, work orders and the job queue
+Description=bmo-job: a todo kept as middleware
 After=network-online.target
 # Without its settings the service does not stand, so the unit does not start where the data root holds none.
 ConditionPathExists=%h/.local/share/bmo/data/env/bmo-job.toml

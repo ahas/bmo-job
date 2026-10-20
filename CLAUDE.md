@@ -16,9 +16,9 @@ These rules hold every change to this repository.
 
 ## Boundaries
 
-- **Every other unit is reached through its API,** never through its code, its tables or its files.
-  The routes this service serves and every call it makes to another unit are listed in its API
-  document.
+- **The service is middleware:** it stores and serves, and never executes. It calls no other unit; its
+  one outgoing call is a delivery to the address a subscriber registered. The routes it serves are listed in
+  its API document, and the OpenAPI document is generated from the client's types.
 - **Dependencies:** crates from the registry pinned in the workspace manifest, crates of this
   repository by a path inside it, and among other repositories only the base libraries `bmo-chat`,
   `bmo-chat-client` and `bmo-ui`. The dependency check in `tests/` holds this.
@@ -33,9 +33,9 @@ These rules hold every change to this repository.
   and branch names. No Korean in code or tests; the Hangul check in `tests/` holds this.
 - What the service answers is an English sentence for a person or a status code and a snake_case code
   for a machine. Words a person reads in another language are the web console's language packs.
-- No personal data: no user names, home directories, machine names or names of any agent. Names the
-  service needs at runtime come from its deployment settings, never from the code; the personal-data
-  check in `tests/` holds this over the whole tree.
+- No personal data: no user names, home directories, machine names or names of any agent. The personal-data
+  check in `tests/` holds this over the whole tree, and the contract check holds the API, its tools and the
+  skill free of every caller's concepts.
 
 ## Layout
 
@@ -49,15 +49,15 @@ These rules hold every change to this repository.
    is cheaper.
 2. **Review:** read the whole diff against the document governing it, then `cargo fmt --all --check`
    and `cargo clippy --workspace --all-targets -- -D warnings`.
-3. **Verification:** the tests of the crates touched, then `cargo test --workspace` once, output
-   written to a file and the file read.
+3. **Verification:** the tests of the crates touched, then `cargo test --workspace` and the package's
+   `bun run check` once, output written to a file and the file read.
 
-A change is not done before stage 3 has passed.
+A change is not done before stage 3 has passed. A change to the contract writes `docs/openapi.json` and the
+package's generated types again (README.md, "Commands"), and the checks fail until it does.
 
 ## Closing and deploying
 
-- A job commits its own steps and closes once, with `bmo-job job close` (docs/verbs.md, "A job's close"),
-  which lands the branch and records the commit as waiting to go live. It never deploys.
+- A job commits its own steps to this repository, which has no remote, and never deploys.
 - bmo-testbed deploys this repository by `testbed.toml`; the service runs as `deploy/bmo-job.service`,
   `bmo-job serve` out of the deploy tree (docs/deploy.md). A change to what a release holds, the service's
   unit or its start line changes `testbed.toml`, the unit and docs/deploy.md together.
