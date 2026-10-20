@@ -2,6 +2,7 @@
   "name": "bmo-job-client",
   "version": "0.1.0-rev.5",
   "description": "The job service's contract in TypeScript: the types its OpenAPI document generates and a typed call for every route.",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "exports": {

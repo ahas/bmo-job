@@ -8,6 +8,7 @@ resolver = "3"
 [workspace.package]
 version = "0.1.0-rev.5"
 edition = "2024"
+license = "MIT"
 publish = false
 
 [workspace.dependencies]
@@ -39,6 +40,7 @@ name = "bmo-job"
 description = "A todo kept as middleware: items, notes, reports, work orders, queues, leases, questions and subscriptions, stored and served through one API."
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [[bin]]

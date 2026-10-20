@@ -21,7 +21,7 @@
       "event/events",
       "event/subscriptions"
     ],
-    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
     "changed": 1792499162913
   },
   {
@@ -46,7 +46,7 @@
     ],
     "aliases": [],
     "needs": [],
-    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
     "changed": 1792499170042
   },
   {
@@ -70,7 +70,7 @@
     "needs": [
       "event/events"
     ],
-    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
     "changed": 1792499162910
   }
 ]

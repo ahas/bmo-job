@@ -3,6 +3,7 @@ name = "bmo-job-client"
 description = "The job service's contract in Rust: every body as a type, every route as a call, the event stream, the webhook's signature and the OpenAPI document generated from those types."
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [dependencies]

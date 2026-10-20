@@ -14,7 +14,7 @@
       "plugin/server",
       "plugin/openapi"
     ],
-    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
     "changed": 1792499162980,
     "boundary": {
       "side": "exposes"
@@ -37,7 +37,7 @@
       "client/calls",
       "client/contract"
     ],
-    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
     "changed": 1792499162968,
     "boundary": {
       "side": "exposes"
@@ -56,7 +56,7 @@
     "needs": [
       "service/http"
     ],
-    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
     "changed": 1792499162965,
     "boundary": {
       "side": "exposes"
@@ -82,7 +82,7 @@
       "plugin/tools",
       "plugin/harness"
     ],
-    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
     "changed": 1792499162976,
     "boundary": {
       "side": "exposes"
@@ -105,7 +105,7 @@
       "api/http",
       "client/openapi"
     ],
-    "base": "5d872e598573d91273603adcd004e1c16a1ed015",
+    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
     "changed": 1792499162972,
     "boundary": {
       "side": "exposes"
