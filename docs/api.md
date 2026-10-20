@@ -298,8 +298,16 @@ orders, tasks and standing leases, the questions under it with their replies, an
 The crate `bmo-job-client` in `crates/client` is the contract in Rust: every body above as a type, every route
 as a call of `JobClient`, the event stream read as events, the webhook's signature checked, and the OpenAPI
 document generated from those types. The package `bmo-job-client` in `package/` is the same contract in
-TypeScript: types generated from `docs/openapi.json` and a client over them. A caller uses one of them and
-writes no client of its own.
+TypeScript: the types `openapi-typescript` generates from `docs/openapi.json`, at the entry point and at the
+package's `./schema` subpath, and `jobClient(baseUrl, token)`, whose calls are the document's routes, each
+answer typed by the route and each refusal read in the error shape. A caller uses one of them and writes no
+client of its own.
+
+- **Installing it.** `bun pm pack` in `package/` writes `bmo-job-client-<version>.tgz`, and a downstream
+  checkout names that file in its dependencies as a `file:` address. The pack carries the manifest, the entry
+  point and the generated types; `openapi-fetch` comes with it as the package's one dependency.
+- **Version and types.** The package carries the repository's version, and its own test fails where the
+  committed types differ from what `docs/openapi.json` generates.
 
 ## The harness plugin
 

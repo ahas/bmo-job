@@ -3,9 +3,12 @@
 
 import createClient, { type Client } from "openapi-fetch";
 
-import type { components, paths } from "./openapi";
+import type { components, operations, paths } from "./openapi";
 
-export type { components, paths };
+export type { components, operations, paths };
+
+/** The fetch a client asks: one request, one answer. `globalThis.fetch` is one. */
+export type JobFetch = (input: Request) => Promise<Response>;
 
 type Schemas = components["schemas"];
 
@@ -26,9 +29,9 @@ export type ErrorBody = Schemas["Error"];
 
 /**
  * A client of the job service at `baseUrl`, sending `token` as its bearer token. Each call is a route of the
- * OpenAPI document, typed by it: `client.GET("/items/{itemId}", { params: { path: { itemId } } })`.
+ * OpenAPI document, typed by it.
  */
-export function jobClient(baseUrl: string, token: string, fetch?: typeof globalThis.fetch): Client<paths> {
+export function jobClient(baseUrl: string, token: string, fetch?: JobFetch): Client<paths> {
   return createClient<paths>({
     baseUrl,
     headers: { Authorization: `Bearer ${token}` },

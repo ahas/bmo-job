@@ -13,7 +13,7 @@ through the `bmo-job` plugin: the MCP server `bmo-job mcp` and its skill.
 |---|---|
 | `src/` | The service's own package: the store, the HTTP server and its event stream, webhook delivery, the settings, and under `src/bin/` the binary `bmo-job` |
 | `crates/` | `client`, the crate `bmo-job-client`: the contract in Rust, every body as a type, every route as a call, the event stream, the webhook's signature and the OpenAPI document generated from those types; and `plugin`, the crate `bmo-job-plugin`: the harness plugin, the MCP server and its tools over the client, the whole OpenAPI document with the tools, and the `bmo-job` skill under `skills/` |
-| `package/` | `bmo-job-client` in TypeScript: types generated from `docs/openapi.json` and a client over them |
+| `package/` | The TypeScript package `bmo-job-client`, packed for a downstream checkout: types generated from `docs/openapi.json` and a client over them |
 | `deploy/` | The service's user unit, which runs `bmo-job serve` out of the deploy tree (docs/deploy.md) |
 | `tests/` | The root package's tests: the repository checks, the contract's checks, every route through the real server, and the binary as a unit and a harness run it |
 | `docs/` | The canonical statements of what the service does, and `openapi.json`, the contract as the code generates it |
@@ -66,6 +66,8 @@ A change to the contract writes the document and the TypeScript types again:
 cargo run --bin bmo-job -- openapi > docs/openapi.json
 (cd package && bun run generate)
 ```
+
+`bun pm pack` in `package/` writes the tarball a downstream checkout installs (docs/api.md, "The client").
 
 Deployed, the service runs as the user unit `deploy/bmo-job.service`, `bmo-job serve` out of the deploy tree;
 bmo-testbed puts a commit live by `testbed.toml` (docs/deploy.md).

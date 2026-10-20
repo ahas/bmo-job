@@ -2,7 +2,7 @@
 
 import { expect, test } from "bun:test";
 
-import { type Item, jobClient } from "../index";
+import { type Item, type JobFetch, jobClient } from "bmo-job-client";
 
 const item: Item = {
   id: 7,
@@ -27,11 +27,11 @@ const item: Item = {
 
 test("a call reaches its route with the token and reads the answer", async () => {
   const asked: Request[] = [];
-  const fetch = async (input: Request) => {
+  const fetch: JobFetch = async (input) => {
     asked.push(input);
     return new Response(JSON.stringify(item), { headers: { "Content-Type": "application/json" } });
   };
-  const client = jobClient("http://job.test", "the-token", fetch as unknown as typeof globalThis.fetch);
+  const client = jobClient("http://job.test", "the-token", fetch);
   const { data, error } = await client.GET("/items/{itemId}", { params: { path: { itemId: 7 } } });
   expect(error).toBeUndefined();
   expect(data?.state).toBe("open");
@@ -40,12 +40,12 @@ test("a call reaches its route with the token and reads the answer", async () =>
 });
 
 test("a refusal is read in the error shape", async () => {
-  const fetch = async () =>
+  const fetch: JobFetch = async () =>
     new Response(JSON.stringify({ code: "not-found", error: "There is no item 9." }), {
       status: 404,
       headers: { "Content-Type": "application/json" },
     });
-  const client = jobClient("http://job.test", "the-token", fetch as unknown as typeof globalThis.fetch);
+  const client = jobClient("http://job.test", "the-token", fetch);
   const { data, error } = await client.GET("/items/{itemId}", { params: { path: { itemId: 9 } } });
   expect(data).toBeUndefined();
   expect(error?.code).toBe("not-found");

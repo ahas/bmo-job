@@ -1,11 +1,17 @@
 {
   "name": "bmo-job-client",
   "version": "0.1.0-rev.5",
+  "description": "The job service's contract in TypeScript: the types its OpenAPI document generates and a typed call for every route.",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./schema": "./openapi.d.ts"
   },
+  "files": [
+    "index.ts",
+    "openapi.d.ts"
+  ],
   "scripts": {
     "generate": "openapi-typescript ../docs/openapi.json --output openapi.d.ts",
     "check": "tsc --noEmit && bun test"
