@@ -40,7 +40,7 @@ test run carries them and a change that breaks a rule fails like any other test.
 - **Only Cargo manifests at the root.** A manifest of any other build tool at the root fails.
 - **No directory named after its parent,** at any depth, the root's own name included. Build output
   and the git directory are skipped.
-- **One version.** `VERSION` at the root holds the semver string, and the workspace's version equals
+- **One version.** `VERSION` at the root holds the version string, and the workspace's version equals
   it.
 
 ## Dependencies

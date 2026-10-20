@@ -52,9 +52,11 @@ this repository is tested, checked, built and deployed, docs/deploy.md), `rustfm
 
 ## Version
 
-- **One version for the whole repository,** the workspace's, in semver. `VERSION` holds it and the
-  workspace's version equals it.
-- **A major change is a change to the API contract;** anything else is a minor or a patch.
+- **One version for the whole repository,** the workspace's. `VERSION` holds it and the workspace's version
+  equals it.
+- **Until the first release the version is `0.1.0` with a revision suffix,** `0.1.0-rev.N`: `0.1.0` is the
+  base, and each later version cut raises the revision by one. The major, minor and patch numbers do not move
+  before the first release.
 
 ## Commands
 
