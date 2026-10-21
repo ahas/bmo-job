@@ -150,6 +150,37 @@ impl Store {
     Ok(paged(questions, limit))
   }
 
+  /// How many questions under `scope` still wait for an answer: open or paused.
+  pub async fn questions_waiting_in(&self, scope: &str) -> Result<i64, Refusal> {
+    let mut tx = self.begin().await?;
+    let count = sqlx::query_scalar("SELECT count(*) FROM questions WHERE scope = $1 AND state IN ($2, $3)")
+      .bind(scope)
+      .bind(QuestionState::Open.as_str())
+      .bind(QuestionState::Paused.as_str())
+      .fetch_one(&mut *tx)
+      .await?;
+    tx.commit().await?;
+    Ok(count)
+  }
+
+  /// The questions under `scope` still waiting at `now`, the one asked last first: those open with no due
+  /// time or one not yet passed, and those paused.
+  pub async fn open_questions_in(&self, scope: &str, now: i64) -> Result<Vec<Question>, Refusal> {
+    let mut tx = self.begin().await?;
+    let rows = sqlx::query(&format!(
+      "SELECT {QUESTION_COLUMNS} FROM questions WHERE scope = $1 \
+       AND (state = $2 OR (state = $3 AND (due_at IS NULL OR due_at > $4))) ORDER BY id DESC"
+    ))
+    .bind(scope)
+    .bind(QuestionState::Paused.as_str())
+    .bind(QuestionState::Open.as_str())
+    .bind(now)
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    rows.iter().map(|row| kept_from(row).map(|kept| kept.question)).collect()
+  }
+
   /// Asks a question, its scope the item's where none is given.
   pub async fn ask(&self, new: NewQuestion) -> Result<Question, Refusal> {
     filled("askerName", &new.asker_name)?;
@@ -254,56 +285,96 @@ impl Store {
 
   /// Replies to a question: a settling reply answers it, a word is added in any state.
   pub async fn reply(&self, question_id: i64, new: NewReply) -> Result<Reply, Refusal> {
-    filled("text", &new.text)?;
-    filled("actorName", &new.actor_name)?;
     let now = self.now();
     let mut tx = self.begin().await?;
-    let mut kept = kept_at(&mut tx, question_id).await?;
-    if let Some(choice) = &new.choice
-      && !kept.question.choices.contains(choice)
-    {
-      return Err(Refusal::new(
-        Code::NotAChoice,
-        format!("{choice:?} is not one of the question's choices."),
-      ));
-    }
-    let settles = new.settles.unwrap_or(new.choice.is_some() || kept.question.choices.is_empty());
-    if settles && !matches!(kept.question.state, QuestionState::Open | QuestionState::Paused) {
-      return Err(Refusal::conflict(format!(
-        "The question is {} and takes no answer.",
-        kept.question.state
-      )));
-    }
-    let id: i64 = sqlx::query_scalar(
-      "INSERT INTO replies (question_id, choice, text, actor_name, settles, created_at) \
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-    )
-    .bind(question_id)
-    .bind(&new.choice)
-    .bind(&new.text)
-    .bind(&new.actor_name)
-    .bind(i64::from(settles))
-    .bind(now)
-    .fetch_one(&mut *tx)
-    .await?;
-    let reply = Reply {
-      id,
-      question_id,
-      choice: new.choice,
-      text: new.text,
-      actor_name: new.actor_name,
-      settles,
-      created_at: now,
-    };
-    let keys = question_keys(&mut tx, &kept.question).await?;
-    emit(&mut tx, now, EventKind::ReplyCreated.as_str(), &reply, &keys).await?;
-    if settles {
-      kept.question.state = QuestionState::Answered;
-      kept.remaining_ms = None;
-      save_question(&mut tx, &kept, true).await?;
-      told_question(&mut tx, now, EventKind::QuestionChanged, &kept.question).await?;
-    }
+    let reply = reply_in(&mut tx, question_id, new, now).await?;
     self.commit(tx).await?;
     Ok(reply)
   }
+
+  /// Writes a line of talk on a question: its clock is stopped where it runs, keeping what it had left, and
+  /// the words are a reply that does not settle. A question already settled takes no talk and is refused
+  /// `conflict`.
+  pub async fn talk(&self, question_id: i64, text: String, actor_name: String) -> Result<Reply, Refusal> {
+    let now = self.now();
+    let mut tx = self.begin().await?;
+    let mut kept = kept_at(&mut tx, question_id).await?;
+    if !matches!(kept.question.state, QuestionState::Open | QuestionState::Paused) {
+      return Err(Refusal::conflict(format!("The question is {} and takes no talk.", kept.question.state)));
+    }
+    if kept.question.state == QuestionState::Open {
+      kept.remaining_ms = kept.question.due_at.map(|due| (due - now).max(0));
+      kept.question.due_at = None;
+      kept.question.state = QuestionState::Paused;
+      save_question(&mut tx, &kept, false).await?;
+      told_question(&mut tx, now, EventKind::QuestionChanged, &kept.question).await?;
+    }
+    let reply = reply_in(
+      &mut tx,
+      question_id,
+      NewReply {
+        choice: None,
+        text,
+        actor_name,
+        settles: Some(false),
+      },
+      now,
+    )
+    .await?;
+    self.commit(tx).await?;
+    Ok(reply)
+  }
+}
+
+/// Writes a reply to a question in the transaction given: a settling reply answers it, a word is added in any
+/// state.
+async fn reply_in(tx: &mut Tx, question_id: i64, new: NewReply, now: i64) -> Result<Reply, Refusal> {
+  filled("text", &new.text)?;
+  filled("actorName", &new.actor_name)?;
+  let mut kept = kept_at(tx, question_id).await?;
+  if let Some(choice) = &new.choice
+    && !kept.question.choices.contains(choice)
+  {
+    return Err(Refusal::new(
+      Code::NotAChoice,
+      format!("{choice:?} is not one of the question's choices."),
+    ));
+  }
+  let settles = new.settles.unwrap_or(new.choice.is_some() || kept.question.choices.is_empty());
+  if settles && !matches!(kept.question.state, QuestionState::Open | QuestionState::Paused) {
+    return Err(Refusal::conflict(format!(
+      "The question is {} and takes no answer.",
+      kept.question.state
+    )));
+  }
+  let id: i64 = sqlx::query_scalar(
+    "INSERT INTO replies (question_id, choice, text, actor_name, settles, created_at) \
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+  )
+  .bind(question_id)
+  .bind(&new.choice)
+  .bind(&new.text)
+  .bind(&new.actor_name)
+  .bind(i64::from(settles))
+  .bind(now)
+  .fetch_one(&mut **tx)
+  .await?;
+  let reply = Reply {
+    id,
+    question_id,
+    choice: new.choice,
+    text: new.text,
+    actor_name: new.actor_name,
+    settles,
+    created_at: now,
+  };
+  let keys = question_keys(tx, &kept.question).await?;
+  emit(tx, now, EventKind::ReplyCreated.as_str(), &reply, &keys).await?;
+  if settles {
+    kept.question.state = QuestionState::Answered;
+    kept.remaining_ms = None;
+    save_question(tx, &kept, true).await?;
+    told_question(tx, now, EventKind::QuestionChanged, &kept.question).await?;
+  }
+  Ok(reply)
 }

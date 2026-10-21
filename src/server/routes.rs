@@ -8,9 +8,9 @@ use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get};
+use axum::routing::{delete, get, post};
 use bmo_job_client::{
-  Health, ItemChange, ItemQuery, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait, NewEvent, NewItem, NewNote,
+  Health, ItemChange, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait, NewEvent, NewItem, NewNote,
   NewQuestion, NewReply, NewReport, NewSubscription, Page, PageQuery, QuestionChange, QuestionQuery,
   QueueChange, QueueQuery, ScopeDeletion, SubscriptionChange, SubscriptionQuery, TaskChange, TaskQuery,
   WaitQuery, WorkOrderBody, WorkOrderChange,
@@ -19,7 +19,8 @@ use serde::Serialize;
 use tokio::time::Instant;
 
 use super::App;
-use super::extract::{InBody, InPath, InQuery};
+use super::extract::{InBody, InItemsQuery, InPath, InQuery, ItemsQuery};
+use super::port::{self, PortError};
 use super::stream;
 use crate::refusal::Refusal;
 use crate::store::{Store, wait_span};
@@ -44,6 +45,11 @@ pub(super) fn routes() -> Router<App> {
     .route("/events", get(stream::events).post(publish))
     .route("/items", get(items).post(create_item))
     .route("/items/{itemId}", get(item).patch(change_item))
+    .route("/rooms/{chat}/holdings", get(port::holdings))
+    .route("/questions/open", get(port::open_questions))
+    .route("/question", post(port::settle))
+    .route("/question-talk", post(port::talk))
+    .route("/queue/moved", post(port::queue_moved))
     .route("/items/{itemId}/notes", get(notes).post(add_note))
     .route("/items/{itemId}/notes/{noteId}", delete(delete_note))
     .route("/items/{itemId}/reports", get(reports).post(add_report))
@@ -100,8 +106,11 @@ async fn publish(State(app): State<App>, InBody(event): InBody<NewEvent>) -> Ans
   created(app.store.publish(&event.kind, event.data).await?)
 }
 
-async fn items(State(app): State<App>, InQuery(query): InQuery<ItemQuery>) -> Answer {
-  ok(app.store.items(&query).await?)
+async fn items(State(app): State<App>, InItemsQuery(query): InItemsQuery) -> Result<Response, PortError> {
+  match query {
+    ItemsQuery::List(query) => Ok(Json(app.store.items(&query).await?).into_response()),
+    ItemsQuery::Open => port::open_items(State(app)).await,
+  }
 }
 
 async fn create_item(State(app): State<App>, InBody(item): InBody<NewItem>) -> Answer {

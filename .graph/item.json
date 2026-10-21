@@ -12,6 +12,7 @@
       "create_item",
       "item",
       "items",
+      "open_items",
       "change_item",
       "Item",
       "Approval",
@@ -23,8 +24,8 @@
       "queue/queues",
       "event/events"
     ],
-    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
-    "changed": 1792499170045
+    "base": "4afd9f3133a2ee6a6495b4c6e3e79e3fc00b8395",
+    "changed": 1792548296946
   },
   {
     "id": "item/notes",

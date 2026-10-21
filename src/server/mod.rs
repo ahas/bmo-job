@@ -1,6 +1,7 @@
 //! The HTTP server: every route of docs/api.md over the store, behind the bearer token.
 
 mod extract;
+mod port;
 mod routes;
 mod stream;
 

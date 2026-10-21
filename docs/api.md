@@ -289,6 +289,41 @@ orders, tasks and standing leases, the questions under it with their replies, an
 | `GET /scopes/{scope}` | `scope`, `counts` (`items`, `notes`, `reports`, `workOrders`, `tasks`, `leases`, `questions`, `replies`, `subscriptions`) and `state` null. Nothing held is answered 404 `not-found` |
 | `DELETE /scopes/{scope}` | Lets all of it go, each member told as its `deleted` event, and answers the counts with `state` `deleted`; with `dryRun=true` it lets nothing go and answers them with `state` `preview` |
 
+## The bmo-receiver port
+
+bmo-receiver reads the work a room's jobs put to the owner, answers a question the owner settles in his chat,
+and asks what a room holds before it removes the room. These routes answer it in the shapes it reads. A
+room's number is a scope written as text: an item or a question filed for a room carries the room's number as
+its `scope`. Every route takes the bearer token as the others do.
+
+| Method and path | Does |
+|---|---|
+| `GET /rooms/{chat}/holdings` | What the service holds of the room: `{code, count}` for `room_open_items`, its items not `done`, `dropped` or `merged`, and for `room_waiting_questions`, its questions `open` or `paused`; each only where its count is not zero, in that order |
+| `GET /questions/open?chat=` | The room's questions still waiting, the one asked last first: `id`, `options` (its `choices`, in order) and `talks` |
+| `GET /items?open=1` | The open items in the port's shape: `{"items": [...]}`, each `id`, `approved` (whether it has an approval), `status` (its state), `title`, and `worker` (its `assigneeName`, or null). The items are those not `done`, `dropped`, `merged` or `held`, oldest first |
+| `POST /question` | Settles a question with one of its choices by its number counted from zero: `id` and `chosen`. Answers 204 |
+| `POST /question-talk` | Writes a line of talk on an open question and stops its clock: `id` and `say`. Answers 204 |
+| `POST /queue/moved` | Puts a `queue.moved` event into the stream, its data `detail?` where one is given. Answers 204 |
+
+- **The open questions** are the room's questions in `open` whose due time is null or has not passed, and its
+  `paused` ones, the one asked last first. A question whose due time has passed takes no answer from the
+  owner's chat; the job has gone on without it. The port reads `talks` as true: any question may be talked
+  over, which is how far the service's own questions go.
+- **A talk is a reply that does not settle,** from the actor `owner`, and the asker hears it as a
+  `reply.created` event. Stopping the clock is the question moving to `paused` with what it had left.
+- **A settle is a settling reply** carrying the chosen option as its `choice` and its text, from the actor
+  `owner`, which moves the question to `answered` as any settling reply does. A question already `answered` or
+  `withdrawn` answers 204 and takes no reply.
+- **A refused talk** answers `question_talk_settled` (409) on a question already settled,
+  `question_absent` (404) for a number naming no question, and `question_talk_say` (400) for a talk with no
+  words. **A refused settle** answers `question_absent` (404) for a number naming no question and
+  `question_answer_wrong` (400) for a number that names no choice of it. A request of the wrong shape is
+  `bad-request`, an `open` read as `false` or `0` among them.
+- **The queue moved** is the port's own kind, `queue.moved`, with `detail?` as its data. It is read on the raw
+  event stream; a subscription names only the service's member kinds and takes none of it.
+- **These routes are not in the OpenAPI document or the clients.** They answer a caller that reads a room's
+  work in its own words; this document states them and nothing generates them.
+
 ## Health
 
 `GET /health` answers `ready`, `reason` (null when ready) and `version`, the repository's version.

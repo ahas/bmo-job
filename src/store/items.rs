@@ -236,6 +236,37 @@ impl Store {
     Ok(paged(items, limit))
   }
 
+  /// The items not done, dropped, merged or held, oldest first.
+  pub async fn open_items(&self) -> Result<Vec<Item>, Refusal> {
+    let mut tx = self.begin().await?;
+    let rows = sqlx::query(&format!(
+      "SELECT {ITEM_COLUMNS} FROM items WHERE state NOT IN ($1, $2, $3, $4) ORDER BY id"
+    ))
+    .bind(ItemState::Done.as_str())
+    .bind(ItemState::Dropped.as_str())
+    .bind(ItemState::Merged.as_str())
+    .bind(ItemState::Held.as_str())
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    rows.iter().map(item_from).collect()
+  }
+
+  /// How many items under `scope` have not ended: not done, dropped or merged.
+  pub async fn items_in_scope(&self, scope: &str) -> Result<i64, Refusal> {
+    let mut tx = self.begin().await?;
+    let count =
+      sqlx::query_scalar("SELECT count(*) FROM items WHERE scope = $1 AND state NOT IN ($2, $3, $4)")
+        .bind(scope)
+        .bind(ItemState::Done.as_str())
+        .bind(ItemState::Dropped.as_str())
+        .bind(ItemState::Merged.as_str())
+        .fetch_one(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(count)
+  }
+
   /// Changes an item as a merge patch, its state by the moves allowed.
   pub async fn change_item(&self, id: i64, change: ItemChange) -> Result<Item, Refusal> {
     let now = self.now();

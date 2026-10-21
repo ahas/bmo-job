@@ -15,6 +15,9 @@
       "change_question",
       "replies",
       "reply",
+      "talk",
+      "open_questions_in",
+      "questions_waiting_in",
       "Question",
       "Reply"
     ],
@@ -23,7 +26,7 @@
       "item/items",
       "event/events"
     ],
-    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
-    "changed": 1792499162933
+    "base": "4afd9f3133a2ee6a6495b4c6e3e79e3fc00b8395",
+    "changed": 1792548297308
   }
 ]
