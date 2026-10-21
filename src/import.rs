@@ -22,9 +22,11 @@
 //!
 //! What the source has and the target does not:
 //!
-//! - An old todo's `status` is a Korean word, read into the target's state: `초안` is `draft`, `대기`
-//!   is `open`, `진행 중` is `leased`, and `완료` is `done`, or `merged` where the item was folded
-//!   into another. A todo held while unfinished is `held`.
+//! - An old todo's `status` is a Korean word, read into the target's state: a draft status is
+//!   `draft`, a waiting status is `open`, an in-progress status is `leased`, and a completed
+//!   status is `done`, or `merged` where the item was folded into another. A todo held while
+//!   unfinished is `held`. The words the code reads are written as unicode escapes, so the code
+//!   and the tests hold no Hangul.
 //! - The old board had no queue; every item lands in one queue named `todo`, made by the import.
 //! - Everything the target has no column for is kept as a label on the item: the model, the note, the
 //!   agent, the approval flag and who raised it, the hold and its reason, the resume moment, the
@@ -158,10 +160,10 @@ pub fn item_state(todo: &Value) -> &'static str {
   if bool_int(todo.get("done")) == 1 {
     return if merged { "merged" } else { "done" };
   }
-  if status.starts_with("초안") {
+  if status.starts_with("\u{CD08}\u{C548}") {
     return "draft";
   }
-  if status == "진행 중" {
+  if status == "\u{C9C4}\u{D589} \u{C911}" {
     return "leased";
   }
   if is_set(todo.get("held_at")) {

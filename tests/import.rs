@@ -15,7 +15,7 @@ fn todo(id: i64, status: &str, done: i64, created: i64, extra: Value) -> Value {
     "id": id,
     "title": format!("todo {id}"),
     "instruction": format!("do {id}"),
-    "requester": "비모",
+    "requester": "qa-admin",
     "requester_id": 1,
     "chat_id": 90000001,
     "approved": 1,
@@ -54,25 +54,31 @@ fn fixture() -> (TempDir, PathBuf) {
       vec![
         todo(
           1,
-          "완료",
+          "\u{C644}\u{B8CC}",
           1,
           100,
           json!({"done_at": 200, "report": "the work is done", "worker": "bmo-job"}),
         ),
-        todo(2, "초안: 하스 결재 대기", 0, 300, json!({"approved": 0})),
-        todo(3, "대기", 0, 400, json!({"held_at": 450})),
+        todo(
+          2,
+          "\u{CD08}\u{C548}: tester \u{ACB0}\u{C7AC} \u{B300}\u{AE30}",
+          0,
+          300,
+          json!({"approved": 0}),
+        ),
+        todo(3, "\u{B300}\u{AE30}", 0, 400, json!({"held_at": 450})),
       ],
     ),
     (
       "todo_notes",
       vec![
-        json!({"id": 1, "todo_id": 1, "author": "하스", "author_id": 1, "text": "a note", "added_at": 210, "kind": null, "delivered_at": null, "removed_at": null, "removed_by": null, "job_id": null}),
+        json!({"id": 1, "todo_id": 1, "author": "tester", "author_id": 1, "text": "a note", "added_at": 210, "kind": null, "delivered_at": null, "removed_at": null, "removed_by": null, "job_id": null}),
       ],
     ),
     (
       "todo_approvals",
       vec![
-        json!({"id": 1, "todo_id": 1, "approved": 1, "via": "owner", "who_kind": "person", "who": "하스", "road": "chat_tool", "at": 150}),
+        json!({"id": 1, "todo_id": 1, "approved": 1, "via": "owner", "who_kind": "person", "who": "tester", "road": "chat_tool", "at": 150}),
       ],
     ),
     ("todo_sources", vec![json!({"todo_id": 2, "source_todo_id": 3})]),
@@ -85,7 +91,7 @@ fn fixture() -> (TempDir, PathBuf) {
     ),
     (
       "question_talk",
-      vec![json!({"id": 1, "question_id": 1, "by": "하스", "text": "a", "said_at": 540})],
+      vec![json!({"id": 1, "question_id": 1, "by": "tester", "text": "a", "said_at": 540})],
     ),
   ];
 
@@ -129,12 +135,27 @@ fn sqlite(path: &Path) -> String {
 
 #[test]
 fn the_old_words_read_as_the_targets_states() {
-  assert_eq!(import::item_state(&todo(1, "완료", 1, 100, json!({}))), "done");
-  assert_eq!(import::item_state(&todo(2, "초안: 하스 결재 대기", 0, 300, json!({}))), "draft");
-  assert_eq!(import::item_state(&todo(3, "대기", 0, 400, json!({}))), "open");
-  assert_eq!(import::item_state(&todo(4, "진행 중", 0, 500, json!({}))), "leased");
-  assert_eq!(import::item_state(&todo(5, "대기", 0, 600, json!({"held_at": 650}))), "held");
-  assert_eq!(import::item_state(&todo(6, "완료", 1, 700, json!({"merged_into": 1}))), "merged");
+  assert_eq!(import::item_state(&todo(1, "\u{C644}\u{B8CC}", 1, 100, json!({}))), "done");
+  assert_eq!(
+    import::item_state(&todo(
+      2,
+      "\u{CD08}\u{C548}: tester \u{ACB0}\u{C7AC} \u{B300}\u{AE30}",
+      0,
+      300,
+      json!({})
+    )),
+    "draft"
+  );
+  assert_eq!(import::item_state(&todo(3, "\u{B300}\u{AE30}", 0, 400, json!({}))), "open");
+  assert_eq!(import::item_state(&todo(4, "\u{C9C4}\u{D589} \u{C911}", 0, 500, json!({}))), "leased");
+  assert_eq!(
+    import::item_state(&todo(5, "\u{B300}\u{AE30}", 0, 600, json!({"held_at": 650}))),
+    "held"
+  );
+  assert_eq!(
+    import::item_state(&todo(6, "\u{C644}\u{B8CC}", 1, 700, json!({"merged_into": 1}))),
+    "merged"
+  );
 }
 
 #[test]
@@ -153,8 +174,8 @@ fn the_question_states_read_from_how_it_settled() {
 
 #[test]
 fn the_item_carries_the_seconds_as_milliseconds_and_the_approval() {
-  let votes = [json!({"who": "하스", "at": 150, "via": "owner"})];
-  let row = import::item(&todo(1, "완료", 1, 100, json!({"done_at": 200})), &votes, None);
+  let votes = [json!({"who": "tester", "at": 150, "via": "owner"})];
+  let row = import::item(&todo(1, "\u{C644}\u{B8CC}", 1, 100, json!({"done_at": 200})), &votes, None);
   let get = |column: &str| {
     row
       .iter()
@@ -174,7 +195,7 @@ fn the_item_carries_the_seconds_as_milliseconds_and_the_approval() {
     panic!("approvals are JSON text");
   };
   let approvals: Value = serde_json::from_str(&approvals).expect("approvals JSON");
-  assert_eq!(approvals[0]["actorName"], json!("하스"));
+  assert_eq!(approvals[0]["actorName"], json!("tester"));
   assert_eq!(approvals[0]["at"], json!(150_000));
   let Cell::Text(labels) = get("labels") else {
     panic!("labels are JSON text");
