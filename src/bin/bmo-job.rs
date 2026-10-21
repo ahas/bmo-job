@@ -1,6 +1,7 @@
 //! The `bmo-job` command (docs/cli.md): the service, its MCP server, and its OpenAPI document.
 
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use bmo_job::Settings;
@@ -38,6 +39,45 @@ enum Verb {
   },
   /// Prints the OpenAPI document.
   Openapi,
+  /// Moves the old archive's exported rows into this store (docs/schema.md, TODO #1923).
+  Import {
+    /// The export directory the item's export hand wrote.
+    #[arg(long, value_name = "dir")]
+    export: PathBuf,
+    /// The SQLite database written.
+    #[arg(long, value_name = "url")]
+    database: String,
+    /// Reads, checks and counts everything, and writes nothing.
+    #[arg(long)]
+    dry_run: bool,
+  },
+}
+
+/// The import's report, one table a line.
+fn imported(report: &bmo_job::import::Report) -> Result<(), String> {
+  for moved in &report.tables {
+    println!(
+      "{}: {} exported, {} written ({})",
+      moved.source, moved.exported, moved.written, moved.note
+    );
+  }
+  println!(
+    "{} at snapshot {} read {}: {} rows sampled, {} failures",
+    if report.dry_run { "dry run" } else { "import" },
+    report.snapshot,
+    report.read_at,
+    report.sample.checked,
+    report.sample.failures.len()
+  );
+  if report.sample.failures.is_empty() {
+    Ok(())
+  } else {
+    for failure in &report.sample.failures {
+      eprintln!("  {failure}");
+    }
+
+    Err("the count-and-sample compare failed".to_owned())
+  }
 }
 
 fn ended(result: Result<(), String>) -> ExitCode {
@@ -78,6 +118,15 @@ async fn main() -> ExitCode {
       std::io::stdout()
         .write_all(bmo_job_plugin::openapi_json().as_bytes())
         .map_err(|error| format!("the document could not be written: {error}")),
+    ),
+    Verb::Import {
+      export,
+      database,
+      dry_run,
+    } => ended(
+      bmo_job::import::run(&database, &export, dry_run)
+        .await
+        .and_then(|report| imported(&report)),
     ),
   }
 }
