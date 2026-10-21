@@ -22,8 +22,8 @@
       "queue/queues",
       "event/events"
     ],
-    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
-    "changed": 1792499162930
+    "base": "65a93b355b2fbcb02a3bd01976cf9c7d8ff5cab8",
+    "changed": 1792548644635
   },
   {
     "id": "queue/queues",
@@ -46,7 +46,7 @@
     "needs": [
       "event/events"
     ],
-    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
-    "changed": 1792499170064
+    "base": "65a93b355b2fbcb02a3bd01976cf9c7d8ff5cab8",
+    "changed": 1792548644638
   }
 ]

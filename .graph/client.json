@@ -16,8 +16,8 @@
       "client/contract",
       "api/http"
     ],
-    "base": "a536211d9bd6de47a9aa17f6968c0800b39fd4a1",
-    "changed": 1792499162902
+    "base": "65a93b355b2fbcb02a3bd01976cf9c7d8ff5cab8",
+    "changed": 1792548644616
   },
   {
     "id": "client/contract",
