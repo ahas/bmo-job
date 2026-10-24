@@ -66,6 +66,22 @@ The lease holds the item for `ttlMs` (at most 3600000). The server renews it at 
    the `text` and the `choices` (empty for an open question), then `job_replies` with a `waitMs` until a reply
    settles it. Keep the lease meanwhile.
 
+## A base library missing a part
+
+Where the item needs something a base library this repository imports does not serve, stop only that part
+and go on with the rest. Do not copy the missing part here.
+
+1. Make a branch in the base library's own checkout, from its main, and push it to the base library's
+   GitHub repository. Never commit to its main.
+2. Write the change as the general case: no name of this repository, no provider or unit name, no branch
+   for one unit, and no data or test fixture only this repository uses. Bring the base library's own tests.
+3. Open a pull request from that branch against the base library's main. Check the rule in step 2 again
+   before opening it, and again when the review comes.
+4. Whoever holds the base library's work reviews it, merges it or sends it back with the reason, and raises
+   the base library's version on merge. Pin that version here and resume the stopped part.
+5. Where the review is still open when the item ends, report the pull request and say which part waits on
+   it; that part is not done.
+
 ## Ending it
 
 - **Done:** `job_report` with `kind: "final"` and the account of the work, then `job_item_update` with

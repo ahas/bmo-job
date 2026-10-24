@@ -22,6 +22,8 @@ These rules hold every change to this repository.
 - **Dependencies:** crates from the registry pinned in the workspace manifest, crates of this
   repository by a path inside it, and among other repositories only the base libraries `bmo-chat`,
   `bmo-chat-client` and `bmo-ui`. The dependency check in `tests/` holds this.
+- **A base library's missing part is changed there, not copied here.** The road a job takes, and the
+  rule its pull request keeps, are in `docs/base-libraries.md`.
 - **No lookup table standing in for polymorphism.** A value that differs per member belongs to that
   member.
 - **No hand-written parser for a general format.** TOML, JSON, markdown, command lines and their kin
@@ -57,7 +59,7 @@ package's generated types again (README.md, "Commands"), and the checks fail unt
 
 ## Closing and deploying
 
-- A job commits its own steps to this repository, which has no remote, and never deploys.
+- A job commits its own steps to this repository and never deploys.
 - bmo-testbed deploys this repository by `testbed.toml`; the service runs as `deploy/bmo-job.service`,
   `bmo-job serve` out of the deploy tree (docs/deploy.md). A change to what a release holds, the service's
   unit or its start line changes `testbed.toml`, the unit and docs/deploy.md together.

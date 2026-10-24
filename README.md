@@ -33,6 +33,7 @@ this repository is tested, checked, built and deployed, docs/deploy.md), `rustfm
 | `docs/settings.md` | The settings file: where the service listens, its tokens and the callers they name, and its database |
 | `docs/schema.md` | The schema: the tables and the rules they keep |
 | `docs/deploy.md` | Deploying the service: what a release holds, where the service stands, and what gates a deployment |
+| `docs/base-libraries.md` | The road a job takes when a base library it imports lacks a part: the pull request, the rule it keeps, the review, and the version pin |
 | `docs/checks.md` | The repository checks |
 | `docs/PERSONAL-DATA.md` | The personal data the repository may not hold, where a value goes instead, and the values it allows |
 
