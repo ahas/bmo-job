@@ -147,9 +147,10 @@ An item has at most one work order: `itemId`, `purpose`, `directive`, `steps` (l
 `current`, `done` or `skipped`), `assigneeName` and `changedAt`.
 
 - **Steps make the tasks.** When a work order is saved with steps, the step at place *n* is the task of stage
-  *n* titled by the step. A task whose title stands among the new steps keeps its key, state and assignee and
-  takes the new step's stage; a step with no such task makes a new `waiting` one; a task whose title is gone
-  is removed.
+  *n* titled by the step. A step that repeats a title already in the list is taken once, at its first place,
+  so a list written twice makes its tasks once. A task whose title stands among the new steps keeps its key,
+  state and assignee and takes the new step's stage; a step with no such task makes a new `waiting` one; a
+  task whose title is gone is removed.
 - **The stage under way** is the lowest stage holding a task that is `waiting` or `current`.
 - **A work order's moves:** `draft` to `saved` and back, `saved` to `running` and back, `running` to `done`,
   and `done` to `running` when it is reopened. Any other is answered 409 `conflict`. A task's move is any

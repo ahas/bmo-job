@@ -73,11 +73,57 @@ async fn saving_steps_makes_and_keeps_the_tasks() {
     [(1, "build")]
   );
 
-  let twice = client
+  let once = client
     .put_work_order(item.id, &body(&["a", "a"]))
     .await
-    .expect_err("a step stands twice");
-  assert_eq!(twice.code(), Some("bad-request"));
+    .expect("the repeat is taken once");
+  assert_eq!(once.steps, ["a"]);
+  assert_eq!(
+    titles(&client.tasks(item.id, &TaskQuery::default()).await.expect("listed").items),
+    [(1, "a")]
+  );
+
+  let repeated = WorkOrderChange {
+    steps: Some(vec!["a".to_owned(), "b".to_owned(), "a".to_owned()]),
+    ..WorkOrderChange::default()
+  };
+  let changed = client.change_work_order(item.id, &repeated).await.expect("the repeat is taken once");
+  assert_eq!(changed.steps, ["a", "b"]);
+}
+
+#[tokio::test]
+async fn a_build_list_written_twice_makes_its_steps_once() {
+  let service = Service::start().await;
+  let client = service.client();
+  let item = service.open_item("build", "parser").await;
+  let build = [
+    "Correct the deletion set",
+    "Delete dead TS and port callers",
+    "Move tests into tests/",
+    "Split bmo-server into layered crates",
+    "Teach readers both layouts",
+    "Move the layout",
+  ];
+
+  let made = client.put_work_order(item.id, &body(&build)).await.expect("made");
+  assert_eq!(made.steps.iter().map(String::as_str).collect::<Vec<_>>(), build);
+  let first = client.tasks(item.id, &TaskQuery::default()).await.expect("listed").items;
+  assert_eq!(
+    titles(&first),
+    build.iter().enumerate().map(|(at, title)| (at as i64 + 1, *title)).collect::<Vec<_>>()
+  );
+  let keys = first.iter().map(|task| task.id).collect::<Vec<_>>();
+
+  let written_twice: Vec<&str> = build.iter().chain(build.iter()).copied().collect();
+  let again = client
+    .put_work_order(item.id, &body(&written_twice))
+    .await
+    .expect("the repeat is taken once");
+  assert_eq!(again.steps.iter().map(String::as_str).collect::<Vec<_>>(), build);
+
+  let after = client.tasks(item.id, &TaskQuery::default()).await.expect("listed").items;
+  assert_eq!(titles(&after), titles(&first));
+  assert_eq!(after.iter().map(|task| task.id).collect::<Vec<_>>(), keys);
 }
 
 #[tokio::test]

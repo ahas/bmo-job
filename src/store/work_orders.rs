@@ -77,18 +77,18 @@ async fn task_at(tx: &mut Tx, item_id: i64, task_id: i64) -> Result<Task, Refusa
   task_from(&row)
 }
 
-/// Steps as a work order takes them: none empty and none repeated, since a step's title names its task.
-fn steps_read(steps: &[String]) -> Result<(), Refusal> {
+/// Steps as a work order takes them: none empty, and a title taken once at its first place, since a step's
+/// title names its task.
+fn steps_read(steps: Vec<String>) -> Result<Vec<String>, Refusal> {
   let mut seen = HashSet::new();
+  let mut taken = Vec::with_capacity(steps.len());
   for step in steps {
-    filled("step", step)?;
-    if !seen.insert(step.as_str()) {
-      return Err(Refusal::bad_request(format!(
-        "The step {step:?} stands twice; each step names its own task."
-      )));
+    filled("step", &step)?;
+    if seen.insert(step.clone()) {
+      taken.push(step);
     }
   }
-  Ok(())
+  Ok(taken)
 }
 
 /// Makes the tasks match the steps: a task whose title stands among them keeps its key, state and assignee
@@ -175,18 +175,24 @@ impl Store {
     item_id: i64,
     body: WorkOrderBody,
   ) -> Result<(WorkOrder, bool), Refusal> {
-    steps_read(&body.steps)?;
+    let WorkOrderBody {
+      purpose,
+      directive,
+      steps,
+      state: asked,
+    } = body;
+    let steps = steps_read(steps)?;
     let now = self.now();
     let mut tx = self.begin().await?;
     let item = item_at(&mut tx, item_id).await?;
     let standing = find_work_order(&mut tx, item_id).await?;
     let made = standing.is_none();
-    let state = body.state.or(standing.map(|order| order.state)).unwrap_or(WorkOrderState::Draft);
+    let state = asked.or(standing.map(|order| order.state)).unwrap_or(WorkOrderState::Draft);
     let order = WorkOrder {
       item_id,
-      purpose: body.purpose,
-      directive: body.directive,
-      steps: body.steps,
+      purpose,
+      directive,
+      steps,
       state,
       changed_at: now,
     };
@@ -203,9 +209,7 @@ impl Store {
     item_id: i64,
     change: WorkOrderChange,
   ) -> Result<WorkOrder, Refusal> {
-    if let Some(steps) = &change.steps {
-      steps_read(steps)?;
-    }
+    let steps = change.steps.map(steps_read).transpose()?;
     let now = self.now();
     let mut tx = self.begin().await?;
     let (item, mut order) = work_order_at(&mut tx, item_id).await?;
@@ -223,7 +227,7 @@ impl Store {
     if let Some(directive) = change.directive {
       order.directive = directive;
     }
-    if let Some(steps) = change.steps {
+    if let Some(steps) = steps {
       order.steps = steps;
       rebuild_tasks(&mut tx, &item, &order.steps, now).await?;
     }
