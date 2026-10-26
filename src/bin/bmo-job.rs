@@ -36,6 +36,9 @@ enum Verb {
     /// The experimental capability each event is also pushed on as a message.
     #[arg(long, value_name = "capability")]
     channel: Option<String>,
+    /// Tools the server leaves out, comma-separated.
+    #[arg(long, value_name = "tools", env = "BMO_JOB_MCP_WITHOUT", value_delimiter = ',')]
+    without: Vec<String>,
   },
   /// Prints the OpenAPI document.
   Openapi,
@@ -104,6 +107,7 @@ async fn main() -> ExitCode {
       holder,
       queues,
       channel,
+      without,
     } => ended(
       bmo_job_plugin::serve_stdio(Start {
         service,
@@ -111,6 +115,11 @@ async fn main() -> ExitCode {
         holder,
         queues,
         channel,
+        without: without
+          .into_iter()
+          .map(|name| name.trim().to_owned())
+          .filter(|name| !name.is_empty())
+          .collect(),
       })
       .await,
     ),

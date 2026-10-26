@@ -390,6 +390,10 @@ settings mark that caller as an approver (Items, "Approvals"); the tool takes no
 
 ### The tools
 
+A launch line may leave tools out (docs/cli.md, `--without`): the harness that starts the server is then
+offered the rest alone, as where another tool of its own does that work. A tool left out is not called either:
+the server answers a call of one as it answers a name it does not serve.
+
 Each tool is one route called through the client, its input the route's path, query and body together and its
 output the route's answer. A route's refusal comes back as a tool error carrying its status, `code` and
 sentence. The OpenAPI document states each under `x-tools`.

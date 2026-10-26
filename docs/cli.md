@@ -16,6 +16,7 @@ The binary `bmo-job` carries three commands.
 | `--token <token>` | The bearer token every call is made with: the shared token, or a caller's own, under whose name the service records an approval the server gives (docs/settings.md, `[callers]`); read from `BMO_JOB_TOKEN` where it is left out |
 | `--holder <name>` and `--queue <name>` | A holder name and the queues it is told of from the start, `--queue` given once for each; each needs the other |
 | `--channel <capability>` | The experimental capability each event is also pushed on as a message |
+| `--without <tools>` | Tools the server leaves out, their names comma-separated, the option given once or more; read from `BMO_JOB_MCP_WITHOUT` where it is left out. A tool left out is neither listed nor called; a name that is no tool of the plugin refuses the start |
 
 The server ends when the harness closes its input, and then gives back the leases and deletes the
 subscriptions it kept, within ten seconds.

@@ -34,11 +34,24 @@ pub struct Start {
   pub queues: Vec<String>,
   /// The experimental capability events are pushed on as messages.
   pub channel: Option<String>,
+  /// Tools left out of what the server offers, by name.
+  pub without: Vec<String>,
+}
+
+/// The names of `without` that are no tool of the plugin.
+pub fn unknown_tools(without: &[String]) -> Vec<String> {
+  let known: Vec<&str> = tools().iter().map(|tool| tool.name).collect();
+
+  without.iter().filter(|name| !known.contains(&name.as_str())).cloned().collect()
 }
 
 /// Serves the MCP server on standard input and output until the harness ends the session, then gives back
 /// what it kept.
 pub async fn serve_stdio(start: Start) -> Result<(), String> {
+  let unknown = unknown_tools(&start.without);
+  if !unknown.is_empty() {
+    return Err(format!("--without names no tool of the plugin: {}", unknown.join(", ")));
+  }
   let client = JobClient::new(&start.service, start.token).map_err(|failure| failure.to_string())?;
   let harness = Harness::new(client, start.channel);
   if !start.queues.is_empty() {
@@ -49,7 +62,10 @@ pub async fn serve_stdio(start: Start) -> Result<(), String> {
       .map_err(|failure| format!("the queues could not be subscribed to: {failure}"))?;
   }
   let renewing = tokio::spawn(std::sync::Arc::clone(&harness).renew());
-  let served = JobServer::new(std::sync::Arc::clone(&harness)).serve(stdio()).await;
+  let served = JobServer::new(std::sync::Arc::clone(&harness))
+    .without(&start.without)
+    .serve(stdio())
+    .await;
   let ended = match served {
     Ok(running) => running
       .waiting()

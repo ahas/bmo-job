@@ -40,6 +40,16 @@ impl JobServer {
     }
   }
 
+  /// The server with the tools named left out: neither listed nor called.
+  pub fn without(self, names: &[String]) -> Self {
+    let tools = tools().into_iter().filter(|tool| !names.iter().any(|name| name == tool.name)).collect();
+
+    Self {
+      tools: Arc::new(tools),
+      ..self
+    }
+  }
+
   /// The tools as MCP lists them, each input and output a schema of its own with its definitions inside.
   pub fn listed(&self) -> Vec<Tool> {
     self.tools.iter().map(listed).collect()

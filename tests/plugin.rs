@@ -409,3 +409,66 @@ async fn the_update_tool_sends_no_name_of_who_approves() {
   server.end().await;
   task.abort();
 }
+
+#[tokio::test]
+async fn a_tool_left_out_at_the_start_is_neither_listed_nor_called() {
+  let service = Service::start().await;
+  let mut server = Server::initialized(&service, &["--without", "job_item_create,job_queues"]).await;
+  let listed = server.ask("tools/list", json!({})).await;
+  let names: Vec<&str> = listed["tools"]
+    .as_array()
+    .expect("a list of tools")
+    .iter()
+    .map(|tool| tool["name"].as_str().unwrap())
+    .collect();
+
+  assert_eq!(names.len(), 16);
+  assert!(!names.contains(&"job_item_create") && !names.contains(&"job_queues"));
+  assert!(names.contains(&"job_item_update"));
+
+  let id = server.next;
+
+  server.next += 1;
+  server
+    .send(json!({
+      "jsonrpc": "2.0",
+      "id": id,
+      "method": "tools/call",
+      "params": { "name": "job_item_create", "arguments": { "title": "t", "brief": "b", "queueName": "build" } },
+    }))
+    .await;
+
+  let called = loop {
+    let message = server.line().await;
+
+    if message["id"] == id {
+      break message;
+    }
+  };
+
+  assert_eq!(called["error"]["message"], "There is no tool job_item_create.", "{called}");
+  assert!(
+    service.client().items(&Default::default()).await.expect("the items").items.is_empty(),
+    "nothing raised"
+  );
+  server.end().await;
+}
+
+#[tokio::test]
+async fn a_name_that_is_no_tool_refuses_the_start() {
+  let service = Service::start().await;
+  let ran = Command::new(env!("CARGO_BIN_EXE_bmo-job"))
+    .args(["mcp", "--service", &service.url, "--without", "job_item_create,job_nothing"])
+    .env("BMO_JOB_TOKEN", TOKEN)
+    .stdin(Stdio::null())
+    .output()
+    .await
+    .expect("the command runs");
+
+  assert!(!ran.status.success());
+  assert!(
+    String::from_utf8_lossy(&ran.stderr).contains("job_nothing"),
+    "{}",
+    String::from_utf8_lossy(&ran.stderr)
+  );
+}
