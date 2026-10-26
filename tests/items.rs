@@ -410,10 +410,16 @@ async fn a_change_is_a_merge_patch() {
 async fn an_item_raised_with_an_unattended_label_opens_at_once_with_a_note_saying_so() {
   use bmo_job_client::{EventQuery, WaitQuery};
 
-  let service = Service::start_unattended(&["pr-review", "lane=fast"]).await;
+  let review_labels = || {
+    BTreeMap::from([
+      ("lane".to_owned(), "pr-review".to_owned()),
+      ("pr".to_owned(), "https://example.com/base/pull/2".to_owned()),
+    ])
+  };
+  let service = Service::start_unattended(&["lane=pr-review"]).await;
   let client = service.client();
   let mut review = raised("base", "review the pull request");
-  review.labels = BTreeMap::from([("pr-review".to_owned(), String::new())]);
+  review.labels = review_labels();
   let opened = client.create_item(&review).await.expect("raised");
   assert_eq!(opened.state, ItemState::Open, "an unattended label opens it at once");
   assert!(opened.approvals.is_empty(), "no approval is recorded");
@@ -423,7 +429,7 @@ async fn an_item_raised_with_an_unattended_label_opens_at_once_with_a_note_sayin
   assert_eq!(notes[0].actor_name, "bmo-job");
   assert_eq!(notes[0].labels, BTreeMap::from([("opened".to_owned(), "unattended".to_owned())]));
   assert!(
-    notes[0].text.contains("opened by itself") && notes[0].text.contains("pr-review"),
+    notes[0].text.contains("opened by itself") && notes[0].text.contains("lane=pr-review"),
     "{}",
     notes[0].text
   );
@@ -438,20 +444,22 @@ async fn an_item_raised_with_an_unattended_label_opens_at_once_with_a_note_sayin
     .collect();
   assert_eq!(kinds, ["item.created", "note.created"].map(str::to_owned).to_vec());
 
-  // A `key=value` label opens only the item holding that key at that value.
-  let mut fast = raised("base", "fast");
-  fast.labels = BTreeMap::from([("lane".to_owned(), "fast".to_owned())]);
-  assert_eq!(client.create_item(&fast).await.expect("raised").state, ItemState::Open);
-  let mut slow = raised("base", "slow");
-  slow.labels = BTreeMap::from([("lane".to_owned(), "slow".to_owned())]);
-  let slow = client.create_item(&slow).await.expect("raised");
-  assert_eq!(slow.state, ItemState::Draft);
-  assert!(client.notes(slow.id, &WaitQuery::default()).await.expect("its notes").items.is_empty());
+  // The pair opens only the item holding that key at that value; the key alone, or another value, opens nothing.
+  for labels in [
+    BTreeMap::from([("lane".to_owned(), "fast".to_owned())]),
+    BTreeMap::from([("pr-review".to_owned(), String::new())]),
+  ] {
+    let mut other = raised("base", "other");
+    other.labels = labels;
+    let other = client.create_item(&other).await.expect("raised");
+    assert_eq!(other.state, ItemState::Draft);
+    assert!(client.notes(other.id, &WaitQuery::default()).await.expect("its notes").items.is_empty());
+  }
 
   // Only the raise reads them: a draft given the label later waits for an approval.
   let plain = client.create_item(&raised("base", "plain")).await.expect("raised");
   let labelled = ItemChange {
-    labels: Some(BTreeMap::from([("pr-review".to_owned(), String::new())])),
+    labels: Some(review_labels()),
     ..ItemChange::default()
   };
   assert_eq!(client.change_item(plain.id, &labelled).await.expect("changed").state, ItemState::Draft);
@@ -461,6 +469,6 @@ async fn an_item_raised_with_an_unattended_label_opens_at_once_with_a_note_sayin
 async fn with_no_unattended_labels_every_item_is_raised_a_draft() {
   let service = Service::start().await;
   let mut review = raised("base", "review the pull request");
-  review.labels = BTreeMap::from([("pr-review".to_owned(), String::new())]);
+  review.labels = BTreeMap::from([("lane".to_owned(), "pr-review".to_owned())]);
   assert_eq!(service.client().create_item(&review).await.expect("raised").state, ItemState::Draft);
 }

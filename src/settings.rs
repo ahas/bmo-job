@@ -30,17 +30,18 @@ pub struct Settings {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Unattended {
-  /// Each a key an item's labels hold, or `key=value`.
+  /// Each `key=value`: a key an item's labels hold at that value.
   #[serde(default)]
   pub labels: Vec<String>,
 }
 
 impl Unattended {
-  /// The first of the labels `labels` holds, as the `label` filter reads one: a key, or `key=value`.
+  /// The first of the labels `labels` holds, each `key=value` as the `label` filter reads that shape.
   pub fn matched(&self, labels: &Labels) -> Option<&str> {
-    self.labels.iter().map(String::as_str).find(|label| match label.split_once('=') {
-      Some((key, value)) => labels.get(key).is_some_and(|held| held == value),
-      None => labels.contains_key(*label),
+    self.labels.iter().map(String::as_str).find(|label| {
+      label
+        .split_once('=')
+        .is_some_and(|(key, value)| labels.get(key).is_some_and(|held| held == value))
     })
   }
 }
@@ -104,8 +105,8 @@ impl Settings {
       }
     }
     for label in &settings.unattended.labels {
-      if label.split_once('=').map_or(label.as_str(), |(key, _)| key).is_empty() {
-        return Err(format!("{}: the unattended label {label:?} names no key", path.display()));
+      if !label.split_once('=').is_some_and(|(key, value)| !key.is_empty() && !value.is_empty()) {
+        return Err(format!("{}: the unattended label {label:?} is not key=value", path.display()));
       }
     }
     Ok(settings)

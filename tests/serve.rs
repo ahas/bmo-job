@@ -54,7 +54,7 @@ fn the_example_loads_and_a_wrong_file_is_refused() {
 #[test]
 fn the_unattended_labels_are_read_and_one_naming_no_key_is_refused() {
   let example = Settings::load(&Path::new(ROOT).join("settings.example.toml")).expect("the example loads");
-  assert_eq!(example.unattended.labels, ["pr-review"]);
+  assert_eq!(example.unattended.labels, ["lane=pr-review"]);
 
   let dir = tempfile::tempdir().expect("a scratch directory");
   let settings = |unattended: &str| {
@@ -62,9 +62,18 @@ fn the_unattended_labels_are_read_and_one_naming_no_key_is_refused() {
   };
   let none = Settings::load(&written(dir.path(), "none.toml", &settings(""))).expect("loads");
   assert!(none.unattended.labels.is_empty(), "left out, no label is unattended");
-  for (name, label) in [("empty.toml", ""), ("keyless.toml", "=fast")] {
+  for (name, label) in [
+    ("empty.toml", ""),
+    ("keyless.toml", "=fast"),
+    ("bare.toml", "pr-review"),
+    ("valueless.toml", "lane="),
+  ] {
     let refused = written(dir.path(), name, &settings(&format!("[unattended]\nlabels = [\"{label}\"]\n")));
-    assert!(Settings::load(&refused).expect_err("a label naming no key").contains("names no key"));
+    assert!(
+      Settings::load(&refused)
+        .expect_err("a label naming no key")
+        .contains("is not key=value")
+    );
   }
   let unknown = written(dir.path(), "unknown.toml", &settings("[unattended]\nqueues = []\n"));
   assert!(Settings::load(&unknown).expect_err("an unknown key").contains("queues"));

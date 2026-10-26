@@ -39,15 +39,15 @@ what acts on that word. A deployment that marks none opens no draft by an approv
 
 ### `[unattended]`
 
-The labels whose items need no approval. An item raised carrying one opens at once, with a note that it opened by
+The labels whose items need no approval, each a key at a value. An item raised carrying one opens at once, with a note that it opened by
 itself under this setting (docs/api.md, "Unattended labels"). Left out, every item is raised a draft.
 
 | Key | What it holds |
 |---|---|
-| `labels` | The labels, each a key an item's labels hold or `key=value`; an empty label, or one with an empty key, is refused |
+| `labels` | The labels, each `key=value`, matched where an item's labels hold that key at that value, as the `label` filter reads that shape; an entry with no `=`, an empty key or an empty value is refused |
 
-A deployment names here the work a worker takes up and settles on its own, such as the review of a base library's
-pull request (docs/base-libraries.md, "The road").
+A deployment names here the work a worker takes up and settles on its own, such as the review of a pull request a
+worker holds, which is filed with the label `lane` at `pr-review` (docs/base-libraries.md, "The road").
 
 ### `[database]`
 

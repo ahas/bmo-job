@@ -93,8 +93,8 @@ and who is to take it, the caller's scope and labels, its approvals and its stat
 
 - **An item raised with an unattended label opens at once.** The settings name the labels whose items need no
   approval (docs/settings.md, `[unattended]`). An item `POST /items` raises with one of them in its `labels` is
-  raised `open` rather than `draft`, with no approval recorded; a label named there is a key the item's labels
-  hold, or `key=value` where they hold that key at that value, as the `label` filter reads it.
+  raised `open` rather than `draft`, with no approval recorded; a label named there is `key=value`, held where the
+  item's labels hold that key at that value, as the `label` filter reads that shape.
 - **It carries a note saying so,** written as it is raised under the actor name `bmo-job`, with the label
   `opened` at `unattended`: that the item opened by itself, the label it matched and the setting that names it.
   The note is told as `note.created` after the item's `item.created`.

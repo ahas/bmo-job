@@ -17,8 +17,8 @@ needs something a base library does not serve, and the rule its pull request kee
   library's own tests. What is specific to the repository that asked stays there, or is reshaped into the
   general form the base library can serve.
 - **The base library's worker decides, unattended.** The review is an item of the base library's queue raised
-  with the label the deployment names unattended (docs/settings.md, `[unattended]`), so it opens without an
-  approval. The worker holding the base library's work takes it, holds the pull request to the rule below, runs
+  with the label pair the deployment names unattended, `lane` at `pr-review` (docs/settings.md, `[unattended]`),
+  so it opens without an approval. The worker holding the base library's work takes it, holds the pull request to the rule below, runs
   the base library's checks on its branch, and merges it, or sends it back with the reason as a review on the
   pull request; `bmo-review` may assist the reading. It then posts one line to the owner's room saying which pull
   request it merged or sent back.
