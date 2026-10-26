@@ -30,7 +30,7 @@ this repository is tested, checked, built and deployed, docs/deploy.md), `rustfm
 | `docs/api.md` | The API: every resource, its states and moves, its routes, the events, subscriptions and webhook delivery, the client and the harness plugin |
 | `docs/openapi.json` | The contract as the code generates it, with the tools under `x-tools` and the harness entry under `x-harness` |
 | `docs/cli.md` | The command line: `serve`, `mcp` and `openapi` |
-| `docs/settings.md` | The settings file: where the service listens, its token and its database |
+| `docs/settings.md` | The settings file: where the service listens, its tokens and the callers they name, and its database |
 | `docs/schema.md` | The schema: the tables and the rules they keep |
 | `docs/deploy.md` | Deploying the service: what a release holds, where the service stands, and what gates a deployment |
 | `docs/checks.md` | The repository checks |

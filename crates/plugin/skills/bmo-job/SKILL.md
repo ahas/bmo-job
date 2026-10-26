@@ -18,8 +18,10 @@ Register the server with the harness as a stdio MCP server:
 bmo-job mcp --service http://127.0.0.1:7841
 ```
 
-The address is the service's base address. Its bearer token goes in the `BMO_JOB_TOKEN` environment variable
-of the server, or `--token`; a wrong one answers every tool with a 401 `unauthorized` error.
+The address is the service's base address. The bearer token goes in the `BMO_JOB_TOKEN` environment variable
+of the server, or `--token`; a wrong one answers every tool with a 401 `unauthorized` error. The token is the
+caller every call is made as: the shared token, or a caller's own, under whose name the service records what
+the token's caller approves.
 
 To be told of items from the start, name the queues you serve and the name you hold work under:
 
@@ -74,10 +76,15 @@ The lease holds the item for `ttlMs` (at most 3600000). The server renews it at 
 
 ## Raising work
 
-`job_item_create` raises an item as a `draft` in a queue; it is taken only once it is approved, by
-`job_item_update` with an `approval` naming who approved it. `job_items` lists items by `state`, `queueName`,
-`assigneeName`, `scope`, `label` or words (`q`), in queue order; `job_queues` lists the queues, whether each is
-paused or held, and how many items are open and leased in it.
+`job_item_create` raises an item as a `draft` in a queue; it is taken only once it is approved. `job_item_update`
+with an `approval` (`{}`, or with `at`) gives an approval, and it takes no name of who approves: the service
+records it under the caller whose token this server was started with. Only where the deployment marks that
+caller as an approver is it of the kind `approval`, which opens the draft; otherwise it is a `recommendation`,
+recorded on the item for an approver to see, and the item stays a draft. The item's `approvals` say which
+each one is.
+
+`job_items` lists items by `state`, `queueName`, `assigneeName`, `scope`, `label` or words (`q`), in queue order;
+`job_queues` lists the queues, whether each is paused or held, and how many items are open and leased in it.
 
 ## Failures
 

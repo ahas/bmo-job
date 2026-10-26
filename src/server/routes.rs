@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
@@ -22,6 +22,7 @@ use super::App;
 use super::extract::{InBody, InItemsQuery, InPath, InQuery, ItemsQuery};
 use super::port::{self, PortError};
 use super::stream;
+use crate::access::Caller;
 use crate::refusal::Refusal;
 use crate::store::{Store, wait_span};
 
@@ -123,10 +124,11 @@ async fn item(State(app): State<App>, InPath(item_id): InPath<i64>) -> Answer {
 
 async fn change_item(
   State(app): State<App>,
+  Extension(caller): Extension<Caller>,
   InPath(item_id): InPath<i64>,
   InBody(change): InBody<ItemChange>,
 ) -> Answer {
-  ok(app.store.change_item(item_id, change).await?)
+  ok(app.store.change_item(item_id, change, &caller).await?)
 }
 
 async fn notes(

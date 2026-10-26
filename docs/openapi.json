@@ -14,30 +14,36 @@
     },
     "schemas": {
       "Approval": {
-        "description": "One approval given to an item.",
+        "description": "One approval given to an item: what it counts as, the caller the request's token named, and when.",
         "properties": {
-          "actorName": {
-            "type": "string"
-          },
           "at": {
             "description": "Epoch milliseconds.",
             "format": "int64",
             "type": "integer"
+          },
+          "callerName": {
+            "description": "The caller the request's token named; null for the shared token or an approval recorded with no caller.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ApprovalKind",
+            "description": "`approval` where the caller is an approver, which opens a draft; `recommendation` otherwise."
           }
         },
         "required": [
-          "actorName",
+          "kind",
+          "callerName",
           "at"
         ],
         "type": "object"
       },
       "ApprovalGiven": {
         "additionalProperties": false,
-        "description": "An approval as a change gives it: who, and when, which is the time of the change where left out.",
+        "description": "An approval as a change gives it: when, which is the time of the change where left out. Who gives it is the\ncaller the request's token names, never a field of the body.",
         "properties": {
-          "actorName": {
-            "type": "string"
-          },
           "at": {
             "description": "Epoch milliseconds.",
             "format": "int64",
@@ -47,10 +53,22 @@
             ]
           }
         },
-        "required": [
-          "actorName"
-        ],
         "type": "object"
+      },
+      "ApprovalKind": {
+        "description": "What an approval counts as, fixed when it is given by whether its caller is an approver.",
+        "oneOf": [
+          {
+            "const": "approval",
+            "description": "Given by a caller the deployment marks as an approver; it opens a draft.",
+            "type": "string"
+          },
+          {
+            "const": "recommendation",
+            "description": "Given by any other caller, or with the shared token; it is recorded and moves nothing.",
+            "type": "string"
+          }
+        ]
       },
       "Error": {
         "description": "A refusal or failure: a code for a machine and one English sentence for a person.",
@@ -169,7 +187,7 @@
         "type": "object"
       },
       "Item": {
-        "description": "One piece of work. States and moves: draft to open (an approval), open to leased (a lease), leased to open (the lease given back or run out), open or leased to held and held to open, leased to done, and any state but done, dropped and merged to dropped or merged.",
+        "description": "One piece of work. States and moves: draft to open (an approval of the kind approval), open to leased (a lease), leased to open (the lease given back or run out), open or leased to held and held to open, leased to done, and any state but done, dropped and merged to dropped or merged.",
         "properties": {
           "approvals": {
             "items": {
@@ -1731,7 +1749,7 @@
   "info": {
     "description": "A todo kept as middleware: items, notes, reports, work orders and their tasks, queues, leases on items, questions and their replies, and subscriptions, stored and served through this API and nothing else. The service never executes: it launches no run and calls no other service; the only calls it makes are deliveries to the addresses its subscribers registered. Work reaches whoever does it two ways, side by side: pushed, as the events of a subscription it registered, and pulled, by a lease. Who a member belongs to is opaque to the service: scope and the <role>Name fields are the caller's strings, and labels the caller's metadata.",
     "title": "bmo-job",
-    "version": "0.1.0-rev.5"
+    "version": "0.1.0-rev.6"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2105,7 +2123,7 @@
             "$ref": "#/components/responses/Error"
           }
         },
-        "summary": "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief.",
+        "summary": "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief. An approval is recorded under the caller the token names; it opens a draft only where that caller is an approver, and is otherwise a recommendation that leaves the item a draft.",
         "tags": [
           "items"
         ],
@@ -3963,7 +3981,7 @@
       "route": "GET /items/{itemId}"
     },
     {
-      "description": "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief.",
+      "description": "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief. An approval takes no name of who approves: it is recorded under the caller whose token this server holds, and opens a draft only where the deployment marks that caller as an approver; otherwise it is a recommendation, recorded for an approver to see, and the item stays a draft.",
       "input": {
         "description": "A route's path key and the rest of its input together, as one tool's input.",
         "properties": {

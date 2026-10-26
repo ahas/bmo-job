@@ -13,7 +13,7 @@ The binary `bmo-job` carries three commands.
 | Option | What it gives |
 |---|---|
 | `--service <url>` | The base address the service's routes stand at; required |
-| `--token <token>` | The service's bearer token; read from `BMO_JOB_TOKEN` where it is left out |
+| `--token <token>` | The bearer token every call is made with: the shared token, or a caller's own, under whose name the service records an approval the server gives (docs/settings.md, `[callers]`); read from `BMO_JOB_TOKEN` where it is left out |
 | `--holder <name>` and `--queue <name>` | A holder name and the queues it is told of from the start, `--queue` given once for each; each needs the other |
 | `--channel <capability>` | The experimental capability each event is also pushed on as a message |
 

@@ -5,9 +5,11 @@ mod support;
 
 use std::collections::BTreeMap;
 
-use bmo_job_client::{ApprovalGiven, ItemChange, ItemQuery, ItemState, LeaseAsk, LeaseWait, NewItem};
+use bmo_job_client::{
+  ApprovalGiven, ApprovalKind, ItemChange, ItemQuery, ItemState, LeaseAsk, LeaseWait, NewItem,
+};
 
-use support::{START, Service};
+use support::{APPROVER, CALLER, CALLER_TOKEN, START, Service};
 
 fn raised(queue: &str, title: &str) -> NewItem {
   NewItem {
@@ -47,19 +49,93 @@ async fn an_item_is_raised_as_a_draft_and_opened_by_an_approval() {
 
   service.clock.advance(5);
   let approval = ItemChange {
-    approval: Some(ApprovalGiven {
-      actor_name: "reviewer".to_owned(),
-      at: None,
-    }),
+    approval: Some(ApprovalGiven::default()),
     ..ItemChange::default()
   };
-  let opened = client.change_item(item.id, &approval).await.expect("approved");
+  let opened = service.approver().change_item(item.id, &approval).await.expect("approved");
   assert_eq!(opened.state, ItemState::Open);
   assert_eq!(opened.approvals.len(), 1);
   assert_eq!(opened.approvals[0].at, START + 5);
+  assert_eq!(opened.approvals[0].kind, ApprovalKind::Approval);
+  assert_eq!(opened.approvals[0].caller_name.as_deref(), Some(APPROVER));
 
-  let again = client.change_item(item.id, &approval).await.expect("approved again");
+  let again = service.approver().change_item(item.id, &approval).await.expect("approved again");
   assert_eq!((again.state, again.approvals.len()), (ItemState::Open, 2));
+}
+
+#[tokio::test]
+async fn a_callers_approval_that_is_no_approvers_is_a_recommendation_and_leaves_the_draft() {
+  let service = Service::start().await;
+  let item = service.client().create_item(&raised("build", "recommended")).await.expect("raised");
+  let approval = ItemChange {
+    approval: Some(ApprovalGiven::at(Some(START + 1))),
+    ..ItemChange::default()
+  };
+
+  let caller = service.client_with(CALLER_TOKEN);
+  let recommended = caller.change_item(item.id, &approval).await.expect("recorded");
+  assert_eq!(recommended.state, ItemState::Draft);
+  assert_eq!(recommended.approvals.len(), 1);
+  assert_eq!(recommended.approvals[0].kind, ApprovalKind::Recommendation);
+  assert_eq!(recommended.approvals[0].caller_name.as_deref(), Some(CALLER));
+  assert_eq!(recommended.approvals[0].at, START + 1);
+
+  let shared = service.client().change_item(item.id, &approval).await.expect("recorded");
+  assert_eq!(shared.state, ItemState::Draft);
+  assert_eq!(shared.approvals[1].kind, ApprovalKind::Recommendation);
+  assert_eq!(shared.approvals[1].caller_name, None);
+
+  let mut opening = approval.clone();
+  opening.state = Some(ItemState::Open);
+  let refused = caller.change_item(item.id, &opening).await.expect_err("a recommendation opens nothing");
+  assert_eq!((refused.status(), refused.code()), (Some(409), Some("conflict")));
+  let refused = caller
+    .change_item(item.id, &moved(ItemState::Open))
+    .await
+    .expect_err("no approver's approval");
+  assert_eq!((refused.status(), refused.code()), (Some(409), Some("conflict")));
+  assert_eq!(service.client().item(item.id).await.expect("read").approvals.len(), 2);
+
+  let opened = service.approver().change_item(item.id, &approval).await.expect("approved");
+  assert_eq!(opened.state, ItemState::Open);
+  let kinds: Vec<ApprovalKind> = opened.approvals.iter().map(|approval| approval.kind).collect();
+  assert_eq!(
+    kinds,
+    [ApprovalKind::Recommendation, ApprovalKind::Recommendation, ApprovalKind::Approval]
+  );
+}
+
+#[tokio::test]
+async fn a_typed_actor_name_has_no_effect() {
+  let service = Service::start().await;
+  let item = service.client().create_item(&raised("build", "typed")).await.expect("raised");
+  let typed = serde_json::json!({ "approval": { "actorName": APPROVER } });
+
+  let answer = service
+    .raw(reqwest::Method::PATCH, &format!("/items/{}", item.id))
+    .json(&typed)
+    .send()
+    .await
+    .expect("answered");
+  assert_eq!(answer.status(), 200);
+  let recommended: serde_json::Value = answer.json().await.expect("the item");
+  assert_eq!(recommended["state"], "draft");
+  assert_eq!(
+    recommended["approvals"],
+    serde_json::json!([{ "kind": "recommendation", "callerName": null, "at": START }])
+  );
+
+  let answer = reqwest::Client::new()
+    .patch(format!("{}/items/{}", service.url, item.id))
+    .bearer_auth(support::APPROVER_TOKEN)
+    .json(&serde_json::json!({ "approval": { "actorName": "somebody-else" } }))
+    .send()
+    .await
+    .expect("answered");
+  let approved: serde_json::Value = answer.json().await.expect("the item");
+  assert_eq!(approved["state"], "open");
+  assert_eq!(approved["approvals"][1]["callerName"], APPROVER);
+  assert_eq!(approved["approvals"][1]["kind"], "approval");
 }
 
 #[tokio::test]

@@ -16,7 +16,7 @@ const item: Item = {
   requesterName: null,
   scope: null,
   labels: {},
-  approvals: [{ actorName: "reviewer", at: 1 }],
+  approvals: [{ kind: "approval", callerName: "qa-admin", at: 1 }],
   cowork: false,
   mergedInto: null,
   leaseId: null,

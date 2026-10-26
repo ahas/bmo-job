@@ -31,10 +31,7 @@ async fn approve(client: &JobClient, item: Item) -> Item {
     .change_item(
       item.id,
       &ItemChange {
-        approval: Some(ApprovalGiven {
-          actor_name: "reviewer".into(),
-          at: None,
-        }),
+        approval: Some(ApprovalGiven::default()),
         ..ItemChange::default()
       },
     )
@@ -79,11 +76,11 @@ async fn a_rooms_holdings_count_what_still_belongs_to_it() {
   let service = Service::start().await;
   let client = service.client();
 
-  let open = approve(&client, item_in(&client, "7", "open", None).await).await;
+  let open = approve(&service.approver(), item_in(&client, "7", "open", None).await).await;
   item_in(&client, "7", "draft", None).await;
   let held = moved(
     &client,
-    approve(&client, item_in(&client, "7", "held", None).await).await,
+    approve(&service.approver(), item_in(&client, "7", "held", None).await).await,
     ItemState::Held,
   )
   .await;
@@ -193,11 +190,15 @@ async fn the_open_items_are_read_in_the_ports_shape_oldest_first() {
   let service = Service::start().await;
   let client = service.client();
 
-  let waiting = approve(&client, item_in(&client, "project-7", "waiting", Some("runner-a")).await).await;
+  let waiting =
+    approve(&service.approver(), item_in(&client, "project-7", "waiting", Some("runner-a")).await).await;
   let draft = item_in(&client, "project-7", "draft", None).await;
+  // The shared token is no approver: its approval is a recommendation, and the draft is not approved.
+  let recommended = approve(&client, item_in(&client, "project-7", "recommended", None).await).await;
+  assert_eq!(recommended.state, ItemState::Draft);
   let held = moved(
     &client,
-    approve(&client, item_in(&client, "project-7", "held", None).await).await,
+    approve(&service.approver(), item_in(&client, "project-7", "held", None).await).await,
     ItemState::Held,
   )
   .await;
@@ -218,6 +219,7 @@ async fn the_open_items_are_read_in_the_ports_shape_oldest_first() {
       "items": [
         { "id": waiting.id, "approved": true, "status": "open", "title": "waiting", "worker": "runner-a" },
         { "id": draft.id, "approved": false, "status": "draft", "title": "draft", "worker": null },
+        { "id": recommended.id, "approved": false, "status": "draft", "title": "recommended", "worker": null },
       ]
     }),
     "the held {held:?} and dropped {dropped:?} items are not open"

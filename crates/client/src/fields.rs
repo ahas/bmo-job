@@ -1,7 +1,9 @@
-//! What several bodies share: the caller's labels, and the three readings of a field in a merge patch.
+//! What several bodies share: the caller's labels, the three readings of a field in a merge patch, and a field
+//! read and dropped.
 
 use std::collections::BTreeMap;
 
+use serde::de::IgnoredAny;
 use serde::{Deserialize, Deserializer};
 
 /// The caller's own metadata on a member, which the service keeps and never reads.
@@ -15,4 +17,14 @@ where
   D: Deserializer<'de>,
 {
   Option::<T>::deserialize(deserializer).map(Some)
+}
+
+/// A field a body may carry that the service reads and drops, whatever it holds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Unread;
+
+impl<'de> Deserialize<'de> for Unread {
+  fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+    IgnoredAny::deserialize(deserializer).map(|_| Self)
+  }
 }

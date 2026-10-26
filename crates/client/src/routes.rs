@@ -218,7 +218,9 @@ pub fn routes() -> Vec<Route> {
       "/items/{itemId}",
       "changeItemsByItemId",
       "items",
-      "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief.",
+      "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief. \
+       An approval is recorded under the caller the token names; it opens a draft only where that caller is an \
+       approver, and is otherwise a recommendation that leaves the item a draft.",
     )
     .with(
       None,

@@ -1,7 +1,8 @@
 # Settings
 
 The service reads one TOML file of settings when `bmo-job serve` starts. Nothing a deployment chooses stands in
-the code: where it listens, the token it takes and the database it keeps its members in come from this file.
+the code: where it listens, the tokens it takes and the callers they name, whose approval opens a draft, and the
+database it keeps its members in come from this file.
 
 ## Where the file is
 
@@ -11,15 +12,29 @@ the code: where it listens, the token it takes and the database it keeps its mem
 
 ## What the file holds
 
-Two sections, both required. A key the service does not know is refused, so a misspelt setting fails at start
-rather than standing silently at a default.
+Two sections required, `[server]` and `[database]`, and one optional, `[callers]`. A key the service does not
+know is refused, so a misspelt setting fails at start rather than standing silently at a default.
 
 ### `[server]`
 
 | Key | What it holds |
 |---|---|
 | `listen` | The address and port the service listens on |
-| `token_file` | The file holding the bearer token every request carries; its surrounding whitespace is dropped, and a file holding no token is refused |
+| `token_file` | The file holding the shared bearer token, which a request may carry and which names no caller; its surrounding whitespace is dropped, and a file holding no token is refused |
+
+### `[callers]`
+
+One table for each caller with a token of its own, keyed by the caller's name: 1 to 64 letters, digits, dots,
+underscores and hyphens. A request carrying a caller's token is that caller's, and an approval it gives is
+recorded under that name (docs/api.md, "Approvals").
+
+| Key | What it holds |
+|---|---|
+| `token_file` | The file holding the caller's bearer token, read as `[server] token_file` is; a token that is the shared one or another caller's is refused |
+| `approves` | Whether the caller's approval opens a draft: `true` makes it an approver, whose approval is of the kind `approval`; left out it is `false`, and the caller's approval is a recommendation |
+
+A deployment marks as an approver the caller whose word alone puts work into a queue, and gives its token only to
+what acts on that word. A deployment that marks none opens no draft by an approval.
 
 ### `[database]`
 

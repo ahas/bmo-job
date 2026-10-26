@@ -1,6 +1,9 @@
 //! Items: raised, read in queue order, and changed by the moves docs/api.md lists (docs/api.md, "Items").
 
-use bmo_job_client::{Approval, EventKind, Item, ItemChange, ItemQuery, ItemState, NewItem, Page};
+use bmo_job_client::{
+  Approval, ApprovalKind, EventKind, Item, ItemChange, ItemQuery, ItemState, NewItem, Page,
+};
+use serde::Deserialize;
 use sqlx::sqlite::SqliteRow;
 use sqlx::{QueryBuilder, Row, Sqlite};
 
@@ -8,10 +11,41 @@ use super::events::{EventKeys, emit};
 use super::leases::end_standing_lease;
 use super::queues::ensure_queue;
 use super::{Store, Tx, filled, from_json, listed, page_limit, paged, queue_name, stored, to_json};
+use crate::access::Caller;
 use crate::refusal::Refusal;
 
 const ITEM_COLUMNS: &str = "id, title, brief, state, queue_name, position, priority, assignee_name, requester_name, \
   scope, labels, approvals, cowork, merged_into, lease_id, created_at, changed_at, ended_at";
+
+/// An approval as the store holds it. One held with no kind, such as one imported, reads as an approval of no
+/// caller (docs/api.md, "Approvals").
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HeldApproval {
+  #[serde(default = "held_kind")]
+  kind: ApprovalKind,
+  #[serde(default)]
+  caller_name: Option<String>,
+  at: i64,
+}
+
+fn held_kind() -> ApprovalKind {
+  ApprovalKind::Approval
+}
+
+fn approvals_from(text: &str) -> Result<Vec<Approval>, Refusal> {
+  let held: Vec<HeldApproval> = from_json(text)?;
+  Ok(
+    held
+      .into_iter()
+      .map(|held| Approval {
+        kind: held.kind,
+        caller_name: held.caller_name,
+        at: held.at,
+      })
+      .collect(),
+  )
+}
 
 fn item_from(row: &SqliteRow) -> Result<Item, Refusal> {
   Ok(Item {
@@ -26,7 +60,7 @@ fn item_from(row: &SqliteRow) -> Result<Item, Refusal> {
     requester_name: row.try_get("requester_name")?,
     scope: row.try_get("scope")?,
     labels: from_json(row.try_get::<&str, _>("labels")?)?,
-    approvals: from_json(row.try_get::<&str, _>("approvals")?)?,
+    approvals: approvals_from(row.try_get::<&str, _>("approvals")?)?,
     cowork: row.try_get::<i64, _>("cowork")? != 0,
     merged_into: row.try_get("merged_into")?,
     lease_id: row.try_get("lease_id")?,
@@ -267,8 +301,8 @@ impl Store {
     Ok(count)
   }
 
-  /// Changes an item as a merge patch, its state by the moves allowed.
-  pub async fn change_item(&self, id: i64, change: ItemChange) -> Result<Item, Refusal> {
+  /// Changes an item as a merge patch, its state by the moves allowed; an approval it carries is `caller`'s.
+  pub async fn change_item(&self, id: i64, change: ItemChange, caller: &Caller) -> Result<Item, Refusal> {
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut item = item_at(&mut tx, id).await?;
@@ -312,11 +346,11 @@ impl Store {
       item.cowork = cowork;
     }
 
-    let approved = change.approval.is_some();
+    let approved = change.approval.is_some() && caller.approves;
     if let Some(approval) = change.approval {
-      filled("approval's actorName", &approval.actor_name)?;
       item.approvals.push(Approval {
-        actor_name: approval.actor_name,
+        kind: caller.approval_kind(),
+        caller_name: caller.name.clone(),
         at: approval.at.unwrap_or(now),
       });
     }
@@ -335,8 +369,11 @@ impl Store {
       if !may_move(item.state, target) {
         return Err(Refusal::conflict(format!("An item {} cannot move to {}.", item.state, target)));
       }
-      if item.state == ItemState::Draft && target == ItemState::Open && item.approvals.is_empty() {
-        return Err(Refusal::conflict("A draft opens with an approval."));
+      if item.state == ItemState::Draft
+        && target == ItemState::Open
+        && !item.approvals.iter().any(|approval| approval.kind == ApprovalKind::Approval)
+      {
+        return Err(Refusal::conflict("A draft opens with an approver's approval."));
       }
       if target == ItemState::Merged {
         let Some(into) = change.merged_into else {

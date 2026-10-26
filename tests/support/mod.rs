@@ -1,5 +1,6 @@
 //! What the root package's tests share: the root and the walk over the files the repository checks read, and
-//! the service run in process on loopback over a scratch database, its clock moved by hand.
+//! the service run in process on loopback over a scratch database, its clock moved by hand, taking the shared
+//! token and the tokens of two callers, one of them an approver.
 
 // Each test file is its own crate and uses only part of this module.
 #![allow(dead_code)]
@@ -8,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use bmo_job::{App, Clock, DeliveryPolicy, Store};
+use bmo_job::{Access, App, Caller, Clock, DeliveryPolicy, Store};
 use bmo_job_client::{ApprovalGiven, Item, ItemChange, ItemState, JobClient, NewItem};
 use tempfile::TempDir;
 use tokio::net::TcpListener;
@@ -16,8 +17,24 @@ use tokio::task::JoinHandle;
 
 pub const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
-/// The token every test's service takes.
+/// The shared token every test's service takes, which names no caller.
 pub const TOKEN: &str = "test-token";
+
+/// The caller every test's service marks as an approver, and its token.
+pub const APPROVER: &str = "qa-admin";
+pub const APPROVER_TOKEN: &str = "approver-token";
+
+/// A caller with a token of its own that is no approver, and its token.
+pub const CALLER: &str = "tester";
+pub const CALLER_TOKEN: &str = "caller-token";
+
+/// The tokens every test's service takes.
+pub fn access() -> Access {
+  Access::shared(TOKEN)
+    .with(APPROVER_TOKEN, Caller::named(APPROVER, true))
+    .and_then(|access| access.with(CALLER_TOKEN, Caller::named(CALLER, false)))
+    .expect("the tokens differ")
+}
 
 /// Where every test's clock starts.
 pub const START: i64 = 1_700_000_000_000;
@@ -96,7 +113,7 @@ impl Service {
     let url = format!("sqlite://{}?mode=rwc", dir.path().join("job.db").display());
     let clock = Clock::manual(START);
     let store = Store::open(&url, clock.clone()).await.expect("the store opens");
-    let app = App::new(store.clone(), TOKEN);
+    let app = App::new(store.clone(), access());
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a loopback port");
     let address = listener.local_addr().expect("the port's address");
     let mut tasks = bmo_job::spawn_background(store.clone(), policy);
@@ -114,8 +131,19 @@ impl Service {
     }
   }
 
+  /// A client with the shared token.
   pub fn client(&self) -> JobClient {
-    JobClient::new(&self.url, TOKEN).expect("the client takes the address")
+    self.client_with(TOKEN)
+  }
+
+  /// A client with the approver's token.
+  pub fn approver(&self) -> JobClient {
+    self.client_with(APPROVER_TOKEN)
+  }
+
+  /// A client with `token`.
+  pub fn client_with(&self, token: &str) -> JobClient {
+    JobClient::new(&self.url, token).expect("the client takes the address")
   }
 
   /// A request on the raw route, with the token.
@@ -129,7 +157,7 @@ impl Service {
     self.store.sweep().await.expect("the sweep runs");
   }
 
-  /// Raises an item in `queue` and opens it with an approval.
+  /// Raises an item in `queue` and opens it with the approver's approval.
   pub async fn open_item(&self, queue: &str, title: &str) -> Item {
     let client = self.client();
     let item = client
@@ -141,14 +169,12 @@ impl Service {
       })
       .await
       .expect("the item is raised");
-    let opened = client
+    let opened = self
+      .approver()
       .change_item(
         item.id,
         &ItemChange {
-          approval: Some(ApprovalGiven {
-            actor_name: "reviewer".to_owned(),
-            at: None,
-          }),
+          approval: Some(ApprovalGiven::default()),
           ..ItemChange::default()
         },
       )

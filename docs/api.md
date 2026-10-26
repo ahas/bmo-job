@@ -1,6 +1,6 @@
 # The API
 
-**Fixed at 0.1.0-rev.5.** This document and the OpenAPI document generated beside it, `docs/openapi.json`, are
+**Fixed at 0.1.0-rev.6.** This document and the OpenAPI document generated beside it, `docs/openapi.json`, are
 the service's contract. The common wire format, the path and method rules and the error table are the bmo-next
 conventions bmo-chat keeps; this document states what the service holds and serves on them, and repeats none of
 it.
@@ -11,11 +11,17 @@ and serves them through this API and nothing else. It never executes: it launche
 other unit and registers nothing anywhere. The one call it makes is a delivery to the address a subscriber
 registered. Who a member belongs to is opaque to it: `scope`, `assigneeName`, `requesterName`, `holderName`,
 `askerName` and `actorName` are the caller's strings, and `labels` the caller's metadata, none of which it reads.
+Who gave an approval is the one name it does not take from a body: that is the caller the request's token
+names (Items, "Approvals").
 
 ## Access
 
-- **Every route takes the bearer token** the settings name (docs/settings.md), `/health` included. A request
-  without it, or with another, is answered 401 `unauthorized`.
+- **Every route takes a bearer token** the settings name (docs/settings.md), `/health` included: the shared
+  token, or the token of one of the callers the settings list. A request without one of them is answered 401
+  `unauthorized`.
+- **The token names the caller.** A request with a caller's own token is that caller's, known to the service
+  by the caller's name in the settings; a request with the shared token is no named caller's. Every route
+  answers either alike; only an approval reads who the caller is.
 - **A method and path no route answers** is answered 404 `no-route`.
 - **A body or query not of the route's shape** is answered 400 `bad-request`, the sentence naming what is
   wrong.
@@ -52,7 +58,7 @@ and who is to take it, the caller's scope and labels, its approvals and its stat
 | `assigneeName` | Who alone may lease it, or null for anyone |
 | `requesterName` | Who asked for it, or null |
 | `scope`, `labels` | The caller's opaque scope, or null, and its metadata |
-| `approvals` | Each approval given, `actorName` and `at`, oldest first |
+| `approvals` | Each approval given, `kind`, `callerName` and `at`, oldest first (below) |
 | `cowork` | The caller's flag for work done by several at once |
 | `mergedInto` | The item a merged item was folded into, or null |
 | `leaseId` | The lease standing on it, or null |
@@ -67,11 +73,25 @@ and who is to take it, the caller's scope and labels, its approvals and its stat
 - **`GET /items` answers in this order,** across queues where no queue is named, and `after` continues past
   the named item's place in it.
 
+### Approvals
+
+- **An approval is given by a change carrying `approval`,** which holds at most `at`, the time it was given,
+  the time of the change where left out. An `actorName` in it is read and has no effect.
+- **Who gave it is the caller the request's token names** (Access), recorded as `callerName`; an approval
+  given with the shared token, or recorded with no caller, has `callerName` null.
+- **Its `kind` is fixed when it is given,** by the settings the service runs with: `approval` where the caller
+  is one the settings mark as an approver (docs/settings.md, `[callers]`), and `recommendation` for any other
+  caller and for the shared token.
+- **Only an approval of the kind `approval` opens a draft.** A recommendation is recorded beside the others
+  and moves nothing: the item stays a draft until an approver's approval reaches it.
+- **An approval the store holds with no kind,** such as one imported, reads as `approval` with `callerName`
+  null.
+
 ### States and moves
 
 | From | To | By |
 |---|---|---|
-| `draft` | `open` | an approval: a change carrying `approval`, with or without `state: "open"` |
+| `draft` | `open` | an approval of the kind `approval`: a change carrying `approval` from an approver, with or without `state: "open"` |
 | `open` | `leased` | a lease, `POST /leases`, and by nothing else |
 | `leased` | `open` | the lease given back or run out |
 | `open`, `leased` | `held` | `state: "held"`; a lease standing on the item ends |
@@ -80,10 +100,11 @@ and who is to take it, the caller's scope and labels, its approvals and its stat
 | any but `done`, `dropped`, `merged` | `dropped` | `state: "dropped"`; a standing lease ends |
 | any but `done`, `dropped`, `merged` | `merged` | `state: "merged"` with `mergedInto`; a standing lease ends |
 
-A move not in the table is answered 409 `conflict`, among them `state: "open"` on a draft with no approval.
-`done`, `dropped` and `merged` are final. A merge names a standing item other than itself, neither dropped
-nor merged; one naming no item is answered 422 `unknown-item`, and one naming an item that cannot take it 409
-`conflict`. An approval given to an item past `draft` is recorded beside the others and moves nothing.
+A move not in the table is answered 409 `conflict`, among them `state: "open"` on a draft with no approval of the
+kind `approval`, a recommendation in the same change included. `done`, `dropped` and `merged` are final. A merge
+names a standing item other than itself, neither dropped nor merged; one naming no item is answered 422
+`unknown-item`, and one naming an item that cannot take it 409 `conflict`. An approval or a recommendation given
+to an item past `draft` is recorded beside the others and moves nothing.
 
 ### Routes
 
@@ -92,7 +113,7 @@ nor merged; one naming no item is answered 422 `unknown-item`, and one naming an
 | `GET /items` | Items in queue order, filtered by `state`, `queueName`, `assigneeName`, `scope`, `label` (a key, or `key=value`), `ids` and `q` (words found in the title or the brief, in any case) |
 | `POST /items` | Raises an item as a `draft`: `title`, `brief` and `queueName` required, `priority`, `assigneeName`, `requesterName`, `scope`, `labels` and `cowork` optional. Answers 201 and the item |
 | `GET /items/{itemId}` | One item |
-| `PATCH /items/{itemId}` | Changes an item as a merge patch: `state`, `approval` (`actorName`, and `at`, which is the time of the change where left out), `mergedInto`, `title`, `brief`, `queueName`, `priority`, `position`, `assigneeName`, `requesterName`, `scope`, `labels`, `cowork`. A nullable field set to null is cleared |
+| `PATCH /items/{itemId}` | Changes an item as a merge patch: `state`, `approval` (`at`, which is the time of the change where left out; the caller is the token's), `mergedInto`, `title`, `brief`, `queueName`, `priority`, `position`, `assigneeName`, `requesterName`, `scope`, `labels`, `cowork`. A nullable field set to null is cleared |
 
 A queue comes to stand with the first item raised or moved into it. A queue name is 1 to 64 letters, digits,
 dots, underscores and hyphens.
@@ -300,7 +321,7 @@ its `scope`. Every route takes the bearer token as the others do.
 |---|---|
 | `GET /rooms/{chat}/holdings` | What the service holds of the room: `{code, count}` for `room_open_items`, its items not `done`, `dropped` or `merged`, and for `room_waiting_questions`, its questions `open` or `paused`; each only where its count is not zero, in that order |
 | `GET /questions/open?chat=` | The room's questions still waiting, the one asked last first: `id`, `options` (its `choices`, in order) and `talks` |
-| `GET /items?open=1` | The open items in the port's shape: `{"items": [...]}`, each `id`, `approved` (whether it has an approval), `status` (its state), `title`, and `worker` (its `assigneeName`, or null). The items are those not `done`, `dropped`, `merged` or `held`, oldest first |
+| `GET /items?open=1` | The open items in the port's shape: `{"items": [...]}`, each `id`, `approved` (whether it has an approval of the kind `approval`), `status` (its state), `title`, and `worker` (its `assigneeName`, or null). The items are those not `done`, `dropped`, `merged` or `held`, oldest first |
 | `POST /question` | Settles a question with one of its choices by its number counted from zero: `id` and `chosen`. Answers 204 |
 | `POST /question-talk` | Writes a line of talk on an open question and stops its clock: `id` and `say`. Answers 204 |
 | `POST /queue/moved` | Puts a `queue.moved` event into the stream, its data `detail?` where one is given. Answers 204 |
@@ -348,7 +369,9 @@ client of its own.
 
 The plugin is `bmo-job`: the MCP server the service's own binary starts and the skill beside it in
 `crates/plugin/skills/bmo-job`. The server is started with the service's address and, from the environment,
-its token (docs/cli.md).
+the token it calls with (docs/cli.md). Every call it makes is the caller's that token names, so an approval
+given through `job_item_update` is recorded under that caller and is of the kind `approval` only where the
+settings mark that caller as an approver (Items, "Approvals"); the tool takes no name of who approves.
 
 ### The tools
 

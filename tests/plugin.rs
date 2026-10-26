@@ -1,8 +1,8 @@
 //! The harness plugin as a harness meets it: `bmo-job mcp --service <url>` starts an MCP server on standard
 //! input and output that lists exactly the draft's tools, calls the service through the client, tells the
 //! harness of each event of its subscriptions, and lets go of what it kept when the session ends (docs/api.md,
-//! "The harness plugin"). The command runs as its own process, spoken to over its pipes, and is taken down
-//! before each test ends.
+//! "The harness plugin"). An approval it gives is its token's caller's and carries no name the harness typed.
+//! The command runs as its own process, spoken to over its pipes, and is taken down before each test ends.
 
 mod support;
 
@@ -10,12 +10,17 @@ use std::collections::HashMap;
 use std::process::Stdio;
 use std::time::Duration;
 
-use bmo_job_client::{ItemState, SubscriptionQuery};
+use axum::Router;
+use axum::body::Bytes;
+use axum::routing::patch;
+use bmo_job_client::{Item, ItemState, SubscriptionQuery};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
+use tokio::net::TcpListener;
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::sync::mpsc;
 
-use support::{Service, TOKEN};
+use support::{APPROVER, APPROVER_TOKEN, CALLER, CALLER_TOKEN, Service, TOKEN};
 
 /// How long a test lets the server take to answer before it fails; a guard, never a wait.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -34,11 +39,16 @@ struct Server {
 
 impl Server {
   async fn initialized(service: &Service, extra: &[&str]) -> Self {
+    Self::started(&service.url, TOKEN, extra).await
+  }
+
+  /// The command reaching the service at `url` with `token`.
+  async fn started(url: &str, token: &str, extra: &[&str]) -> Self {
     let mut command = Command::new(env!("CARGO_BIN_EXE_bmo-job"));
     command
-      .args(["mcp", "--service", service.url.as_str()])
+      .args(["mcp", "--service", url])
       .args(extra)
-      .env("BMO_JOB_TOKEN", TOKEN)
+      .env("BMO_JOB_TOKEN", token)
       .stdin(Stdio::piped())
       .stdout(Stdio::piped())
       .stderr(Stdio::null())
@@ -187,7 +197,7 @@ async fn the_server_lists_exactly_the_drafts_tools() {
 #[tokio::test]
 async fn a_tool_calls_its_route_and_a_refusal_is_a_tool_error() {
   let service = Service::start().await;
-  let mut server = Server::initialized(&service, &[]).await;
+  let mut server = Server::started(&service.url, APPROVER_TOKEN, &[]).await;
   let created = server
     .call(
       "job_item_create",
@@ -196,10 +206,9 @@ async fn a_tool_calls_its_route_and_a_refusal_is_a_tool_error() {
     .await;
   let item_id = created["structuredContent"]["id"].as_i64().expect("the item's key");
   assert_eq!(created["structuredContent"]["state"], "draft");
-  let approved = server
-    .call("job_item_update", json!({ "itemId": item_id, "approval": { "actorName": "reviewer" } }))
-    .await;
+  let approved = server.call("job_item_update", json!({ "itemId": item_id, "approval": {} })).await;
   assert_eq!(approved["structuredContent"]["state"], "open");
+  assert_eq!(approved["structuredContent"]["approvals"][0]["callerName"], APPROVER);
 
   let taken = server
     .call(
@@ -283,4 +292,120 @@ async fn the_server_lets_go_of_what_it_kept_when_the_session_ends() {
       .items
       .is_empty()
   );
+}
+
+#[tokio::test]
+async fn the_update_tool_takes_no_name_of_who_approves() {
+  let service = Service::start().await;
+  let mut server = Server::initialized(&service, &[]).await;
+  let listed = server.ask("tools/list", json!({})).await;
+  let update = listed["tools"]
+    .as_array()
+    .expect("a list of tools")
+    .iter()
+    .find(|tool| tool["name"] == "job_item_update")
+    .expect("the update tool is listed")
+    .clone();
+  let input = update["inputSchema"].to_string();
+  assert!(input.contains("\"approval\""), "the tool takes an approval: {input}");
+  assert!(!input.contains("actorName"), "the tool takes no actor's name: {input}");
+  let description = update["description"].as_str().expect("a description");
+  assert!(description.contains("recommendation"), "{description}");
+  let documented = bmo_job_plugin::openapi()["x-tools"]
+    .as_array()
+    .expect("the document's tools")
+    .iter()
+    .find(|tool| tool["name"] == "job_item_update")
+    .expect("the update tool is documented")["input"]
+    .to_string();
+  assert!(
+    !documented.contains("actorName"),
+    "the documented tool takes no actor's name: {documented}"
+  );
+  server.end().await;
+}
+
+#[tokio::test]
+async fn an_approval_through_the_tool_is_the_callers_recommendation_whatever_name_is_typed() {
+  let service = Service::start().await;
+  let item = service
+    .client()
+    .create_item(&bmo_job_client::NewItem {
+      title: "recommended".to_owned(),
+      queue_name: "build".to_owned(),
+      ..bmo_job_client::NewItem::default()
+    })
+    .await
+    .expect("raised");
+  let mut server = Server::started(&service.url, CALLER_TOKEN, &[]).await;
+  let answered = server
+    .call("job_item_update", json!({ "itemId": item.id, "approval": { "actorName": APPROVER } }))
+    .await;
+  let recommended = &answered["structuredContent"];
+  assert_eq!(recommended["state"], "draft", "{answered}");
+  assert_eq!(recommended["approvals"][0]["kind"], "recommendation");
+  assert_eq!(recommended["approvals"][0]["callerName"], CALLER);
+  assert_eq!(service.client().item(item.id).await.expect("read").state, ItemState::Draft);
+  server.end().await;
+}
+
+/// A service that records each item change it is sent and answers a draft.
+async fn recorder() -> (String, mpsc::UnboundedReceiver<Value>, tokio::task::JoinHandle<()>) {
+  let (sent, bodies) = mpsc::unbounded_channel();
+  let app = Router::new().route(
+    "/items/{itemId}",
+    patch(move |body: Bytes| {
+      let sent = sent.clone();
+      async move {
+        let _ = sent.send(serde_json::from_slice::<Value>(&body).expect("a JSON body"));
+        let draft = Item {
+          id: 7,
+          title: "recorded".to_owned(),
+          brief: String::new(),
+          state: ItemState::Draft,
+          queue_name: "build".to_owned(),
+          position: 1,
+          priority: 0,
+          assignee_name: None,
+          requester_name: None,
+          scope: None,
+          labels: Default::default(),
+          approvals: Vec::new(),
+          cowork: false,
+          merged_into: None,
+          lease_id: None,
+          created_at: 0,
+          changed_at: 0,
+          ended_at: None,
+        };
+        axum::Json(draft)
+      }
+    }),
+  );
+  let listener = TcpListener::bind("127.0.0.1:0").await.expect("a loopback port");
+  let url = format!("http://{}", listener.local_addr().expect("an address"));
+  let task = tokio::spawn(async move {
+    let _ = axum::serve(listener, app).await;
+  });
+  (url, bodies, task)
+}
+
+#[tokio::test]
+async fn the_update_tool_sends_no_name_of_who_approves() {
+  let (url, mut bodies, task) = recorder().await;
+  let mut server = Server::started(&url, TOKEN, &[]).await;
+  let answered = server
+    .call(
+      "job_item_update",
+      json!({ "itemId": 7, "approval": { "actorName": "somebody", "at": 5 } }),
+    )
+    .await;
+  assert_ne!(answered["isError"], true, "{answered}");
+  let sent = tokio::time::timeout(PATIENCE, bodies.recv())
+    .await
+    .expect("the change is sent in time")
+    .expect("a body");
+  assert_eq!(sent, json!({ "approval": { "at": 5 } }));
+  server.end().await;
+  task.abort();
 }

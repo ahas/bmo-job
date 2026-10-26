@@ -5,5 +5,14 @@
 listen = "127.0.0.1:7841"
 token_file = "/srv/job/token"
 
+# Callers with tokens of their own. An approval is recorded under the caller its token names, and opens a draft
+# only where that caller approves; any other caller's approval is a recommendation.
+[callers.qa-admin]
+token_file = "/srv/job/qa-admin.token"
+approves = true
+
+[callers.tester]
+token_file = "/srv/job/tester.token"
+
 [database]
 url = "sqlite://job.db?mode=rwc"

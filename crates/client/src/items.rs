@@ -3,7 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::fields::{Labels, present};
+use crate::fields::{Labels, Unread, present};
 
 wire_enum! {
   /// Where an item stands in its life.
@@ -25,30 +25,57 @@ impl ItemState {
   }
 }
 
-/// One approval given to an item.
+wire_enum! {
+  /// What an approval counts as, fixed when it is given by whether its caller is an approver.
+  ApprovalKind {
+    /// Given by a caller the deployment marks as an approver; it opens a draft.
+    Approval = "approval",
+    /// Given by any other caller, or with the shared token; it is recorded and moves nothing.
+    Recommendation = "recommendation",
+  }
+}
+
+/// One approval given to an item: what it counts as, the caller the request's token named, and when.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Approval {
-  pub actor_name: String,
+  /// `approval` where the caller is an approver, which opens a draft; `recommendation` otherwise.
+  pub kind: ApprovalKind,
+  /// The caller the request's token named; null for the shared token or an approval recorded with no caller.
+  pub caller_name: Option<String>,
   /// Epoch milliseconds.
   pub at: i64,
 }
 
-/// An approval as a change gives it: who, and when, which is the time of the change where left out.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// An approval as a change gives it: when, which is the time of the change where left out. Who gives it is the
+/// caller the request's token names, never a field of the body.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ApprovalGiven {
-  pub actor_name: String,
   /// Epoch milliseconds.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub at: Option<i64>,
+  /// A name a body may carry beside the time, read and dropped: it names nobody.
+  #[serde(default, rename = "actorName", skip_serializing)]
+  #[schemars(skip)]
+  typed_name: Unread,
+}
+
+impl ApprovalGiven {
+  /// An approval given at `at`, or at the time of the change where it is none.
+  pub fn at(at: Option<i64>) -> Self {
+    Self {
+      at,
+      typed_name: Unread,
+    }
+  }
 }
 
 /// An item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(
-  description = "One piece of work. States and moves: draft to open (an approval), open to leased (a lease), \
+  description = "One piece of work. States and moves: draft to open (an approval of the kind approval), open to leased (a lease), \
                  leased to open (the lease given back or run out), open or leased to held and held to open, \
                  leased to done, and any state but done, dropped and merged to dropped or merged."
 )]

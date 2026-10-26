@@ -25,13 +25,10 @@ async fn a_scope_is_counted_previewed_and_let_go() {
     .await
     .expect("raised");
   let approval = bmo_job_client::ItemChange {
-    approval: Some(bmo_job_client::ApprovalGiven {
-      actor_name: "reviewer".into(),
-      at: None,
-    }),
+    approval: Some(bmo_job_client::ApprovalGiven::default()),
     ..Default::default()
   };
-  client.change_item(item.id, &approval).await.expect("opened");
+  service.approver().change_item(item.id, &approval).await.expect("opened");
   client
     .add_note(
       item.id,

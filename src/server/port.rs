@@ -5,7 +5,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use bmo_job_client::{Code, ErrorBody, NewReply, QuestionState};
+use bmo_job_client::{ApprovalKind, Code, ErrorBody, NewReply, QuestionState};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -140,7 +140,7 @@ pub(super) async fn open_items(State(app): State<App>) -> Result<Response, PortE
     .into_iter()
     .map(|item| ItemRow {
       id: item.id,
-      approved: !item.approvals.is_empty(),
+      approved: item.approvals.iter().any(|approval| approval.kind == ApprovalKind::Approval),
       status: item.state.as_str().to_owned(),
       title: item.title,
       worker: item.assignee_name,

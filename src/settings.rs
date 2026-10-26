@@ -1,8 +1,11 @@
 //! The settings file (docs/settings.md).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+
+use crate::access::{Access, Caller};
 
 /// The variable naming the settings file.
 pub const SETTINGS_VARIABLE: &str = "BMO_JOB_SETTINGS";
@@ -13,6 +16,9 @@ pub const SETTINGS_VARIABLE: &str = "BMO_JOB_SETTINGS";
 pub struct Settings {
   pub server: Server,
   pub database: Database,
+  /// The callers with tokens of their own, by name.
+  #[serde(default)]
+  pub callers: BTreeMap<String, CallerSettings>,
 }
 
 /// Where the service listens and the token it takes.
@@ -21,8 +27,19 @@ pub struct Settings {
 pub struct Server {
   /// The address and port to listen on.
   pub listen: String,
-  /// The file holding the bearer token every request carries.
+  /// The file holding the shared bearer token, which names no caller.
   pub token_file: PathBuf,
+}
+
+/// One caller with a token of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CallerSettings {
+  /// The file holding the caller's bearer token.
+  pub token_file: PathBuf,
+  /// Whether the caller is an approver, whose approval opens a draft.
+  #[serde(default)]
+  pub approves: bool,
 }
 
 /// Where the service keeps what it holds.
@@ -52,18 +69,42 @@ impl Settings {
     if !settings.database.url.starts_with("sqlite:") {
       return Err(format!("{}: the database url is not a SQLite address", path.display()));
     }
+    for name in settings.callers.keys() {
+      let fits = (1..=64).contains(&name.len())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+      if !fits {
+        return Err(format!(
+          "{}: the caller name {name:?} is not 1 to 64 letters, digits, dots, underscores and hyphens",
+          path.display()
+        ));
+      }
+    }
     Ok(settings)
   }
 
-  /// The token in the token file, its surrounding whitespace dropped. An empty token is refused.
+  /// The shared token in its file, its surrounding whitespace dropped. An empty token is refused.
   pub fn token(&self) -> Result<String, String> {
-    let path = &self.server.token_file;
-    let token = std::fs::read_to_string(path)
-      .map_err(|error| format!("{} could not be read: {error}", path.display()))?;
-    let token = token.trim().to_owned();
-    if token.is_empty() {
-      return Err(format!("{} holds no token", path.display()));
-    }
-    Ok(token)
+    read_token(&self.server.token_file)
   }
+
+  /// Every token the service takes, the shared one and each caller's, with the caller it names. A token that
+  /// is another's is refused.
+  pub fn access(&self) -> Result<Access, String> {
+    let mut access = Access::shared(&self.token()?);
+    for (name, caller) in &self.callers {
+      access = access.with(&read_token(&caller.token_file)?, Caller::named(name, caller.approves))?;
+    }
+    Ok(access)
+  }
+}
+
+/// The token in the file at `path`, its surrounding whitespace dropped. An empty token is refused.
+fn read_token(path: &Path) -> Result<String, String> {
+  let token = std::fs::read_to_string(path)
+    .map_err(|error| format!("{} could not be read: {error}", path.display()))?;
+  let token = token.trim().to_owned();
+  if token.is_empty() {
+    return Err(format!("{} holds no token", path.display()));
+  }
+  Ok(token)
 }

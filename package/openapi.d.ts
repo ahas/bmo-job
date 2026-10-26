@@ -71,7 +71,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief. */
+        /** Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief. An approval is recorded under the caller the token names; it opens a draft only where that caller is an approver, and is otherwise a recommendation that leaves the item a draft. */
         patch: operations["changeItemsByItemId"];
         trace?: never;
     };
@@ -409,24 +409,31 @@ export interface webhooks {
 }
 export interface components {
     schemas: {
-        /** @description One approval given to an item. */
+        /** @description One approval given to an item: what it counts as, the caller the request's token named, and when. */
         Approval: {
-            actorName: string;
             /**
              * Format: int64
              * @description Epoch milliseconds.
              */
             at: number;
+            /** @description The caller the request's token named; null for the shared token or an approval recorded with no caller. */
+            callerName: string | null;
+            /** @description `approval` where the caller is an approver, which opens a draft; `recommendation` otherwise. */
+            kind: components["schemas"]["ApprovalKind"];
         };
-        /** @description An approval as a change gives it: who, and when, which is the time of the change where left out. */
+        /**
+         * @description An approval as a change gives it: when, which is the time of the change where left out. Who gives it is the
+         *     caller the request's token names, never a field of the body.
+         */
         ApprovalGiven: {
-            actorName: string;
             /**
              * Format: int64
              * @description Epoch milliseconds.
              */
             at?: number | null;
         };
+        /** @description What an approval counts as, fixed when it is given by whether its caller is an approver. */
+        ApprovalKind: "approval" | "recommendation";
         /** @description A refusal or failure: a code for a machine and one English sentence for a person. */
         Error: {
             code: string;
@@ -473,7 +480,7 @@ export interface components {
              */
             until: number | null;
         };
-        /** @description One piece of work. States and moves: draft to open (an approval), open to leased (a lease), leased to open (the lease given back or run out), open or leased to held and held to open, leased to done, and any state but done, dropped and merged to dropped or merged. */
+        /** @description One piece of work. States and moves: draft to open (an approval of the kind approval), open to leased (a lease), leased to open (the lease given back or run out), open or leased to held and held to open, leased to done, and any state but done, dropped and merged to dropped or merged. */
         Item: {
             approvals: components["schemas"]["Approval"][];
             assigneeName: string | null;
