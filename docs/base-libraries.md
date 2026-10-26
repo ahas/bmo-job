@@ -18,10 +18,11 @@ needs something a base library does not serve, and the rule its pull request kee
   general form the base library can serve.
 - **The base library's worker decides.** The worker holding the base library's work reads the pull request
   and merges it or sends it back with the reason on the pull request. `bmo-review` may assist the reading.
-- **A merge raises the base library's version.** The merge raises the base library's semver, and the version
-  that serves the change is the one the asking repository pins.
-- **The asking repository pins and resumes.** It takes the new version, pins it, and resumes the part it
-  stopped. Until then that part waits; the rest of the item does not.
+- **A merge moves no version.** A version moves only at a release the owner declares (bmo-chat's
+  `docs/conventions.md`, 「Versions」); the merged main is what serves the change.
+- **The asking repository builds against the merged main and resumes.** Its dependency on the base library is
+  by path, so it takes the merge with its next build and resumes the part it stopped. Until then that part
+  waits; the rest of the item does not.
 
 ## The rule its pull request keeps
 
@@ -53,7 +54,7 @@ Make a branch in <base library> from its main, and open a pull request against i
 Write the general case, with the base library's own tests. The change names no repository that asked for it,
 no provider or unit of one, no branch for one unit, and no data or test fixture only this repository uses.
 Never commit to the base library's main, and keep no copy here.
-When its worker merges it and raises its version, pin that version here and resume the stopped part.
+When its worker merges it, build here against the merged main and resume the stopped part.
 ```
 
 ## What this service does not do
