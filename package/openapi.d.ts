@@ -49,7 +49,7 @@ export interface paths {
         /** Items by state, queue, assignee, scope, label, ids or words, in queue order. */
         get: operations["listItems"];
         put?: never;
-        /** Raise an item, as a draft. */
+        /** Raise an item: a draft, or open where it carries an unattended label. */
         post: operations["createItems"];
         delete?: never;
         options?: never;

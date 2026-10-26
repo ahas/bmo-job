@@ -182,7 +182,7 @@ pub fn tools() -> Vec<JobTool> {
     ),
     tool::<NewItem, Item, _, _>(
       "job_item_create",
-      "Raise an item, as a draft.",
+      "Raise an item: a draft, or open where it carries an unattended label.",
       "POST /items",
       |harness, item| async move { harness.client.create_item(&item).await },
     ),

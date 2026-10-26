@@ -1,16 +1,18 @@
 # The API
 
-**Fixed at 0.1.0-rev.7.** This document and the OpenAPI document generated beside it, `docs/openapi.json`, are
-the service's contract. The common wire format, the path and method rules and the error table are the bmo
-conventions bmo-chat keeps; this document states what the service holds and serves on them, and repeats none of
-it.
+This document and the OpenAPI document generated beside it, `docs/openapi.json`, are the service's contract; the
+version they carry is the repository's (README.md, "Version"). The common wire format, the path and method rules
+and the error table are the bmo conventions bmo-chat keeps; this document states what the service holds and
+serves on them, and repeats none of it.
 
 The service is a todo kept as middleware, in the way Redis is one: it stores items, their notes, reports and
 work orders, the queues the items wait in, leases on items, questions and their replies, and subscriptions,
 and serves them through this API and nothing else. It never executes: it launches no process or run, calls no
 other unit and registers nothing anywhere. The one call it makes is a delivery to the address a subscriber
 registered. Who a member belongs to is opaque to it: `scope`, `assigneeName`, `requesterName`, `holderName`,
-`askerName` and `actorName` are the caller's strings, and `labels` the caller's metadata, none of which it reads.
+`askerName` and `actorName` are the caller's strings, and `labels` the caller's metadata, none of which it reads
+but for one thing: an item raised with a label the settings name unattended opens at once (Items, "Unattended
+labels").
 Who gave an approval is the one name it does not take from a body: that is the caller the request's token
 names (Items, "Approvals").
 
@@ -87,6 +89,18 @@ and who is to take it, the caller's scope and labels, its approvals and its stat
 - **An approval the store holds with no kind,** such as one imported, reads as `approval` with `callerName`
   null.
 
+### Unattended labels
+
+- **An item raised with an unattended label opens at once.** The settings name the labels whose items need no
+  approval (docs/settings.md, `[unattended]`). An item `POST /items` raises with one of them in its `labels` is
+  raised `open` rather than `draft`, with no approval recorded; a label named there is a key the item's labels
+  hold, or `key=value` where they hold that key at that value, as the `label` filter reads it.
+- **It carries a note saying so,** written as it is raised under the actor name `bmo-job`, with the label
+  `opened` at `unattended`: that the item opened by itself, the label it matched and the setting that names it.
+  The note is told as `note.created` after the item's `item.created`.
+- **Only the raise reads them.** Labels a later change gives a draft open nothing; that draft waits for an
+  approver's approval as any other does.
+
 ### States and moves
 
 | From | To | By |
@@ -111,7 +125,7 @@ to an item past `draft` is recorded beside the others and moves nothing.
 | Method and path | Does |
 |---|---|
 | `GET /items` | Items in queue order, filtered by `state`, `queueName`, `assigneeName`, `scope`, `label` (a key, or `key=value`), `ids` and `q` (words found in the title or the brief, in any case) |
-| `POST /items` | Raises an item as a `draft`: `title`, `brief` and `queueName` required, `priority`, `assigneeName`, `requesterName`, `scope`, `labels` and `cowork` optional. Answers 201 and the item |
+| `POST /items` | Raises an item as a `draft`, or `open` where it carries an unattended label (above): `title`, `brief` and `queueName` required, `priority`, `assigneeName`, `requesterName`, `scope`, `labels` and `cowork` optional. Answers 201 and the item |
 | `GET /items/{itemId}` | One item |
 | `PATCH /items/{itemId}` | Changes an item as a merge patch: `state`, `approval` (`at`, which is the time of the change where left out; the caller is the token's), `mergedInto`, `title`, `brief`, `queueName`, `priority`, `position`, `assigneeName`, `requesterName`, `scope`, `labels`, `cowork`. A nullable field set to null is cleared |
 

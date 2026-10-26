@@ -144,8 +144,9 @@ fn may_move(from: ItemState, to: ItemState) -> bool {
 }
 
 impl Store {
-  /// Raises an item as a draft.
-  pub async fn create_item(&self, new: NewItem) -> Result<Item, Refusal> {
+  /// Raises an item as a draft, or open where it carries `unattended`, a label the settings name unattended, with
+  /// a note saying it opened by itself (docs/api.md, "Unattended labels").
+  pub async fn create_item(&self, new: NewItem, unattended: Option<&str>) -> Result<Item, Refusal> {
     filled("title", &new.title)?;
     queue_name(&new.queue_name)?;
     let now = self.now();
@@ -163,7 +164,7 @@ impl Store {
     )
     .bind(&new.title)
     .bind(&new.brief)
-    .bind(ItemState::Draft.as_str())
+    .bind(if unattended.is_some() { ItemState::Open } else { ItemState::Draft }.as_str())
     .bind(&new.queue_name)
     .bind(position)
     .bind(new.priority.unwrap_or(0))
@@ -177,6 +178,9 @@ impl Store {
     .await?;
     let item = item_at(&mut tx, id).await?;
     emit(&mut tx, now, EventKind::ItemCreated.as_str(), &item, &item_keys(&item)).await?;
+    if let Some(label) = unattended {
+      super::notes::opened_unattended(&mut tx, now, &item, label).await?;
+    }
     self.commit(tx).await?;
     Ok(item)
   }

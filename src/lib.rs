@@ -20,7 +20,7 @@ pub use access::{Access, Caller};
 pub use clock::Clock;
 pub use delivery::DeliveryPolicy;
 pub use server::{App, router};
-pub use settings::Settings;
+pub use settings::{Settings, Unattended};
 pub use store::Store;
 
 /// How often the service looks for what has come due.
@@ -61,7 +61,7 @@ pub async fn serve(settings: Settings) -> Result<(), String> {
     .await
     .map_err(|error| format!("{} could not be listened on: {error}", settings.server.listen))?;
   let background = spawn_background(store.clone(), DeliveryPolicy::default());
-  let app = App::new(store, access);
+  let app = App::new(store, access).unattended(settings.unattended.clone());
   let stopping = app.clone();
   let served = serve_on(listener, app, async move {
     stopped().await;

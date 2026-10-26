@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use bmo_job_client::Labels;
 use serde::Deserialize;
 
 use crate::access::{Access, Caller};
@@ -19,6 +20,29 @@ pub struct Settings {
   /// The callers with tokens of their own, by name.
   #[serde(default)]
   pub callers: BTreeMap<String, CallerSettings>,
+  /// The labels whose items open by themselves.
+  #[serde(default)]
+  pub unattended: Unattended,
+}
+
+/// The labels whose items need no approval: an item raised carrying one opens at once (docs/api.md, "Unattended
+/// labels").
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Unattended {
+  /// Each a key an item's labels hold, or `key=value`.
+  #[serde(default)]
+  pub labels: Vec<String>,
+}
+
+impl Unattended {
+  /// The first of the labels `labels` holds, as the `label` filter reads one: a key, or `key=value`.
+  pub fn matched(&self, labels: &Labels) -> Option<&str> {
+    self.labels.iter().map(String::as_str).find(|label| match label.split_once('=') {
+      Some((key, value)) => labels.get(key).is_some_and(|held| held == value),
+      None => labels.contains_key(*label),
+    })
+  }
 }
 
 /// Where the service listens and the token it takes.
@@ -77,6 +101,11 @@ impl Settings {
           "{}: the caller name {name:?} is not 1 to 64 letters, digits, dots, underscores and hyphens",
           path.display()
         ));
+      }
+    }
+    for label in &settings.unattended.labels {
+      if label.split_once('=').map_or(label.as_str(), |(key, _)| key).is_empty() {
+        return Err(format!("{}: the unattended label {label:?} names no key", path.display()));
       }
     }
     Ok(settings)

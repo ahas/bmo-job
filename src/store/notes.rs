@@ -1,12 +1,12 @@
 //! Notes on an item (docs/api.md, "Notes").
 
-use bmo_job_client::{EventKind, NewNote, Note, Page};
+use bmo_job_client::{EventKind, Item, Labels, NewNote, Note, Page};
 use sqlx::Row;
 use sqlx::sqlite::SqliteRow;
 
 use super::events::{emit, key_alone};
 use super::items::{item_at, item_keys};
-use super::{Store, filled, from_json, page_limit, paged, to_json};
+use super::{Store, Tx, filled, from_json, page_limit, paged, to_json};
 use crate::refusal::Refusal;
 
 fn note_from(row: &SqliteRow) -> Result<Note, Refusal> {
@@ -18,6 +18,43 @@ fn note_from(row: &SqliteRow) -> Result<Note, Refusal> {
     labels: from_json(row.try_get::<&str, _>("labels")?)?,
     created_at: row.try_get("created_at")?,
   })
+}
+
+/// The actor name the service writes its own notes under.
+const OWN_ACTOR: &str = "bmo-job";
+
+/// The note on an item raised open by its unattended `label` (docs/api.md, "Unattended labels").
+pub(super) async fn opened_unattended(
+  tx: &mut Tx,
+  now: i64,
+  item: &Item,
+  label: &str,
+) -> Result<Note, Refusal> {
+  let text = format!(
+    "This item opened by itself, with no approval: its label {label} is one the service's settings name \
+     unattended ([unattended] labels)."
+  );
+  let labels = Labels::from([("opened".to_owned(), "unattended".to_owned())]);
+  let id: i64 = sqlx::query_scalar(
+    "INSERT INTO notes (item_id, text, actor_name, labels, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+  )
+  .bind(item.id)
+  .bind(&text)
+  .bind(OWN_ACTOR)
+  .bind(to_json(&labels))
+  .bind(now)
+  .fetch_one(&mut **tx)
+  .await?;
+  let note = Note {
+    id,
+    item_id: item.id,
+    text,
+    actor_name: OWN_ACTOR.to_owned(),
+    labels,
+    created_at: now,
+  };
+  emit(tx, now, EventKind::NoteCreated.as_str(), &note, &item_keys(item)).await?;
+  Ok(note)
 }
 
 impl Store {

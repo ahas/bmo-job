@@ -205,7 +205,7 @@ pub fn routes() -> Vec<Route> {
       "Items by state, queue, assignee, scope, label, ids or words, in queue order.",
     )
     .with(Some(object::<ItemQuery>), None, vec![json::<Page<Item>>(200, "A page of items.")], &[BadRequest]),
-    route(Post, "/items", "createItems", "items", "Raise an item, as a draft.").with(
+    route(Post, "/items", "createItems", "items", "Raise an item: a draft, or open where it carries an unattended label.").with(
       None,
       Some(referred::<NewItem>),
       vec![json::<Item>(201, "The item raised.")],

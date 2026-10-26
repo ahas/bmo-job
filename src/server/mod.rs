@@ -18,14 +18,17 @@ use tokio::sync::watch;
 
 use crate::access::Access;
 use crate::refusal::Refusal;
+use crate::settings::Unattended;
 use crate::store::Store;
 
-/// What every route stands on: the store, the tokens a request may carry and the callers they name, and the
-/// signal that the service is stopping, on which every open stream ends.
+/// What every route stands on: the store, the tokens a request may carry and the callers they name, the labels
+/// whose raised items open by themselves, and the signal that the service is stopping, on which every open stream
+/// ends.
 #[derive(Debug, Clone)]
 pub struct App {
   pub store: Store,
   access: Arc<Access>,
+  unattended: Arc<Unattended>,
   stopping: Arc<watch::Sender<bool>>,
 }
 
@@ -34,7 +37,16 @@ impl App {
     Self {
       store,
       access: Arc::new(access),
+      unattended: Arc::new(Unattended::default()),
       stopping: Arc::new(watch::channel(false).0),
+    }
+  }
+
+  /// The app whose raised items open by themselves where they carry one of `unattended`'s labels.
+  pub fn unattended(self, unattended: Unattended) -> Self {
+    Self {
+      unattended: Arc::new(unattended),
+      ..self
     }
   }
 

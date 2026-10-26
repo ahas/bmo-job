@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use bmo_job::{Access, App, Caller, Clock, DeliveryPolicy, Store};
+use bmo_job::{Access, App, Caller, Clock, DeliveryPolicy, Store, Unattended};
 use bmo_job_client::{ApprovalGiven, Item, ItemChange, ItemState, JobClient, NewItem};
 use tempfile::TempDir;
 use tokio::net::TcpListener;
@@ -109,11 +109,23 @@ impl Service {
   }
 
   pub async fn start_with(policy: DeliveryPolicy) -> Self {
+    Self::start_on(policy, Unattended::default()).await
+  }
+
+  /// The service whose raised items open by themselves where they carry one of `labels`.
+  pub async fn start_unattended(labels: &[&str]) -> Self {
+    let unattended = Unattended {
+      labels: labels.iter().map(|label| (*label).to_owned()).collect(),
+    };
+    Self::start_on(quick_delivery(), unattended).await
+  }
+
+  async fn start_on(policy: DeliveryPolicy, unattended: Unattended) -> Self {
     let dir = tempfile::tempdir().expect("a scratch directory");
     let url = format!("sqlite://{}?mode=rwc", dir.path().join("job.db").display());
     let clock = Clock::manual(START);
     let store = Store::open(&url, clock.clone()).await.expect("the store opens");
-    let app = App::new(store.clone(), access());
+    let app = App::new(store.clone(), access()).unattended(unattended);
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a loopback port");
     let address = listener.local_addr().expect("the port's address");
     let mut tasks = bmo_job::spawn_background(store.clone(), policy);

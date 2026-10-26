@@ -115,7 +115,8 @@ async fn items(State(app): State<App>, InItemsQuery(query): InItemsQuery) -> Res
 }
 
 async fn create_item(State(app): State<App>, InBody(item): InBody<NewItem>) -> Answer {
-  created(app.store.create_item(item).await?)
+  let unattended = app.unattended.matched(&item.labels).map(str::to_owned);
+  created(app.store.create_item(item, unattended.as_deref()).await?)
 }
 
 async fn item(State(app): State<App>, InPath(item_id): InPath<i64>) -> Answer {

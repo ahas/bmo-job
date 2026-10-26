@@ -30,7 +30,7 @@ this repository is tested, checked, built and deployed, docs/deploy.md), `rustfm
 | `docs/api.md` | The API: every resource, its states and moves, its routes, the events, subscriptions and webhook delivery, the client and the harness plugin |
 | `docs/openapi.json` | The contract as the code generates it, with the tools under `x-tools` and the harness entry under `x-harness` |
 | `docs/cli.md` | The command line: `serve`, `mcp` and `openapi` |
-| `docs/settings.md` | The settings file: where the service listens, its tokens and the callers they name, and its database |
+| `docs/settings.md` | The settings file: where the service listens, its tokens and the callers they name, the labels whose items open by themselves, and its database |
 | `docs/schema.md` | The schema: the tables and the rules they keep |
 | `docs/deploy.md` | Deploying the service: what a release holds, where the service stands, and what gates a deployment |
 | `docs/base-libraries.md` | The road a job takes when a base library it imports lacks a part: the pull request, the rule it keeps, the review, and the version pin |
@@ -41,9 +41,11 @@ this repository is tested, checked, built and deployed, docs/deploy.md), `rustfm
 
 - **One version for the whole repository,** the workspace's. `VERSION` holds it and the workspace's version
   equals it, as do the OpenAPI document and the TypeScript package.
+- **It moves only at a release the owner declares,** as bmo-chat's `docs/conventions.md` 「Versions」 states; a
+  commit, a deploy, a fix or a contract change moves none, and a deployment is told apart by its commit.
 - **Until the first release the version is `0.1.0` with a revision suffix,** `0.1.0-rev.N`: `0.1.0` is the
-  base, and each later version cut raises the revision by one. The major, minor and patch numbers do not move
-  before the first release.
+  base, and each release the owner declares raises the revision by one. The major, minor and patch numbers do
+  not move before the first release.
 
 ## Commands
 

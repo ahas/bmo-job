@@ -2037,7 +2037,7 @@
             "$ref": "#/components/responses/Error"
           }
         },
-        "summary": "Raise an item, as a draft.",
+        "summary": "Raise an item: a draft, or open where it carries an unattended label.",
         "tags": [
           "items"
         ],
@@ -3896,7 +3896,7 @@
       "route": "GET /items"
     },
     {
-      "description": "Raise an item, as a draft.",
+      "description": "Raise an item: a draft, or open where it carries an unattended label.",
       "input": {
         "additionalProperties": false,
         "description": "An item raised.",

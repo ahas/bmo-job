@@ -14,5 +14,9 @@ approves = true
 [callers.tester]
 token_file = "/srv/job/tester.token"
 
+# The labels whose items open by themselves, with no approval, and carry a note saying so.
+[unattended]
+labels = ["pr-review"]
+
 [database]
 url = "sqlite://job.db?mode=rwc"

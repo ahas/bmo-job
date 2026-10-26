@@ -2,7 +2,7 @@
 
 The service reads one TOML file of settings when `bmo-job serve` starts. Nothing a deployment chooses stands in
 the code: where it listens, the tokens it takes and the callers they name, whose approval opens a draft, and the
-database it keeps its members in come from this file.
+labels whose items open by themselves and the database it keeps its members in come from this file.
 
 ## Where the file is
 
@@ -12,8 +12,9 @@ database it keeps its members in come from this file.
 
 ## What the file holds
 
-Two sections required, `[server]` and `[database]`, and one optional, `[callers]`. A key the service does not
-know is refused, so a misspelt setting fails at start rather than standing silently at a default.
+Two sections required, `[server]` and `[database]`, and two optional, `[callers]` and `[unattended]`. A key the
+service does not know is refused, so a misspelt setting fails at start rather than standing silently at a
+default.
 
 ### `[server]`
 
@@ -35,6 +36,18 @@ recorded under that name (docs/api.md, "Approvals").
 
 A deployment marks as an approver the caller whose word alone puts work into a queue, and gives its token only to
 what acts on that word. A deployment that marks none opens no draft by an approval.
+
+### `[unattended]`
+
+The labels whose items need no approval. An item raised carrying one opens at once, with a note that it opened by
+itself under this setting (docs/api.md, "Unattended labels"). Left out, every item is raised a draft.
+
+| Key | What it holds |
+|---|---|
+| `labels` | The labels, each a key an item's labels hold or `key=value`; an empty label, or one with an empty key, is refused |
+
+A deployment names here the work a worker takes up and settles on its own, such as the review of a base library's
+pull request (docs/base-libraries.md, "The road").
 
 ### `[database]`
 
