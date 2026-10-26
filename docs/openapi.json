@@ -1749,7 +1749,7 @@
   "info": {
     "description": "A todo kept as middleware: items, notes, reports, work orders and their tasks, queues, leases on items, questions and their replies, and subscriptions, stored and served through this API and nothing else. The service never executes: it launches no run and calls no other service; the only calls it makes are deliveries to the addresses its subscribers registered. Work reaches whoever does it two ways, side by side: pushed, as the events of a subscription it registered, and pulled, by a lease. Who a member belongs to is opaque to the service: scope and the <role>Name fields are the caller's strings, and labels the caller's metadata.",
     "title": "bmo-job",
-    "version": "0.1.0-rev.6"
+    "version": "0.1.0-rev.7"
   },
   "openapi": "3.1.0",
   "paths": {
