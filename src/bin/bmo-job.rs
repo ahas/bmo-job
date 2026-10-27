@@ -46,9 +46,9 @@ enum Verb {
   /// Closes an item through the service's own routes: its report and what it could not reach are kept on it,
   /// and its state is set to done.
   Todo {
-    /// The item to close.
+    /// The item to close, by its number, with or without a leading `#`.
     #[arg(long, value_name = "item")]
-    done: i64,
+    done: String,
     /// How the work was done, kept as the item's final report.
     #[arg(long, value_name = "text", allow_hyphen_values = true)]
     report: Option<String>,
@@ -126,30 +126,33 @@ async fn main() -> ExitCode {
       report,
       unfinished,
       by,
-    } => ended(match todo_cli::client() {
-      Ok(client) => {
-        let by = by
-          .or_else(|| std::env::var("BMO_TURN_AGENT").ok())
-          .or_else(|| std::env::var("USER").ok())
-          .unwrap_or_default();
+    } => ended(match done.trim().trim_start_matches('#').parse::<i64>() {
+      Err(_) => Err(format!("--done {done:?} is not an item number")),
+      Ok(done) => match todo_cli::client() {
+        Ok(client) => {
+          let by = by
+            .or_else(|| std::env::var("BMO_TURN_AGENT").ok())
+            .or_else(|| std::env::var("USER").ok())
+            .unwrap_or_default();
 
-        todo_cli::close(
-          &client,
-          &TodoArgs {
-            done,
-            report,
-            unfinished,
-            by,
-          },
-        )
-        .await
-        .map(|lines| {
-          for line in lines {
-            println!("{line}")
-          }
-        })
-      }
-      Err(why) => Err(why),
+          todo_cli::close(
+            &client,
+            &TodoArgs {
+              done,
+              report,
+              unfinished,
+              by,
+            },
+          )
+          .await
+          .map(|lines| {
+            for line in lines {
+              println!("{line}")
+            }
+          })
+        }
+        Err(why) => Err(why),
+      },
     }),
     Verb::Serve => ended(match Settings::load(&Settings::place()) {
       Ok(settings) => bmo_job::serve(settings).await,

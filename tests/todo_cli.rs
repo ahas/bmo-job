@@ -115,7 +115,7 @@ async fn the_command_closes_the_item_with_the_address_and_token_the_run_names() 
     .args([
       "todo",
       "--done",
-      &item.id.to_string(),
+      &format!("#{}", item.id),
       "--report",
       "The work is done.",
       "--unfinished",
