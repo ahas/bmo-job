@@ -97,3 +97,30 @@ async fn reports_are_appended_oldest_first() {
     .expect("answered");
   assert_eq!(wrong.status(), 400);
 }
+
+#[tokio::test]
+async fn a_report_in_any_language_is_kept_and_answered_exactly_as_written() {
+  let service = Service::start().await;
+  let client = service.client();
+  let item = service.open_item("build", "one").await;
+  // A worker's account in the requester's language, Korean here, written by code point: a heading, numbered
+  // lines and a closing line of figures, long enough that any cut would show.
+  let line = "\u{c791}\u{c5c5}\u{c744} \u{b05d}\u{b0c8}\u{c2b5}\u{b2c8}\u{b2e4}";
+  let body = format!(
+    "## {line}\n\n{}\n\n{line} 12/12",
+    (1..=400).map(|n| format!("{n}. {line}")).collect::<Vec<_>>().join("\n")
+  );
+  let report = NewReport {
+    kind: ReportKind::Final,
+    body: body.clone(),
+    actor_name: "builder".to_owned(),
+    labels: Default::default(),
+  };
+
+  let appended = client.add_report(item.id, &report).await.expect("appended");
+  let read = client.reports(item.id, &PageQuery::default()).await.expect("read");
+
+  assert_eq!(appended.body, body, "answered as written");
+  assert_eq!(read.items[0].body, body, "kept whole, byte for byte");
+  assert!(body.len() > 10_000 && read.items[0].body.chars().count() == body.chars().count());
+}

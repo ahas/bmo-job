@@ -147,7 +147,9 @@ A note is words added to an item after it was raised: `id`, `itemId`, `text`, `a
 
 A report is what the one doing an item tells of it: `id`, `itemId`, `kind` (`progress`, `final` or `held`, why
 the item waits), `body`, `actorName`, `labels`, `createdAt`. A report moves no state: the one reporting
-changes the item itself.
+changes the item itself. Its `body` is kept and answered exactly as it was written, in whatever language the one
+reporting wrote it, whole: the service cuts nothing of it and reads none of its words, so a worker's account in
+the requester's language stands as the worker wrote it, and a screen shows it as it stands.
 
 | Method and path | Does |
 |---|---|
