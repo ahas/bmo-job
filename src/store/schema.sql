@@ -92,6 +92,7 @@ CREATE TABLE questions (
   scope TEXT,
   text TEXT NOT NULL,
   choices TEXT NOT NULL,
+  recommendation TEXT,
   state TEXT NOT NULL,
   due_at INTEGER,
   remaining_ms INTEGER,
@@ -108,6 +109,8 @@ CREATE TABLE replies (
   text TEXT NOT NULL,
   actor_name TEXT NOT NULL,
   settles INTEGER NOT NULL,
+  source TEXT NOT NULL,
+  why TEXT,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX replies_by_question ON replies (question_id, id);

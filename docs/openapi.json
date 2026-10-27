@@ -686,20 +686,23 @@
             },
             "type": "array"
           },
-          "dueAt": {
-            "description": "Epoch milliseconds.",
-            "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
           "itemId": {
             "format": "int64",
             "type": [
               "integer",
               "null"
             ]
+          },
+          "recommendation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionRecommendation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The answer the asker would take by itself, and why; left out where it cannot make the case."
           },
           "scope": {
             "description": "The item's scope where left out.",
@@ -710,6 +713,14 @@
           },
           "text": {
             "type": "string"
+          },
+          "waitMs": {
+            "description": "The wait before the due time, 1 000 to 86 400 000 milliseconds; 60 000 where left out.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "required": [
@@ -947,6 +958,17 @@
               "null"
             ]
           },
+          "recommendation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionRecommendation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The answer the asker would take by itself, and why; null where it would not decide alone."
+          },
           "scope": {
             "type": [
               "string",
@@ -967,6 +989,7 @@
           "scope",
           "text",
           "choices",
+          "recommendation",
           "state",
           "dueAt",
           "createdAt"
@@ -1002,6 +1025,25 @@
         "required": [
           "items",
           "more"
+        ],
+        "type": "object"
+      },
+      "QuestionRecommendation": {
+        "additionalProperties": false,
+        "description": "The answer an asker would take by itself, and the one line saying why.",
+        "properties": {
+          "answer": {
+            "description": "One of the question's choices, or a free answer where the choices do not cover it.",
+            "type": "string"
+          },
+          "why": {
+            "description": "The one line saying why that is the answer.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "answer",
+          "why"
         ],
         "type": "object"
       },
@@ -1111,6 +1153,7 @@
         "description": "A reply to a question.",
         "properties": {
           "actorName": {
+            "description": "The caller's name, or `recommendation` where the recommendation gave it.",
             "type": "string"
           },
           "choice": {
@@ -1136,8 +1179,19 @@
             "description": "Whether the reply settled the question, or is a word on it.",
             "type": "boolean"
           },
+          "source": {
+            "$ref": "#/components/schemas/ReplySource",
+            "description": "Who gave it: a person, or the recommendation when the wait ran out."
+          },
           "text": {
             "type": "string"
+          },
+          "why": {
+            "description": "The recommendation's reason where the recommendation gave it; null for a person's reply.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -1147,6 +1201,8 @@
           "text",
           "actorName",
           "settles",
+          "source",
+          "why",
           "createdAt"
         ],
         "type": "object"
@@ -1169,6 +1225,14 @@
           "more"
         ],
         "type": "object"
+      },
+      "ReplySource": {
+        "description": "Who gave a reply.",
+        "enum": [
+          "person",
+          "recommendation"
+        ],
+        "type": "string"
       },
       "Report": {
         "description": "A report on an item.",
@@ -1749,7 +1813,7 @@
   "info": {
     "description": "A todo kept as middleware: items, notes, reports, work orders and their tasks, queues, leases on items, questions and their replies, and subscriptions, stored and served through this API and nothing else. The service never executes: it launches no run and calls no other service; the only calls it makes are deliveries to the addresses its subscribers registered. Work reaches whoever does it two ways, side by side: pushed, as the events of a subscription it registered, and pulled, by a lease. Who a member belongs to is opaque to the service: scope and the <role>Name fields are the caller's strings, and labels the caller's metadata.",
     "title": "bmo-job",
-    "version": "0.1.0-rev.7"
+    "version": "0.1.0-rev.8"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -4412,7 +4476,7 @@
       "route": "DELETE /leases/{leaseId}"
     },
     {
-      "description": "Ask a question about an item, with choices or open.",
+      "description": "Ask a question about an item, with choices or open; a recommendation to take when the wait ends, and why.",
       "input": {
         "additionalProperties": false,
         "description": "A question asked.",
@@ -4426,20 +4490,23 @@
             },
             "type": "array"
           },
-          "dueAt": {
-            "description": "Epoch milliseconds.",
-            "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
           "itemId": {
             "format": "int64",
             "type": [
               "integer",
               "null"
             ]
+          },
+          "recommendation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionRecommendation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The answer the asker would take by itself, and why; left out where it cannot make the case."
           },
           "scope": {
             "description": "The item's scope where left out.",
@@ -4450,6 +4517,14 @@
           },
           "text": {
             "type": "string"
+          },
+          "waitMs": {
+            "description": "The wait before the due time, 1 000 to 86 400 000 milliseconds; 60 000 where left out.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "required": [

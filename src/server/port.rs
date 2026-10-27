@@ -98,6 +98,8 @@ pub(super) struct ChatQuery {
 struct OpenQuestion {
   id: i64,
   options: Vec<String>,
+  recommendation: Option<String>,
+  why: Option<String>,
   talks: bool,
 }
 
@@ -108,11 +110,16 @@ pub(super) async fn open_questions(
   let open = app.store.open_questions_in(&query.chat.to_string(), app.store.now()).await?;
   let questions: Vec<OpenQuestion> = open
     .into_iter()
-    .map(|question| OpenQuestion {
-      id: question.id,
-      options: question.choices,
-      // Any question may be talked over; the asker hears a word without an answer.
-      talks: true,
+    .map(|question| {
+      let recommendation = question.recommendation;
+      OpenQuestion {
+        id: question.id,
+        options: question.choices,
+        recommendation: recommendation.as_ref().map(|recommendation| recommendation.answer.clone()),
+        why: recommendation.map(|recommendation| recommendation.why),
+        // Any question may be talked over; the asker hears a word without an answer.
+        talks: true,
+      }
     })
     .collect();
   Ok(Json(questions).into_response())

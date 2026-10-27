@@ -2,14 +2,16 @@
 
 The service keeps everything it holds in one SQLite database, the one `[database] url` names (docs/settings.md).
 The service makes its tables itself the first time it opens a database with none, and records the schema's
-version in the database's own user version; a database of another version is refused at start.
+version in the database's own user version; a database of an older version is brought up to it at start, and
+one of a later version is refused.
 
 ## The rules of every table
 
 - **The database gives a member its key,** never handing out the same number twice, even after the member
   goes.
 - **A time is epoch milliseconds,** and a yes-or-no is `0` or `1`.
-- **Lists and maps are JSON text:** labels, approvals, steps, holds, choices, and what a subscription matches.
+- **Lists and maps are JSON text:** labels, approvals, steps, holds, choices, recommendation, and what a
+  subscription matches.
 - **No foreign keys.** A row names another by its key, and the code that writes it keeps the reference.
 - **One connection writes.** Every change runs alone in one transaction, with the events it tells, so a lease
   raced for by several holders goes to one.
@@ -25,7 +27,7 @@ version in the database's own user version; a database of another version is ref
 | `tasks` | A task of a work order: its stage, title, state and assignee |
 | `queues` | A queue by its name: its state and holds |
 | `leases` | A lease, standing or ended; an ended one is kept so its key is answered `gone` |
-| `questions` | A question, its state, its due time and the time its clock had left when paused, and whether its due time was told |
-| `replies` | A reply to a question |
+| `questions` | A question: its words and choices, the recommendation it carries and why, its state, its due time, the time its clock had left when paused, and whether its due time was told |
+| `replies` | A reply to a question: its choice and words, who gave it, whether it settled, and where the recommendation gave it, that source and its reason |
 | `subscriptions` | A subscription, standing or ended: what it matches, where it posts and its secret, its state, span, failures, and the events it starts after and has handed over |
 | `events` | An event told, with the queue, scope and item it is narrowed by, kept for the window |

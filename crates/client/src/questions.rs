@@ -13,6 +13,24 @@ wire_enum! {
   }
 }
 
+wire_enum! {
+  /// Who gave a reply.
+  ReplySource {
+    Person = "person",
+    Recommendation = "recommendation",
+  }
+}
+
+/// The answer an asker would take by itself, and the one line saying why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QuestionRecommendation {
+  /// One of the question's choices, or a free answer where the choices do not cover it.
+  pub answer: String,
+  /// The one line saying why that is the answer.
+  pub why: String,
+}
+
 /// A question, about an item or on its own.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +42,8 @@ pub struct Question {
   pub text: String,
   /// The answers to choose from; empty for an open question.
   pub choices: Vec<String>,
+  /// The answer the asker would take by itself, and why; null where it would not decide alone.
+  pub recommendation: Option<QuestionRecommendation>,
   pub state: QuestionState,
   /// Epoch milliseconds the asker wants an answer by; null while paused or where none was given.
   pub due_at: Option<i64>,
@@ -44,9 +64,12 @@ pub struct NewQuestion {
   pub text: String,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub choices: Vec<String>,
-  /// Epoch milliseconds.
+  /// The answer the asker would take by itself, and why; left out where it cannot make the case.
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub due_at: Option<i64>,
+  pub recommendation: Option<QuestionRecommendation>,
+  /// The wait before the due time, 1 000 to 86 400 000 milliseconds; 60 000 where left out.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub wait_ms: Option<i64>,
 }
 
 /// A question paused, opened again or withdrawn.
@@ -83,9 +106,14 @@ pub struct Reply {
   pub question_id: i64,
   pub choice: Option<String>,
   pub text: String,
+  /// The caller's name, or `recommendation` where the recommendation gave it.
   pub actor_name: String,
   /// Whether the reply settled the question, or is a word on it.
   pub settles: bool,
+  /// Who gave it: a person, or the recommendation when the wait ran out.
+  pub source: ReplySource,
+  /// The recommendation's reason where the recommendation gave it; null for a person's reply.
+  pub why: Option<String>,
   /// Epoch milliseconds.
   pub created_at: i64,
 }

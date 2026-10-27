@@ -1,6 +1,6 @@
 # The API
 
-**Fixed at 0.1.0-rev.7.** This document and the OpenAPI document generated beside it, `docs/openapi.json`, are
+**Fixed at 0.1.0-rev.8.** This document and the OpenAPI document generated beside it, `docs/openapi.json`, are
 the service's contract; the version they carry is the repository's (README.md, "Version"). The common wire format, the path and method rules
 and the error table are the bmo conventions bmo-chat keeps; this document states what the service holds and
 serves on them, and repeats none of it.
@@ -224,25 +224,38 @@ given back, run out or ended by its item's move, is answered 410 `gone` from the
 ## Questions and replies
 
 A question is asked about an item or on its own: `id`, `itemId`, `askerName`, `scope`, `text`, `choices` (empty
-for an open question), `state`, `dueAt` and `createdAt`. A reply is `id`, `questionId`, `choice`, `text`,
-`actorName`, `settles` and `createdAt`.
+for an open question), `recommendation` (the answer the asker would take by itself, and why, or null), `state`,
+`dueAt` and `createdAt`. A reply is `id`, `questionId`, `choice`, `text`, `actorName`, `settles`, `source`
+(`person` or `recommendation`), `why` (the recommendation's reason, or null) and `createdAt`.
 
 - **States:** `open`, `paused`, `answered`, `withdrawn`. `open` and `paused` move to each other and to
   `withdrawn` by a change; a settling reply moves `open` or `paused` to `answered`. Any other move is answered
   409 `conflict`.
-- **The clock.** `dueAt` is the time the asker wants an answer by. Pausing a question keeps the time it had
-  left and reads `dueAt` as null; opening it again sets `dueAt` that far from then. When `dueAt` passes on an
-  open question, the service tells it once as `question.due`; the question stays open.
+- **The wait.** `waitMs` is the wait the asker gives, from 1 000 to 86 400 000 milliseconds, and 60 000 where
+  left out. A question's `dueAt` is that far from when it was asked. Pausing a question keeps the time it had
+  left and reads `dueAt` as null; opening it again sets `dueAt` that far from then.
+- **The recommendation.** `recommendation` is `{answer, why}`: `answer` is one of the question's choices or a
+  free answer where the choices do not cover it, and `why` is the one line saying why that is the answer. The
+  asker sets it only where it can make the case for that answer on the merits of the work and the rules; it is
+  never the safe option by default, and it is left null where it cannot make the case. An answer and a reason
+  are both required where it is given.
+- **When the wait runs out.** On an open question whose `dueAt` has passed:
+  - **with a recommendation,** the service writes a settling reply for it, its `source` `recommendation`, its
+    `why` the recommendation's reason, its `actorName` `recommendation`, and the question moves to `answered`
+    as any settling reply does; the service tells `reply.created` and `question.changed`, and the answer is
+    the one the job goes on with.
+  - **without one,** the service tells `question.due` once and the question stays open for a person.
 - **A question's scope** is the one asked with, or the item's where it is left out.
 - **A reply settles the question** when its `settles` says so; left out, a reply settles when it carries a
   `choice` or the question has no choices, and is a word on the question otherwise. A `choice` is one of the
   question's choices or is answered 422 `not-a-choice`. A settling reply to a question already answered or
-  withdrawn is answered 409 `conflict`; a word may be added in any state.
+  withdrawn is answered 409 `conflict`; a word may be added in any state. A reply a caller gives has `source`
+  `person` and no `why`; the recommendation's reply is the service's, and no caller writes one.
 
 | Method and path | Does |
 |---|---|
 | `GET /questions` | Questions filtered by `scope`, `itemId` and `state` |
-| `POST /questions` | Asks: `askerName`, `text` and `choices` required, `itemId`, `scope` and `dueAt` optional. An `itemId` naming no item is answered 422 `unknown-item`. Answers 201 |
+| `POST /questions` | Asks: `askerName`, `text` and `choices` required, `itemId`, `scope`, `recommendation` and `waitMs` optional. An `itemId` naming no item is answered 422 `unknown-item`. Answers 201 |
 | `GET /questions/{questionId}` | One question |
 | `PATCH /questions/{questionId}` | Pauses it, opens it again or withdraws it, with `state` |
 | `GET /questions/{questionId}/replies` | Its replies in key order, past `after`; `waitMs` waits for one |
@@ -264,8 +277,8 @@ with the events still to come; a page asked with none starts at the oldest the w
 | `task.changed` | A task moved, made or removed by a save (a removed task is told with its key alone) |
 | `queue.changed` | A queue paused, opened or its holds changed, by a change or by a hold running out |
 | `lease.created`, `lease.expired`, `lease.deleted` | A lease taken, run out, or given back or ended by its item's move |
-| `question.created`, `question.changed`, `question.due`, `question.deleted` | A question asked, moved, past its due time while open, or let go with its scope |
-| `reply.created` | A reply given |
+| `question.created`, `question.changed`, `question.due`, `question.deleted` | A question asked, moved, past its due time while open and carrying no recommendation, or let go with its scope |
+| `reply.created` | A reply given by a person, or by the recommendation when the wait ran out |
 | `subscription.created`, `subscription.changed`, `subscription.deleted` | A subscription made, changed, moved to `failing`, or deleted or run out |
 
 - **Narrowing:** `kinds` (comma-separated), `scope`, and `subscriptionId` for the events a subscription
@@ -337,21 +350,22 @@ its `scope`. Every route takes the bearer token as the others do.
 | Method and path | Does |
 |---|---|
 | `GET /rooms/{chat}/holdings` | What the service holds of the room: `{code, count}` for `room_open_items`, its items not `done`, `dropped` or `merged`, and for `room_waiting_questions`, its questions `open` or `paused`; each only where its count is not zero, in that order |
-| `GET /questions/open?chat=` | The room's questions still waiting, the one asked last first: `id`, `options` (its `choices`, in order) and `talks` |
+| `GET /questions/open?chat=` | The room's questions still waiting, the one asked last first: `id`, `options` (its `choices`, in order), `recommendation` (the recommendation's answer, or null), `why` (its reason, or null) and `talks` |
 | `GET /items?open=1` | The open items in the port's shape: `{"items": [...]}`, each `id`, `approved` (whether it has an approval of the kind `approval`), `status` (its state), `title`, and `worker` (its `assigneeName`, or null). The items are those not `done`, `dropped`, `merged` or `held`, oldest first |
 | `POST /question` | Settles a question with one of its choices by its number counted from zero: `id` and `chosen`. Answers 204 |
 | `POST /question-talk` | Writes a line of talk on an open question and stops its clock: `id` and `say`. Answers 204 |
 | `POST /queue/moved` | Puts a `queue.moved` event into the stream, its data `detail?` where one is given. Answers 204 |
 
 - **The open questions** are the room's questions in `open` whose due time is null or has not passed, and its
-  `paused` ones, the one asked last first. A question whose due time has passed takes no answer from the
-  owner's chat; the job has gone on without it. The port reads `talks` as true: any question may be talked
-  over, which is how far the service's own questions go.
-- **A talk is a reply that does not settle,** from the actor `owner`, and the asker hears it as a
-  `reply.created` event. Stopping the clock is the question moving to `paused` with what it had left.
+  `paused` ones, the one asked last first. A question whose due time has passed is settled on its
+  recommendation, or waits with no answer from the chat where it carries none; the port lists the ones still
+  waiting. The port reads `talks` as true: any question may be talked over, which is how far the service's own
+  questions go.
+- **A talk is a reply that does not settle,** from the actor `owner`, its `source` a person, and the asker hears
+  it as a `reply.created` event. Stopping the clock is the question moving to `paused` with what it had left.
 - **A settle is a settling reply** carrying the chosen option as its `choice` and its text, from the actor
-  `owner`, which moves the question to `answered` as any settling reply does. A question already `answered` or
-  `withdrawn` answers 204 and takes no reply.
+  `owner`, its `source` a person, which moves the question to `answered` as any settling reply does. A question
+  already `answered` or `withdrawn` answers 204 and takes no reply.
 - **A refused talk** answers `question_talk_settled` (409) on a question already settled,
   `question_absent` (404) for a number naming no question, and `question_talk_say` (400) for a talk with no
   words. **A refused settle** answers `question_absent` (404) for a number naming no question and

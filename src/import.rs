@@ -31,7 +31,7 @@
 //! - Everything the target has no column for is kept as a label on the item: the model, the note, the
 //!   agent, the approval flag and who raised it, the hold and its reason, the resume moment, the
 //!   repair's item, the impact and the brief's Korean spelling.
-//! - A question's `recommended`, `why` and job are not kept: the target's questions carry no labels.
+//! - A question's `recommended` and `why` become its recommendation; its job is not kept.
 //!
 //! Every time is epoch seconds in the old archive and epoch milliseconds here, so each is multiplied
 //! by a thousand as it is written.
@@ -369,6 +369,22 @@ pub fn choices(row: &Value) -> String {
   Value::Array(list).to_string()
 }
 
+/// The recommendation an old question carried: the option its `recommended` names, with its `why`. None
+/// where the index names no option or no reason stands.
+pub fn recommendation(row: &Value) -> Cell {
+  let options = text(row.get("options")).unwrap_or_default();
+  let why = text(row.get("why")).unwrap_or_default();
+  let at = int(row.get("recommended")).and_then(|at| usize::try_from(at).ok());
+  let answer = at.and_then(|at| options.lines().map(str::trim).filter(|line| !line.is_empty()).nth(at));
+
+  match answer {
+    Some(answer) if !why.trim().is_empty() => {
+      Cell::Text(serde_json::json!({ "answer": answer, "why": why.trim() }).to_string())
+    }
+    _ => Cell::Null,
+  }
+}
+
 /// The question row an old question becomes.
 pub fn question(row: &Value) -> Vec<(&'static str, Cell)> {
   let paused = int(row.get("paused_left")).map(|left| left * 1000);
@@ -392,6 +408,7 @@ pub fn question(row: &Value) -> Vec<(&'static str, Cell)> {
     ),
     ("text", Cell::Text(text(row.get("question")).unwrap_or_default())),
     ("choices", Cell::Text(choices(row))),
+    ("recommendation", recommendation(row)),
     ("state", Cell::Text(question_state(row).to_owned())),
     (
       "due_at",
@@ -421,6 +438,8 @@ pub fn reply(row: &Value) -> Vec<(&'static str, Cell)> {
     ("text", Cell::Text(text(row.get("text")).unwrap_or_default())),
     ("actor_name", Cell::Text(text(row.get("by")).unwrap_or_default())),
     ("settles", Cell::Int(0)),
+    ("source", Cell::Text("person".to_owned())),
+    ("why", Cell::Null),
     ("created_at", Cell::Int(ms(row.get("said_at")).unwrap_or(0))),
   ]
 }

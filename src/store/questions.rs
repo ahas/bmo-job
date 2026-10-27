@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use bmo_job_client::{
-  Code, EventKind, NewQuestion, NewReply, Page, Question, QuestionQuery, QuestionState, Reply,
+  Code, EventKind, NewQuestion, NewReply, Page, Question, QuestionQuery, QuestionState, Reply, ReplySource,
 };
 use sqlx::Row;
 use sqlx::sqlite::SqliteRow;
@@ -13,8 +13,16 @@ use super::items::find_item;
 use super::{Store, Tx, filled, from_json, listed, page_limit, paged, stored, to_json};
 use crate::refusal::Refusal;
 
-const QUESTION_COLUMNS: &str = "id, item_id, asker_name, scope, text, choices, state, due_at, remaining_ms, due_told, \
-  created_at";
+const QUESTION_COLUMNS: &str = "id, item_id, asker_name, scope, text, choices, recommendation, state, due_at, \
+  remaining_ms, due_told, created_at";
+
+/// The wait a question gets where the asker names none, and the least and longest it may name.
+const DEFAULT_ASK_WAIT_MS: i64 = 60_000;
+const LEAST_ASK_WAIT_MS: i64 = 1_000;
+const LONGEST_ASK_WAIT_MS: i64 = 86_400_000;
+
+/// Who the recommendation's reply is written as.
+const RECOMMENDATION: &str = "recommendation";
 
 /// A question as it is kept: the member, and the time its clock had left when it was paused.
 struct Kept {
@@ -31,6 +39,10 @@ fn kept_from(row: &SqliteRow) -> Result<Kept, Refusal> {
       scope: row.try_get("scope")?,
       text: row.try_get("text")?,
       choices: from_json(row.try_get::<&str, _>("choices")?)?,
+      recommendation: match row.try_get::<Option<&str>, _>("recommendation")? {
+        Some(recommendation) => Some(from_json(recommendation)?),
+        None => None,
+      },
       state: stored(row.try_get("state")?, QuestionState::parse)?,
       due_at: row.try_get("due_at")?,
       created_at: row.try_get("created_at")?,
@@ -47,6 +59,8 @@ fn reply_from(row: &SqliteRow) -> Result<Reply, Refusal> {
     text: row.try_get("text")?,
     actor_name: row.try_get("actor_name")?,
     settles: row.try_get::<i64, _>("settles")? != 0,
+    source: stored(row.try_get("source")?, ReplySource::parse)?,
+    why: row.try_get("why")?,
     created_at: row.try_get("created_at")?,
   })
 }
@@ -75,12 +89,14 @@ pub(crate) async fn question_keys(tx: &mut Tx, question: &Question) -> Result<Ev
 
 async fn save_question(tx: &mut Tx, kept: &Kept, due_told: bool) -> Result<(), Refusal> {
   sqlx::query(
-    "UPDATE questions SET state = $1, due_at = $2, remaining_ms = $3, due_told = $4 WHERE id = $5",
+    "UPDATE questions SET state = $1, due_at = $2, remaining_ms = $3, due_told = $4, recommendation = $5 \
+     WHERE id = $6",
   )
   .bind(kept.question.state.as_str())
   .bind(kept.question.due_at)
   .bind(kept.remaining_ms)
   .bind(i64::from(due_told))
+  .bind(kept.question.recommendation.as_ref().map(to_json))
   .bind(kept.question.id)
   .execute(&mut **tx)
   .await?;
@@ -106,7 +122,8 @@ pub(crate) async fn delete_question(tx: &mut Tx, id: i64, now: i64) -> Result<()
   Ok(())
 }
 
-/// Tells once of each open question whose due time has passed by `now`.
+/// Settles each open question whose due time has passed by `now` on its recommendation, or tells it once
+/// where it carries none.
 pub(crate) async fn tell_due_questions(tx: &mut Tx, now: i64) -> Result<usize, Refusal> {
   let rows = sqlx::query(&format!(
     "SELECT {QUESTION_COLUMNS} FROM questions WHERE state = 'open' AND due_told = 0 AND due_at IS NOT NULL \
@@ -116,9 +133,32 @@ pub(crate) async fn tell_due_questions(tx: &mut Tx, now: i64) -> Result<usize, R
   .fetch_all(&mut **tx)
   .await?;
   for row in &rows {
-    let kept = kept_from(row)?;
-    save_question(tx, &kept, true).await?;
-    told_question(tx, now, EventKind::QuestionDue, &kept.question).await?;
+    let mut kept = kept_from(row)?;
+    match kept.question.recommendation.clone() {
+      Some(recommendation) => {
+        let choice = kept
+          .question
+          .choices
+          .contains(&recommendation.answer)
+          .then(|| recommendation.answer.clone());
+        write_reply(
+          tx,
+          &mut kept,
+          choice,
+          recommendation.answer,
+          RECOMMENDATION.to_owned(),
+          true,
+          ReplySource::Recommendation,
+          Some(recommendation.why),
+          now,
+        )
+        .await?;
+      }
+      None => {
+        save_question(tx, &kept, true).await?;
+        told_question(tx, now, EventKind::QuestionDue, &kept.question).await?;
+      }
+    }
   }
   Ok(rows.len())
 }
@@ -192,6 +232,16 @@ impl Store {
         return Err(Refusal::bad_request(format!("The choice {choice:?} stands twice.")));
       }
     }
+    if let Some(recommendation) = &new.recommendation {
+      filled("recommendation.answer", &recommendation.answer)?;
+      filled("recommendation.why", &recommendation.why)?;
+    }
+    let wait = new.wait_ms.unwrap_or(DEFAULT_ASK_WAIT_MS);
+    if !(LEAST_ASK_WAIT_MS..=LONGEST_ASK_WAIT_MS).contains(&wait) {
+      return Err(Refusal::bad_request(format!(
+        "A question's wait is {LEAST_ASK_WAIT_MS} to {LONGEST_ASK_WAIT_MS} milliseconds."
+      )));
+    }
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut scope = new.scope;
@@ -204,15 +254,16 @@ impl Store {
       }
     }
     let id: i64 = sqlx::query_scalar(
-      "INSERT INTO questions (item_id, asker_name, scope, text, choices, state, due_at, due_told, created_at) \
-       VALUES ($1, $2, $3, $4, $5, 'open', $6, 0, $7) RETURNING id",
+      "INSERT INTO questions (item_id, asker_name, scope, text, choices, recommendation, state, due_at, \
+       due_told, created_at) VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, 0, $8) RETURNING id",
     )
     .bind(new.item_id)
     .bind(&new.asker_name)
     .bind(&scope)
     .bind(&new.text)
     .bind(to_json(&new.choices))
-    .bind(new.due_at)
+    .bind(new.recommendation.as_ref().map(to_json))
+    .bind(now + wait)
     .bind(now)
     .fetch_one(&mut *tx)
     .await?;
@@ -270,7 +321,7 @@ impl Store {
     let mut tx = self.begin().await?;
     kept_at(&mut tx, question_id).await?;
     let rows = sqlx::query(
-      "SELECT id, question_id, choice, text, actor_name, settles, created_at FROM replies \
+      "SELECT id, question_id, choice, text, actor_name, settles, source, why, created_at FROM replies \
        WHERE question_id = $1 AND id > $2 ORDER BY id LIMIT $3",
     )
     .bind(question_id)
@@ -347,25 +398,57 @@ async fn reply_in(tx: &mut Tx, question_id: i64, new: NewReply, now: i64) -> Res
       kept.question.state
     )));
   }
-  let id: i64 = sqlx::query_scalar(
-    "INSERT INTO replies (question_id, choice, text, actor_name, settles, created_at) \
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+  write_reply(
+    tx,
+    &mut kept,
+    new.choice,
+    new.text,
+    new.actor_name,
+    settles,
+    ReplySource::Person,
+    None,
+    now,
   )
-  .bind(question_id)
-  .bind(&new.choice)
-  .bind(&new.text)
-  .bind(&new.actor_name)
+  .await
+}
+
+/// Writes a reply to a question in the transaction given, telling it and answering the question where it
+/// settles: from a person, or from the recommendation when the wait ran out.
+#[allow(clippy::too_many_arguments)]
+async fn write_reply(
+  tx: &mut Tx,
+  kept: &mut Kept,
+  choice: Option<String>,
+  text: String,
+  actor_name: String,
+  settles: bool,
+  source: ReplySource,
+  why: Option<String>,
+  now: i64,
+) -> Result<Reply, Refusal> {
+  let id: i64 = sqlx::query_scalar(
+    "INSERT INTO replies (question_id, choice, text, actor_name, settles, source, why, created_at) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
+  )
+  .bind(kept.question.id)
+  .bind(&choice)
+  .bind(&text)
+  .bind(&actor_name)
   .bind(i64::from(settles))
+  .bind(source.as_str())
+  .bind(&why)
   .bind(now)
   .fetch_one(&mut **tx)
   .await?;
   let reply = Reply {
     id,
-    question_id,
-    choice: new.choice,
-    text: new.text,
-    actor_name: new.actor_name,
+    question_id: kept.question.id,
+    choice,
+    text,
+    actor_name,
     settles,
+    source,
+    why,
     created_at: now,
   };
   let keys = question_keys(tx, &kept.question).await?;
@@ -373,7 +456,7 @@ async fn reply_in(tx: &mut Tx, question_id: i64, new: NewReply, now: i64) -> Res
   if settles {
     kept.question.state = QuestionState::Answered;
     kept.remaining_ms = None;
-    save_question(tx, &kept, true).await?;
+    save_question(tx, kept, true).await?;
     told_question(tx, now, EventKind::QuestionChanged, &kept.question).await?;
   }
   Ok(reply)

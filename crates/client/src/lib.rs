@@ -73,7 +73,10 @@ pub use items::{Approval, ApprovalGiven, ApprovalKind, Item, ItemChange, ItemQue
 pub use leases::{Lease, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait};
 pub use notes::{NewNote, Note, WaitQuery};
 pub use page::{Page, PageQuery};
-pub use questions::{NewQuestion, NewReply, Question, QuestionChange, QuestionQuery, QuestionState, Reply};
+pub use questions::{
+  NewQuestion, NewReply, Question, QuestionChange, QuestionQuery, QuestionRecommendation, QuestionState,
+  Reply, ReplySource,
+};
 pub use queues::{Hold, Queue, QueueChange, QueueQuery, QueueState};
 pub use reports::{NewReport, Report, ReportKind};
 pub use routes::{Method, Route, routes};

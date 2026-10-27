@@ -5,12 +5,12 @@ mod support;
 
 use bmo_job_client::{
   ApprovalGiven, EventQuery, Item, ItemChange, ItemState, JobClient, NewItem, NewQuestion, NewReply,
-  QuestionChange, QuestionState,
+  QuestionChange, QuestionRecommendation, QuestionState,
 };
 use reqwest::Method;
 use serde_json::{Value, json};
 
-use support::{START, Service};
+use support::Service;
 
 async fn item_in(client: &JobClient, scope: &str, title: &str, assignee: Option<&str>) -> Item {
   client
@@ -56,7 +56,7 @@ async fn asked(
   client: &JobClient,
   scope: &str,
   choices: &[&str],
-  due_at: Option<i64>,
+  wait_ms: Option<i64>,
 ) -> bmo_job_client::Question {
   client
     .ask(&NewQuestion {
@@ -64,7 +64,7 @@ async fn asked(
       scope: Some(scope.to_owned()),
       text: "Which way?".into(),
       choices: choices.iter().map(|choice| (*choice).to_owned()).collect(),
-      due_at,
+      wait_ms,
       ..NewQuestion::default()
     })
     .await
@@ -139,8 +139,8 @@ async fn a_rooms_open_questions_are_read_last_asked_first() {
   let service = Service::start().await;
   let client = service.client();
 
-  let first = asked(&client, "7", &["strict", "loose"], Some(START + 60_000)).await;
-  let paused = asked(&client, "7", &["a", "b"], Some(START + 60_000)).await;
+  let first = asked(&client, "7", &["strict", "loose"], Some(60_000)).await;
+  let paused = asked(&client, "7", &["a", "b"], Some(60_000)).await;
   client
     .change_question(
       paused.id,
@@ -150,7 +150,7 @@ async fn a_rooms_open_questions_are_read_last_asked_first() {
     )
     .await
     .expect("paused");
-  let past = asked(&client, "7", &["x", "y"], Some(START + 1_000)).await;
+  let past = asked(&client, "7", &["x", "y"], Some(1_000)).await;
   let answered = asked(&client, "7", &["yes", "no"], None).await;
   client
     .reply(
@@ -165,6 +165,21 @@ async fn a_rooms_open_questions_are_read_last_asked_first() {
     .await
     .expect("settled");
   asked(&client, "8", &["p", "q"], None).await;
+  let suggested = client
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      scope: Some("7".into()),
+      text: "Which way?".into(),
+      choices: vec!["a".into(), "b".into()],
+      recommendation: Some(QuestionRecommendation {
+        answer: "b".into(),
+        why: "It keeps the old name.".into(),
+      }),
+      wait_ms: Some(60_000),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
   service.pass(2_000).await;
 
   let open = service
@@ -178,8 +193,9 @@ async fn a_rooms_open_questions_are_read_last_asked_first() {
   assert_eq!(
     open,
     json!([
-      { "id": paused.id, "options": ["a", "b"], "talks": true },
-      { "id": first.id, "options": ["strict", "loose"], "talks": true },
+      { "id": suggested.id, "options": ["a", "b"], "recommendation": "b", "why": "It keeps the old name.", "talks": true },
+      { "id": paused.id, "options": ["a", "b"], "recommendation": null, "why": null, "talks": true },
+      { "id": first.id, "options": ["strict", "loose"], "recommendation": null, "why": null, "talks": true },
     ]),
     "the passed question {past:?} and the answered one take no answer"
   );
@@ -288,7 +304,7 @@ async fn a_question_is_settled_by_the_number_of_its_choice() {
 async fn a_talk_is_a_word_that_stops_the_clock_and_settles_nothing() {
   let service = Service::start().await;
   let client = service.client();
-  let question = asked(&client, "7", &["strict", "loose"], Some(START + 60_000)).await;
+  let question = asked(&client, "7", &["strict", "loose"], Some(60_000)).await;
 
   let talked = service
     .raw(Method::POST, "/question-talk")

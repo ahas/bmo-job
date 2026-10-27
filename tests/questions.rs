@@ -2,7 +2,10 @@
 
 mod support;
 
-use bmo_job_client::{EventQuery, NewItem, NewQuestion, NewReply, QuestionQuery, QuestionState, WaitQuery};
+use bmo_job_client::{
+  EventQuery, NewItem, NewQuestion, NewReply, QuestionQuery, QuestionRecommendation, QuestionState,
+  ReplySource, WaitQuery,
+};
 
 use support::{START, Service};
 
@@ -89,7 +92,7 @@ async fn the_clock_pauses_resumes_and_tells_once_when_due() {
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "May I go ahead?".into(),
-      due_at: Some(START + 10_000),
+      wait_ms: Some(10_000),
       ..NewQuestion::default()
     })
     .await
@@ -183,4 +186,209 @@ async fn an_open_question_is_settled_by_its_first_reply_and_a_wait_ends_on_it() 
   let replies = waiting.await.expect("the wait ends").expect("read");
   assert!(replies.items[0].settles);
   assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Answered);
+}
+
+#[tokio::test]
+async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_another() {
+  let service = Service::start().await;
+  let client = service.client();
+  let by_default = client
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      text: "May I?".into(),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+  assert_eq!(by_default.due_at, Some(START + 60_000));
+
+  let longer = client
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      text: "May I?".into(),
+      wait_ms: Some(120_000),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+  assert_eq!(longer.due_at, Some(START + 120_000));
+
+  let too_short = client
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      text: "May I?".into(),
+      wait_ms: Some(999),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect_err("too short");
+  assert_eq!(too_short.code(), Some("bad-request"));
+}
+
+#[tokio::test]
+async fn a_due_question_with_a_recommendation_is_answered_by_it() {
+  let service = Service::start().await;
+  let client = service.client();
+  let question = client
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      text: "Which grammar?".into(),
+      choices: vec!["strict".into(), "loose".into()],
+      recommendation: Some(QuestionRecommendation {
+        answer: "strict".into(),
+        why: "A loose grammar reads a stray token as a rule.".into(),
+      }),
+      wait_ms: Some(1_000),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+  assert_eq!(question.recommendation.as_ref().map(|one| one.answer.as_str()), Some("strict"));
+
+  service.pass(1_000).await;
+  assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Answered);
+  let replies = client.replies(question.id, &WaitQuery::default()).await.expect("replies");
+  assert_eq!(replies.items.len(), 1);
+  let answer = &replies.items[0];
+  assert_eq!((answer.choice.as_deref(), answer.text.as_str()), (Some("strict"), "strict"));
+  assert_eq!(answer.actor_name, "recommendation");
+  assert!(answer.settles);
+  assert_eq!(answer.source, ReplySource::Recommendation);
+  assert_eq!(answer.why.as_deref(), Some("A loose grammar reads a stray token as a rule."));
+
+  let due = EventQuery {
+    kinds: Some("question.due".into()),
+    ..EventQuery::default()
+  };
+  assert!(client.events_page(&due).await.expect("events").items.is_empty());
+}
+
+#[tokio::test]
+async fn a_due_question_without_a_recommendation_stays_open_and_tells_once() {
+  let service = Service::start().await;
+  let client = service.client();
+  let question = client
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      text: "May I?".into(),
+      wait_ms: Some(1_000),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+
+  service.pass(1_000).await;
+  assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Open);
+  assert!(
+    client
+      .replies(question.id, &WaitQuery::default())
+      .await
+      .expect("replies")
+      .items
+      .is_empty()
+  );
+  let due = EventQuery {
+    kinds: Some("question.due".into()),
+    ..EventQuery::default()
+  };
+  assert_eq!(client.events_page(&due).await.expect("events").items.len(), 1);
+
+  service.pass(1_000).await;
+  assert_eq!(client.events_page(&due).await.expect("events").items.len(), 1);
+}
+
+#[tokio::test]
+async fn a_persons_reply_before_the_due_time_wins() {
+  let service = Service::start().await;
+  let client = service.client();
+  let question = client
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      text: "Which grammar?".into(),
+      choices: vec!["strict".into(), "loose".into()],
+      recommendation: Some(QuestionRecommendation {
+        answer: "strict".into(),
+        why: "A loose grammar reads a stray token as a rule.".into(),
+      }),
+      wait_ms: Some(1_000),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+
+  let answer = client
+    .reply(question.id, &reply(Some("loose"), "loose, please"))
+    .await
+    .expect("answered");
+  assert_eq!((answer.source, answer.why.as_deref()), (ReplySource::Person, None));
+
+  service.pass(1_000).await;
+  assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Answered);
+  let replies = client.replies(question.id, &WaitQuery::default()).await.expect("replies");
+  assert_eq!(replies.items.len(), 1);
+  assert_eq!(replies.items[0].source, ReplySource::Person);
+  assert_eq!(replies.items[0].choice.as_deref(), Some("loose"));
+}
+
+#[tokio::test]
+async fn a_recommendation_outside_the_choices_answers_with_its_own_words() {
+  let service = Service::start().await;
+  let client = service.client();
+  let question = client
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      text: "Which grammar?".into(),
+      choices: vec!["strict".into(), "loose".into()],
+      recommendation: Some(QuestionRecommendation {
+        answer: "neither: a third grammar".into(),
+        why: "Both refuse a token the format allows.".into(),
+      }),
+      wait_ms: Some(1_000),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+
+  service.pass(1_000).await;
+  let replies = client.replies(question.id, &WaitQuery::default()).await.expect("replies");
+  let answer = &replies.items[0];
+  assert_eq!(answer.choice, None);
+  assert_eq!(answer.text, "neither: a third grammar");
+  assert_eq!(answer.source, ReplySource::Recommendation);
+  assert_eq!(answer.why.as_deref(), Some("Both refuse a token the format allows."));
+}
+
+#[tokio::test]
+async fn a_recommendation_carries_an_answer_and_a_reason() {
+  let service = Service::start().await;
+  let client = service.client();
+  let no_answer = client
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      text: "Which?".into(),
+      choices: vec!["a".into()],
+      recommendation: Some(QuestionRecommendation {
+        answer: " ".into(),
+        why: "because".into(),
+      }),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect_err("no answer");
+  assert_eq!(no_answer.code(), Some("bad-request"));
+
+  let no_reason = client
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      text: "Which?".into(),
+      choices: vec!["a".into()],
+      recommendation: Some(QuestionRecommendation {
+        answer: "a".into(),
+        why: " ".into(),
+      }),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect_err("no reason");
+  assert_eq!(no_reason.code(), Some("bad-request"));
 }

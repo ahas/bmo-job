@@ -64,7 +64,10 @@ The lease holds the item for `ttlMs` (at most 3600000). The server renews it at 
 4. `job_report` with `kind: "progress"` as you go, so whoever watches the item knows where it stands.
 5. Blocked on a decision that is not yours: `job_question_ask` with the `itemId`, your name as `askerName`,
    the `text` and the `choices` (empty for an open question), then `job_replies` with a `waitMs` until a reply
-   settles it. Keep the lease meanwhile.
+   settles it. Keep the lease meanwhile. Give `recommendation` as `{answer, why}` only where you can make the
+   case for that answer on the merits of the work and the rules; never the safe or timid answer by default.
+   Leave it out where you cannot make the case, and the question waits for a person. `waitMs` is the
+   question's own wait, a minute where left out; with a recommendation, the wait's end takes it.
 
 ## A base library missing a part
 

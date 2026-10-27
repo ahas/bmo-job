@@ -173,6 +173,32 @@ fn the_question_states_read_from_how_it_settled() {
 }
 
 #[test]
+fn the_question_carries_its_recommendation() {
+  let get = |row: &Value| {
+    import::question(row)
+      .into_iter()
+      .find(|(column, _)| *column == "recommendation")
+      .map(|(_, cell)| cell)
+      .expect("a mapped column")
+  };
+
+  assert_eq!(
+    get(&json!({"options": "a\nb", "recommended": 1, "why": "because"})),
+    Cell::Text(json!({"answer": "b", "why": "because"}).to_string())
+  );
+  assert_eq!(
+    get(&json!({"options": "a\nb", "recommended": 1, "why": "  "})),
+    Cell::Null,
+    "no reason, no recommendation"
+  );
+  assert_eq!(
+    get(&json!({"options": "", "recommended": 0, "why": "because"})),
+    Cell::Null,
+    "no option, no recommendation"
+  );
+}
+
+#[test]
 fn the_item_carries_the_seconds_as_milliseconds_and_the_approval() {
   let votes = [json!({"who": "tester", "at": 150, "via": "owner"})];
   let row = import::item(&todo(1, "\u{C644}\u{B8CC}", 1, 100, json!({"done_at": 200})), &votes, None);

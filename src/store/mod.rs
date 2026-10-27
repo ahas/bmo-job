@@ -33,7 +33,7 @@ pub use subscriptions::{Delivery, Kept};
 pub(crate) type Tx = Transaction<'static, Sqlite>;
 
 /// The schema's version, kept in the database's own user version.
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 /// A page's size where the caller names none, and the most it may name.
 const DEFAULT_LIMIT: i64 = 50;
@@ -60,9 +60,14 @@ impl Store {
     // One connection: every change runs alone, so a lease raced for by several holders goes to one.
     let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await?;
     let version: i64 = sqlx::query_scalar("PRAGMA user_version").fetch_one(&pool).await?;
-    if version == 0 {
-      sqlx::raw_sql(include_str!("schema.sql")).execute(&pool).await?;
-      sqlx::raw_sql(&format!("PRAGMA user_version = {SCHEMA_VERSION}")).execute(&pool).await?;
+    if version == 0 || version == 1 {
+      let mut tx = pool.begin().await?;
+      let schema = if version == 0 { include_str!("schema.sql") } else { include_str!("migrate_v1.sql") };
+      sqlx::raw_sql(schema).execute(&mut *tx).await?;
+      sqlx::raw_sql(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))
+        .execute(&mut *tx)
+        .await?;
+      tx.commit().await?;
     } else if version != SCHEMA_VERSION {
       return Err(Refusal::new(
         bmo_job_client::Code::Failed,

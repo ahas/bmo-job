@@ -648,16 +648,18 @@ export interface components {
         NewQuestion: {
             askerName: string;
             choices?: string[];
-            /**
-             * Format: int64
-             * @description Epoch milliseconds.
-             */
-            dueAt?: number | null;
             /** Format: int64 */
             itemId?: number | null;
+            /** @description The answer the asker would take by itself, and why; left out where it cannot make the case. */
+            recommendation?: components["schemas"]["QuestionRecommendation"] | null;
             /** @description The item's scope where left out. */
             scope?: string | null;
             text: string;
+            /**
+             * Format: int64
+             * @description The wait before the due time, 1 000 to 86 400 000 milliseconds; 60 000 where left out.
+             */
+            waitMs?: number | null;
         };
         /** @description A reply given. */
         NewReply: {
@@ -752,6 +754,8 @@ export interface components {
             id: number;
             /** Format: int64 */
             itemId: number | null;
+            /** @description The answer the asker would take by itself, and why; null where it would not decide alone. */
+            recommendation: components["schemas"]["QuestionRecommendation"] | null;
             scope: string | null;
             state: components["schemas"]["QuestionState"];
             text: string;
@@ -764,6 +768,13 @@ export interface components {
         QuestionPage: {
             items: components["schemas"]["Question"][];
             more: boolean;
+        };
+        /** @description The answer an asker would take by itself, and the one line saying why. */
+        QuestionRecommendation: {
+            /** @description One of the question's choices, or a free answer where the choices do not cover it. */
+            answer: string;
+            /** @description The one line saying why that is the answer. */
+            why: string;
         };
         /**
          * @description Where a question stands.
@@ -802,6 +813,7 @@ export interface components {
         QueueState: "open" | "paused";
         /** @description A reply to a question. */
         Reply: {
+            /** @description The caller's name, or `recommendation` where the recommendation gave it. */
             actorName: string;
             choice: string | null;
             /**
@@ -815,13 +827,22 @@ export interface components {
             questionId: number;
             /** @description Whether the reply settled the question, or is a word on it. */
             settles: boolean;
+            /** @description Who gave it: a person, or the recommendation when the wait ran out. */
+            source: components["schemas"]["ReplySource"];
             text: string;
+            /** @description The recommendation's reason where the recommendation gave it; null for a person's reply. */
+            why: string | null;
         };
         /** @description One page of a list, and whether anything stands past its last member. */
         ReplyPage: {
             items: components["schemas"]["Reply"][];
             more: boolean;
         };
+        /**
+         * @description Who gave a reply.
+         * @enum {string}
+         */
+        ReplySource: "person" | "recommendation";
         /** @description A report on an item. */
         Report: {
             actorName: string;
