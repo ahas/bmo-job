@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use bmo_job::Settings;
+use bmo_job::todo_cli::{self, TodoArgs};
 use bmo_job_plugin::Start;
 use clap::{Parser, Subcommand};
 
@@ -17,6 +18,8 @@ struct Command {
 
 #[derive(Subcommand)]
 enum Verb {
+  /// Every noun this command carries, one a line, which `bmo` reads to know which commands are this unit's.
+  Nouns,
   /// Serves the API by the settings file.
   Serve,
   /// Serves the harness tools over MCP on standard input and output, reaching the service at an address.
@@ -39,6 +42,22 @@ enum Verb {
     /// Tools the server leaves out, comma-separated.
     #[arg(long, value_name = "tools", env = "BMO_JOB_MCP_WITHOUT", value_delimiter = ',')]
     without: Vec<String>,
+  },
+  /// Closes an item through the service's own routes: its report and what it could not reach are kept on it,
+  /// and its state is set to done.
+  Todo {
+    /// The item to close.
+    #[arg(long, value_name = "item")]
+    done: i64,
+    /// How the work was done, kept as the item's final report.
+    #[arg(long, value_name = "text", allow_hyphen_values = true)]
+    report: Option<String>,
+    /// What the job's hands could not reach, kept as a held report.
+    #[arg(long, value_name = "text", allow_hyphen_values = true)]
+    unfinished: Option<String>,
+    /// Who writes the closing; the run's agent where left out.
+    #[arg(long, value_name = "name")]
+    by: Option<String>,
   },
   /// Prints the OpenAPI document.
   Openapi,
@@ -97,6 +116,41 @@ fn ended(result: Result<(), String>) -> ExitCode {
 async fn main() -> ExitCode {
   let Command { verb } = Command::parse();
   match verb {
+    Verb::Nouns => {
+      println!("todo");
+
+      ExitCode::SUCCESS
+    }
+    Verb::Todo {
+      done,
+      report,
+      unfinished,
+      by,
+    } => ended(match todo_cli::client() {
+      Ok(client) => {
+        let by = by
+          .or_else(|| std::env::var("BMO_TURN_AGENT").ok())
+          .or_else(|| std::env::var("USER").ok())
+          .unwrap_or_default();
+
+        todo_cli::close(
+          &client,
+          &TodoArgs {
+            done,
+            report,
+            unfinished,
+            by,
+          },
+        )
+        .await
+        .map(|lines| {
+          for line in lines {
+            println!("{line}")
+          }
+        })
+      }
+      Err(why) => Err(why),
+    }),
     Verb::Serve => ended(match Settings::load(&Settings::place()) {
       Ok(settings) => bmo_job::serve(settings).await,
       Err(why) => Err(why),

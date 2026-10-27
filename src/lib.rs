@@ -10,6 +10,7 @@ pub mod refusal;
 pub mod server;
 pub mod settings;
 pub mod store;
+pub mod todo_cli;
 
 use std::time::Duration;
 

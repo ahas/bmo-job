@@ -1,12 +1,27 @@
 # The command line
 
-The binary `bmo-job` carries three commands.
+The binary `bmo-job` carries these commands.
 
 | Command | Does |
 |---|---|
+| `bmo-job nouns` | Every noun this unit carries, one a line, which `bmo` reads to find the commands it hands this unit |
 | `bmo-job serve` | Serves the API by the settings file (docs/settings.md) until it is told to stop by an interrupt or a termination signal; every open event stream ends then, so the stop is not held |
 | `bmo-job mcp --service <url>` | Serves the harness plugin's MCP server on standard input and output, reaching the service at the address (docs/api.md, "The harness plugin") |
+| `bmo-job todo --done <item>` | Closes an item through the service's own routes: its report and what it could not reach are kept on the item, and its state is set to `done` (「`bmo-job todo`」) |
 | `bmo-job openapi` | Prints the OpenAPI document, the one committed as `docs/openapi.json` |
+
+## `bmo-job todo`
+
+`bmo todo --done <item>` runs this. The worker's run already names the job service in `BMO_JOB_URL` and its token in `BMO_JOB_TOKEN` or `BMO_JOB_TOKEN_FILE`; a shell with neither reads the deployment's `settings.toml` beside the binary, or the file `BMO_JOB_SETTINGS` names.
+
+| Option | What it does |
+|---|---|
+| `--done <item>` | The item to close |
+| `--report <text>` | How the work was done, kept as the item's `final` report through `POST /items/{itemId}/reports` |
+| `--unfinished <text>` | What the job's hands could not reach, kept as a `held` report through the same route |
+| `--by <name>` | Who writes the closing: the run's `BMO_TURN_AGENT` where left out, then `USER`, which the reports are kept under |
+
+The reports are written first, then `PATCH /items/{itemId}` sets the item's state to `done`; the answer is each report and the item as JSON, one a line. The verb reads no database of its own, and no table of an older era.
 
 ## `bmo-job mcp`
 
