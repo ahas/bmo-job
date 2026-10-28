@@ -135,14 +135,17 @@ async fn the_service_serves_by_its_settings_and_stops_on_a_signal() {
   let token = written(dir.path(), "token", "served-token\n");
   let approver = written(dir.path(), "approver", "approver-token\n");
   let caller = written(dir.path(), "caller", "caller-token\n");
+  let chat = written(dir.path(), "chat", "chat-token\n");
   let settings = format!(
     "[server]\nlisten = \"127.0.0.1:{port}\"\ntoken_file = \"{}\"\n\
      [callers.qa-admin]\ntoken_file = \"{}\"\napproves = true\n\
      [callers.tester]\ntoken_file = \"{}\"\n\
+     [callers.chat]\ntoken_file = \"{}\"\napproves = true\n\
      [database]\nurl = \"sqlite://{}?mode=rwc\"\n",
     token.display(),
     approver.display(),
     caller.display(),
+    chat.display(),
     dir.path().join("job.db").display()
   );
   let settings = written(dir.path(), "settings.toml", &settings);
@@ -168,7 +171,7 @@ async fn the_service_serves_by_its_settings_and_stops_on_a_signal() {
   .expect("the service comes up");
   assert!(ready.ready);
 
-  // Whose approval opens a draft is the settings' word: the caller marked an approver opens it, another
+  // Whose approval opens a draft is the settings' word: the callers marked an approver open it, another
   // caller's is a recommendation.
   let url = format!("http://127.0.0.1:{port}");
   let item = client
@@ -196,6 +199,23 @@ async fn the_service_serves_by_its_settings_and_stops_on_a_signal() {
   assert_eq!(
     (approved.approvals[1].kind, approved.approvals[1].caller_name.as_deref()),
     (ApprovalKind::Approval, Some("qa-admin"))
+  );
+
+  // The chat caller is marked an approver too: its approval opens the draft and is recorded as its own.
+  let chat_item = client
+    .create_item(&NewItem {
+      title: "chat's".to_owned(),
+      queue_name: "build".to_owned(),
+      ..NewItem::default()
+    })
+    .await
+    .expect("raised");
+  let by_chat = JobClient::new(&url, "chat-token").expect("a client");
+  let opened = by_chat.change_item(chat_item.id, &approval).await.expect("approved");
+  assert_eq!(opened.state, ItemState::Open);
+  assert_eq!(
+    (opened.approvals[0].kind, opened.approvals[0].caller_name.as_deref()),
+    (ApprovalKind::Approval, Some("chat"))
   );
 
   let stream = client

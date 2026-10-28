@@ -35,7 +35,10 @@ recorded under that name (docs/api.md, "Approvals").
 | `approves` | Whether the caller's approval opens a draft: `true` makes it an approver, whose approval is of the kind `approval`; left out it is `false`, and the caller's approval is a recommendation |
 
 A deployment marks as an approver the caller whose word alone puts work into a queue, and gives its token only to
-what acts on that word. A deployment that marks none opens no draft by an approval.
+what acts on that word. A deployment that marks none opens no draft by an approval. Where a deployment marks the
+caller a chat agent's own token names, the agent's approval opens the draft it has read and judged sound; the rule
+for when to give it stands in the agent's own instructions, not here. A caller the deployment does not mark, and
+the shared token, record only a recommendation, which opens no draft.
 
 ### `[unattended]`
 
