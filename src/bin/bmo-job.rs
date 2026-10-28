@@ -1,10 +1,11 @@
 //! The `bmo-job` command (docs/cli.md): the service, its MCP server, and its OpenAPI document.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use bmo_job::Settings;
+use bmo_job::job_close::{self, JobCloseArgs};
 use bmo_job::todo_cli::{self, TodoArgs};
 use bmo_job_plugin::Start;
 use clap::{Parser, Subcommand};
@@ -20,6 +21,11 @@ struct Command {
 enum Verb {
   /// Every noun this command carries, one a line, which `bmo` reads to know which commands are this unit's.
   Nouns,
+  /// The work of a job at its end, handed over to the repository's deployment.
+  Job {
+    #[command(subcommand)]
+    verb: JobVerb,
+  },
   /// Serves the API by the settings file.
   Serve,
   /// Serves the harness tools over MCP on standard input and output, reaching the service at an address.
@@ -75,6 +81,19 @@ enum Verb {
   },
 }
 
+#[derive(Subcommand)]
+enum JobVerb {
+  /// Hands the job's commit over to the deployment that records what goes live.
+  Close {
+    /// Why this goes live, in English.
+    #[arg(long = "then", value_name = "why", allow_hyphen_values = true)]
+    then_reason: String,
+    /// Why the change reaches nothing the suite runs, in English.
+    #[arg(long = "skip-suite", value_name = "why", allow_hyphen_values = true)]
+    skip_suite: Option<String>,
+  },
+}
+
 /// The import's report, one table a line.
 fn imported(report: &bmo_job::import::Report) -> Result<(), String> {
   for moved in &report.tables {
@@ -117,10 +136,37 @@ async fn main() -> ExitCode {
   let Command { verb } = Command::parse();
   match verb {
     Verb::Nouns => {
+      println!("job");
       println!("todo");
 
       ExitCode::SUCCESS
     }
+    Verb::Job { verb } => match verb {
+      JobVerb::Close {
+        then_reason,
+        skip_suite,
+      } => {
+        let root = std::env::current_dir().unwrap_or_default();
+        let args = JobCloseArgs {
+          then_reason,
+          skip_suite,
+        };
+
+        match job_close::close(&root, &data_root(), &args, Path::new("bmo-testbed")) {
+          Ok(lines) => {
+            for line in lines {
+              println!("{line}");
+            }
+
+            ExitCode::SUCCESS
+          }
+          Err(why) => {
+            eprintln!("job-close: refused — {why}");
+            ExitCode::FAILURE
+          }
+        }
+      }
+    },
     Verb::Todo {
       done,
       report,
@@ -195,4 +241,14 @@ async fn main() -> ExitCode {
         .and_then(|report| imported(&report)),
     ),
   }
+}
+
+/// The platform's data root: the one the environment names, else the one under the home directory.
+fn data_root() -> PathBuf {
+  std::env::var_os("BMO_DATA_DIR").map(PathBuf::from).unwrap_or_else(|| {
+    std::env::var_os("HOME")
+      .map(PathBuf::from)
+      .unwrap_or_default()
+      .join(".local/share/bmo/data")
+  })
 }

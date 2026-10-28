@@ -1,0 +1,288 @@
+//! A job's close reading where its repository's deployment records what is live and handing its commit over
+//! (docs/deploy.md, "A job closes"; docs/cli.md, "`bmo-job job close`"): the record its own deployment writes
+//! under the root its declaration names, the range that record narrows to the job's own commits, and the
+//! line the deployment reads.
+
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use bmo_job::job_close::{JobCloseArgs, close, commits_refusal, deployed_commit_of};
+
+// A record as the testbed's deployment writes it, under the deploy root it names.
+const RECORD: &str = r#"{
+  "commit": "{commit}",
+  "subject": "A deployment made through the testbed",
+  "message": "A deployment made through the testbed",
+  "version": "0.1.0-rev.1",
+  "at": "2026-10-28T03:02:36.133Z",
+  "backup": ""
+}"#;
+
+fn git(dir: &Path, args: &[&str]) -> String {
+  let output = Command::new("git").arg("-C").arg(dir).args(args).output().expect("git runs");
+
+  assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+  String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+fn init(dir: &Path) {
+  git(dir, &["init", "-q", "-b", "main"]);
+}
+
+fn commit(dir: &Path, file: &str, message: &str) -> String {
+  fs::write(dir.join(file), format!("{file}\n")).expect("the file");
+  git(dir, &["add", file]);
+  git(
+    dir,
+    &["-c", "user.name=tester", "-c", "user.email=tester", "commit", "-q", "-m", message],
+  );
+
+  git(dir, &["rev-parse", "HEAD"])
+}
+
+fn declare_deploy_root(repo: &Path, deploy_root: &Path) {
+  fs::write(
+    repo.join("testbed.toml"),
+    format!(
+      "testbed = 0\nname = \"the-test\"\n\n[deploy]\nroot = \"{}\"\nlink = \"deploy\"\n",
+      deploy_root.display()
+    ),
+  )
+  .expect("the declaration");
+}
+
+fn record_at(deploy_root: &Path, commit: &str) {
+  fs::write(deploy_root.join("deployed.json"), RECORD.replace("{commit}", commit)).expect("the record");
+}
+
+// A testbed standing in for the real one: it writes the verb it was asked on a line.
+fn testbed_at(dir: &Path) -> (PathBuf, PathBuf) {
+  let calls = dir.join("testbed-calls");
+  let path = dir.join("bmo-testbed");
+  fs::write(&path, format!("#!/bin/sh\necho \"$@\" >> \"{}\"\nexit 0\n", calls.display()))
+    .expect("the testbed stand-in");
+  let mut permissions = fs::metadata(&path).expect("the stand-in").permissions();
+  permissions.set_mode(0o755);
+  fs::set_permissions(&path, permissions).expect("the stand-in is executable");
+
+  (path, calls)
+}
+
+fn run_close(
+  root: &Path,
+  data_root: &Path,
+  then_reason: &str,
+  skip_suite: Option<&str>,
+  testbed: &Path,
+) -> Result<Vec<String>, String> {
+  close(
+    root,
+    data_root,
+    &JobCloseArgs {
+      then_reason: then_reason.to_owned(),
+      skip_suite: skip_suite.map(str::to_owned),
+    },
+    testbed,
+  )
+}
+
+#[test]
+fn the_deploy_record_is_read_under_the_root_the_checkout_declares() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let deploy_root = tempfile::tempdir().expect("a deploy root");
+  let deployed = "d83a99f8da4953d32bb39541ac8658e9cdfb1753";
+
+  declare_deploy_root(repo.path(), deploy_root.path());
+  record_at(deploy_root.path(), deployed);
+
+  assert_eq!(deployed_commit_of(repo.path(), data.path()), Some(deployed.to_owned()));
+}
+
+#[test]
+fn the_deploy_log_names_the_live_commit_where_no_record_file_stands() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let deploy_root = tempfile::tempdir().expect("a deploy root");
+  let (older, newest) =
+    ("665efe7d02cb60f6a3215cc98b15bd20a1a81134", "c9c5dfed79cf545265c6f5f140b019f1ff4cd381");
+
+  declare_deploy_root(repo.path(), deploy_root.path());
+  fs::write(
+    deploy_root.path().join("deployed.log"),
+    format!(
+      "2026-10-27T01:30:54.590Z {older}  Hold a row to its kind\n2026-10-28T03:05:16.778Z {newest}  Run the migrations\n"
+    ),
+  )
+  .expect("the log");
+
+  assert_eq!(deployed_commit_of(repo.path(), data.path()), Some(newest.to_owned()));
+}
+
+#[test]
+fn a_checkout_with_no_declaration_reads_the_platform_s_record() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let deployed = "b0dd02ec3a4edabffb3c794b3d4e54eeffbe561b";
+
+  fs::write(
+    data.path().join("deployed.json"),
+    format!(
+      "{{\"commit\":\"{deployed}\",\"subject\":\"A deployment\",\"at\":\"2026-10-21T18:36:32.828Z\",\"backup\":\"\"}}"
+    ),
+  )
+  .expect("the platform record");
+
+  assert_eq!(deployed_commit_of(repo.path(), data.path()), Some(deployed.to_owned()));
+}
+
+#[test]
+fn an_old_commit_before_the_deployed_one_is_not_read_as_the_job_s_own() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let deploy_root = tempfile::tempdir().expect("a deploy root");
+
+  init(repo.path());
+  let start = commit(repo.path(), "README.md", "Start the repository");
+  commit(repo.path(), "old.md", &format!("Add the old page\n\nAs asked: {}", '\u{AC00}'));
+  let deployed = commit(repo.path(), "one.md", "Add the first page");
+  commit(repo.path(), "two.md", "Add the second page");
+  declare_deploy_root(repo.path(), deploy_root.path());
+  record_at(deploy_root.path(), &deployed);
+
+  let base = deployed_commit_of(repo.path(), data.path()).expect("the record names the deployed commit");
+  assert_eq!(base, deployed);
+  assert_eq!(commits_refusal(repo.path(), &base, "main").expect("reads"), None);
+
+  let earlier = commits_refusal(repo.path(), &start, "main")
+    .expect("reads")
+    .expect("the old commit is read past that base");
+  assert!(earlier.contains("Add the old page"), "{earlier}");
+}
+
+#[test]
+fn a_close_reads_the_deploy_record_and_ends_clean_on_the_commit_it_names() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let deploy_root = tempfile::tempdir().expect("a deploy root");
+
+  init(repo.path());
+  let head = commit(repo.path(), "one.md", "Add the first page");
+  git(repo.path(), &["update-ref", "refs/remotes/origin/main", &head]);
+  declare_deploy_root(repo.path(), deploy_root.path());
+  record_at(deploy_root.path(), &head);
+
+  let (testbed, calls) = testbed_at(data.path());
+  let lines = run_close(repo.path(), data.path(), "Land the first page", None, &testbed).expect("clean");
+
+  assert!(
+    lines.iter().any(|line| line.contains("this commit is already what is deployed")),
+    "{lines:?}"
+  );
+  assert!(!calls.exists(), "the close runs nothing on a commit already deployed");
+}
+
+#[test]
+fn an_archive_that_keeps_no_pending_list_still_hands_the_commit_over() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let deploy_root = tempfile::tempdir().expect("a deploy root");
+
+  init(repo.path());
+  let base = commit(repo.path(), "one.md", "Add the first page");
+  let head = commit(repo.path(), "two.md", "Add the second page");
+  git(repo.path(), &["update-ref", "refs/remotes/origin/main", &head]);
+  declare_deploy_root(repo.path(), deploy_root.path());
+  record_at(deploy_root.path(), &base);
+
+  let (testbed, calls) = testbed_at(data.path());
+  let lines =
+    run_close(repo.path(), data.path(), "Land the second page", None, &testbed).expect("handed over");
+  let pushed = format!("waiting to go live: {} stands pushed for its deployment", &head[..12]);
+
+  assert!(lines.iter().any(|line| line == &pushed), "{lines:?}");
+  let said = fs::read_to_string(calls).expect("the testbed stand-in's calls");
+  assert!(said.contains("check"), "{said}");
+  assert!(said.contains("suite"), "{said}");
+  assert!(!said.contains("pending"), "{said}");
+}
+
+#[test]
+fn an_unpushed_commit_is_refused_with_its_reason() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let deploy_root = tempfile::tempdir().expect("a deploy root");
+
+  init(repo.path());
+  let base = commit(repo.path(), "one.md", "Add the first page");
+  let head = commit(repo.path(), "two.md", "Add the second page");
+  git(repo.path(), &["update-ref", "refs/remotes/origin/main", &base]);
+  declare_deploy_root(repo.path(), deploy_root.path());
+  record_at(deploy_root.path(), &base);
+
+  let (testbed, calls) = testbed_at(data.path());
+  let refused =
+    run_close(repo.path(), data.path(), "Land the second page", None, &testbed).expect_err("unpushed");
+
+  assert!(
+    refused
+      .contains(&format!("{} is not on origin/main; an unpushed commit is not deployable", &head[..12])),
+    "{refused}"
+  );
+  assert!(!calls.exists(), "a refused close runs nothing");
+}
+
+#[test]
+fn a_close_skipping_the_suite_runs_the_check_alone() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let deploy_root = tempfile::tempdir().expect("a deploy root");
+
+  init(repo.path());
+  let base = commit(repo.path(), "one.md", "Add the first page");
+  let head = commit(repo.path(), "two.md", "Add the second page");
+  git(repo.path(), &["update-ref", "refs/remotes/origin/main", &head]);
+  declare_deploy_root(repo.path(), deploy_root.path());
+  record_at(deploy_root.path(), &base);
+
+  let (testbed, calls) = testbed_at(data.path());
+  let lines = run_close(
+    repo.path(),
+    data.path(),
+    "Land the second page",
+    Some("the change reaches no test"),
+    &testbed,
+  )
+  .expect("handed over");
+
+  assert!(lines.iter().any(|line| line.contains("stands pushed for its deployment")), "{lines:?}");
+  let said = fs::read_to_string(calls).expect("the testbed stand-in's calls");
+  assert!(said.contains("check"), "{said}");
+  assert!(!said.contains("suite"), "{said}");
+}
+
+#[test]
+fn a_reason_holding_hangul_is_refused() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let (testbed, calls) = testbed_at(data.path());
+  let refused = run_close(repo.path(), data.path(), &format!("Land {}", '\u{AC00}'), None, &testbed)
+    .expect_err("a reason with Hangul");
+
+  assert!(refused.contains("--then holds Hangul"), "{refused}");
+  assert!(!calls.exists(), "a refused close runs nothing");
+}
+
+#[test]
+fn the_command_carries_the_job_and_todo_nouns() {
+  let output = Command::new(env!("CARGO_BIN_EXE_bmo-job"))
+    .arg("nouns")
+    .output()
+    .expect("the binary runs");
+
+  assert!(output.status.success());
+  let nouns: Vec<&str> = std::str::from_utf8(&output.stdout).expect("utf8").lines().collect();
+  assert_eq!(nouns, ["job", "todo"]);
+}

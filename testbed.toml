@@ -28,3 +28,14 @@ data_root = "~/.local/share/bmo/data"
 env_links = [{ link = "settings.toml", target = "env/bmo-job.toml" }]
 # The service's user unit, marked bot: the repository's one service, which runs `bmo-job serve`.
 units = ["deploy/*.service"]
+
+# The binary, linked into `.local/bin` under the home directory beside `bmo`, which serves the nouns it
+# declares from there (docs/deploy.md, "The unit command").
+[[deploy.step]]
+id = "link-command"
+phase = "before-flip"
+command = '''
+set -eu
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$HOME/.local/share/bmo-job/deploy/bin/bmo-job" "$HOME/.local/bin/bmo-job"
+'''

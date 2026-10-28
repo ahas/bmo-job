@@ -4,11 +4,28 @@ The binary `bmo-job` carries these commands.
 
 | Command | Does |
 |---|---|
-| `bmo-job nouns` | Every noun this unit carries, one a line, which `bmo` reads to find the commands it hands this unit |
+| `bmo-job nouns` | Every noun this unit carries (`job` and `todo`), one a line, which `bmo` reads to find the commands it hands this unit |
 | `bmo-job serve` | Serves the API by the settings file (docs/settings.md) until it is told to stop by an interrupt or a termination signal; every open event stream ends then, so the stop is not held |
 | `bmo-job mcp --service <url>` | Serves the harness plugin's MCP server on standard input and output, reaching the service at the address (docs/api.md, "The harness plugin") |
+| `bmo-job job close` | Hands the job's commit over to its repository's deployment, with the range narrowed to the commit the deployment recorded as live (「`bmo-job job close`」) |
 | `bmo-job todo --done <item>` | Closes an item through the service's own routes: its report and what it could not reach are kept on the item, and its state is set to `done` (「`bmo-job todo`」) |
 | `bmo-job openapi` | Prints the OpenAPI document, the one committed as `docs/openapi.json` |
+
+## `bmo-job job close`
+
+`bmo job close --then '<why this goes live, in English>' [--skip-suite '<why, in English>']` runs this, through
+the unit command the deployment links into `~/.local/bin` (docs/deploy.md, "The unit command").
+
+| Option | What it does |
+|---|---|
+| `--then <why>` | Why this goes live, in English; required. A reason holding Hangul is refused |
+| `--skip-suite <why>` | Why the change reaches nothing the suite runs, in English; the static check still runs |
+
+The close reads the live commit from the deployment record (docs/deploy.md, "A job closes"), narrows the job's
+own commits to those past it, refuses a commit whose message holds Hangul or one that is not on the remote,
+runs the check and the suite, and ends `waiting to go live: <commit> stands pushed for its deployment`. A
+commit the record already names as live runs nothing and ends clean. It reads no archive and no pending list;
+the deployment that records what goes live writes the commit down.
 
 ## `bmo-job todo`
 

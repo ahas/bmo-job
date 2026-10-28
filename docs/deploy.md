@@ -22,6 +22,28 @@ bmo-testbed's. This document states what the declaration says of this service.
 - **The MCP server is no unit.** A harness starts `bmo-job mcp` itself, from a release's `bin/`, for as long as
   its session lasts.
 
+## The unit command
+
+- **The deployment links the release's binary into `~/.local/bin/bmo-job`,** by the `[[deploy.step]]` named
+  `link-command`, so the platform `bmo` finds the unit command and reads the nouns it declares.
+- **`bmo` hands it `job` and `todo`:** `bmo job close` runs `bmo-job job close`, and `bmo todo --done` runs
+  `bmo-job todo --done` (docs/cli.md).
+
+## A job closes
+
+- **The deployment record.** Each deployment writes `deployed.json` under the deploy root `[deploy] root` names
+  (`~/.local/share/bmo-job`), holding the commit it put live, and appends a line to `deployed.log` beside it,
+  its last line naming that commit too. A checkout with no `[deploy] root` reads the platform's own
+  `deployed.json` under the data root.
+- **The close's range.** `bmo job close` reads the record's commit and takes the job's own commits as those past
+  it. A commit before the record is not the job's, and its message is not read. A commit the record already
+  names as live runs nothing and ends clean.
+- **The handover.** A commit on the remote whose messages, and whose close reasons, are English runs the check
+  and the suite (the suite skipped where `--skip-suite` gives the reason) and ends
+  `waiting to go live: <commit> stands pushed for its deployment`. An unpushed commit, or one the remote does
+  not know, is refused with that reason. The service keeps no backlog and reads none: the deployment that
+  records what goes live writes the commit down.
+
 ## What gates a deployment
 
 - **The static check and the suite** run before a deployment, as bmo-testbed's gate does for every repository.

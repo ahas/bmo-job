@@ -74,11 +74,11 @@ async fn a_closing_reports_and_closes_through_the_service_routes() {
 }
 
 #[test]
-fn the_unit_declares_the_todo_noun_bmo_finds_it_by() {
+fn the_unit_declares_the_todo_and_job_nouns_bmo_finds_them_by() {
   let output = std::process::Command::new(env!("CARGO_BIN_EXE_bmo-job")).arg("nouns").output().unwrap();
 
   assert!(output.status.success());
-  assert_eq!(String::from_utf8_lossy(&output.stdout), "todo\n");
+  assert_eq!(String::from_utf8_lossy(&output.stdout), "job\ntodo\n");
 }
 
 #[tokio::test]
