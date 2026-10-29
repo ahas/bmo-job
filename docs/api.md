@@ -115,7 +115,9 @@ and who is to take it, the caller's scope and labels, its approvals and its stat
 | any but `done`, `dropped`, `merged` | `merged` | `state: "merged"` with `mergedInto`; a standing lease ends |
 
 A move not in the table is answered 409 `conflict`, among them `state: "open"` on a draft with no approval of the
-kind `approval`, a recommendation in the same change included. `done`, `dropped` and `merged` are final. A merge
+kind `approval`, a recommendation in the same change included, and `state: "done"` on an item no final report
+stands on: a finished item always carries the report of how it finished, written before it closes. `done`,
+`dropped` and `merged` are final. A merge
 names a standing item other than itself, neither dropped nor merged; one naming no item is answered 422
 `unknown-item`, and one naming an item that cannot take it 409 `conflict`. An approval or a recommendation given
 to an item past `draft` is recorded beside the others and moves nothing.

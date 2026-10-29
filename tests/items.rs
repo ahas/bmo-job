@@ -6,7 +6,8 @@ mod support;
 use std::collections::BTreeMap;
 
 use bmo_job_client::{
-  ApprovalGiven, ApprovalKind, ItemChange, ItemQuery, ItemState, LeaseAsk, LeaseWait, NewItem,
+  ApprovalGiven, ApprovalKind, ItemChange, ItemQuery, ItemState, LeaseAsk, LeaseWait, NewItem, NewReport,
+  ReportKind,
 };
 
 use support::{APPROVER, CALLER, CALLER_TOKEN, START, Service};
@@ -168,6 +169,27 @@ async fn the_moves_follow_the_table() {
   };
   let lease = client.take_lease(&ask, &LeaseWait::default()).await.expect("taken").expect("a lease");
   service.clock.advance(10);
+
+  // An item closes only with the report of how it finished.
+  let refused = client
+    .change_item(item.id, &moved(ItemState::Done))
+    .await
+    .expect_err("an item without a final report does not close");
+  assert_eq!(refused.status(), Some(409));
+
+  client
+    .add_report(
+      item.id,
+      &NewReport {
+        kind: ReportKind::Final,
+        body: "The work is done.".to_owned(),
+        actor_name: "taker".to_owned(),
+        labels: Default::default(),
+      },
+    )
+    .await
+    .expect("the report is written");
+
   let done = client.change_item(item.id, &moved(ItemState::Done)).await.expect("done");
   assert_eq!((done.state, done.lease_id, done.ended_at), (ItemState::Done, None, Some(START + 10)));
   let gone = client.lease(lease.id).await.expect_err("the lease ended with its item");

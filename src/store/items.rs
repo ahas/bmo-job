@@ -373,6 +373,18 @@ impl Store {
       if !may_move(item.state, target) {
         return Err(Refusal::conflict(format!("An item {} cannot move to {}.", item.state, target)));
       }
+      if target == ItemState::Done {
+        let finals: i64 =
+          sqlx::query_scalar(r#"SELECT COUNT(*) FROM "reports" WHERE "item_id" = $1 AND "kind" = 'final'"#)
+            .bind(item.id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if finals == 0 {
+          return Err(Refusal::conflict(
+            "An item closes with a final report; write one before it is moved to done.",
+          ));
+        }
+      }
       if item.state == ItemState::Draft
         && target == ItemState::Open
         && !item.approvals.iter().any(|approval| approval.kind == ApprovalKind::Approval)
