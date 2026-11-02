@@ -13,4 +13,4 @@ rmcp.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["sync", "time"] }
+tokio.workspace = true

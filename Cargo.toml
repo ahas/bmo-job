@@ -12,7 +12,7 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
-axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"] }
+axum = { version = "0.8.9", features = ["macros", "multipart", "ws"] }
 bmo-job-client = { path = "crates/client" }
 bmo-job-plugin = { path = "crates/plugin" }
 clap = { version = "4.5.40", default-features = false, features = ["std", "derive", "env", "help", "usage", "error-context"] }
@@ -20,7 +20,7 @@ futures-util = { version = "0.3.34", default-features = false, features = ["std"
 hex = "0.4.3"
 hmac = "0.12.1"
 regex = "1.13.1"
-reqwest = { version = "0.13.5", default-features = false, features = ["json", "query"] }
+reqwest = { version = "0.13.5", features = ["json", "query", "stream"] }
 rmcp = { version = "3.5.1", default-features = false, features = ["server", "transport-io"] }
 schemars = "1.2.3"
 serde = { version = "1.0.219", features = ["derive"] }
@@ -31,7 +31,7 @@ sse-stream = "0.2.6"
 subtle = "2.6.1"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
-tokio = { version = "1.53.2", features = ["macros", "rt"] }
+tokio = { version = "1.53.3", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt", "rt-multi-thread", "signal", "sync", "test-util", "time"] }
 toml = { version = "0.8.23", default-features = false, features = ["parse"] }
 url = "2.5.8"
 
@@ -62,19 +62,19 @@ sha2.workspace = true
 sqlx.workspace = true
 subtle.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio.workspace = true
 toml.workspace = true
 url.workspace = true
 
 [dev-dependencies]
 # The request tests run the server on loopback over a scratch database, and stand a webhook receiver of their
 # own beside it; the plugin's tests drive the `bmo-job mcp` command over its pipes against that same server.
-axum = { workspace = true, features = ["http1", "tokio"] }
+axum.workspace = true
 jsonschema = { version = "0.58.6", default-features = false }
 libc = "0.2.190"
 regex.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
+tokio.workspace = true
 
 [[test]]
 name = "main"
