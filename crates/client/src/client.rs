@@ -23,8 +23,8 @@ use crate::scopes::{ScopeDeletion, ScopeHolding};
 use crate::subscriptions::{NewSubscription, Subscription, SubscriptionChange, SubscriptionQuery};
 use crate::work_orders::{Task, TaskChange, TaskQuery, WorkOrder, WorkOrderBody, WorkOrderChange};
 
-/// How long a call waits for its answer beyond the wait it asked the service for.
-const ANSWER_WITHIN: Duration = Duration::from_secs(30);
+/// How often a quiet connection to the service is probed, so a service gone is told from one still answering.
+const KEEP_ALIVE: Duration = Duration::from_secs(30);
 
 /// What a call came to short of the route's answer.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -86,7 +86,7 @@ impl JobClient {
       base.set_path(&path);
     }
     let http = reqwest::Client::builder()
-      .connect_timeout(Duration::from_secs(10))
+      .tcp_keepalive(KEEP_ALIVE)
       .build()
       .map_err(|error| ClientFailure::Unreachable(error.to_string()))?;
     Ok(Self {
@@ -107,29 +107,27 @@ impl JobClient {
     url
   }
 
-  fn request(&self, method: reqwest::Method, segments: &[&str], wait_ms: Option<i64>) -> RequestBuilder {
-    let wait = Duration::from_millis(wait_ms.unwrap_or(0).clamp(0, 60_000) as u64);
+  fn request(&self, method: reqwest::Method, segments: &[&str]) -> RequestBuilder {
     self
       .http
       .request(method, self.url(segments))
       .header(AUTHORIZATION, format!("Bearer {}", self.token))
-      .timeout(ANSWER_WITHIN + wait)
   }
 
   fn get(&self, segments: &[&str]) -> RequestBuilder {
-    self.request(reqwest::Method::GET, segments, None)
+    self.request(reqwest::Method::GET, segments)
   }
 
   fn post(&self, segments: &[&str]) -> RequestBuilder {
-    self.request(reqwest::Method::POST, segments, None)
+    self.request(reqwest::Method::POST, segments)
   }
 
   fn patch(&self, segments: &[&str]) -> RequestBuilder {
-    self.request(reqwest::Method::PATCH, segments, None)
+    self.request(reqwest::Method::PATCH, segments)
   }
 
   fn delete(&self, segments: &[&str]) -> RequestBuilder {
-    self.request(reqwest::Method::DELETE, segments, None)
+    self.request(reqwest::Method::DELETE, segments)
   }
 
   /// Readiness and version.
@@ -200,7 +198,7 @@ impl JobClient {
   /// An item's notes past a cursor, waiting for one where `waitMs` asks.
   pub async fn notes(&self, item_id: i64, query: &WaitQuery) -> Result<Page<Note>, ClientFailure> {
     let segments = ["items", &item_id.to_string(), "notes"];
-    answer(self.request(reqwest::Method::GET, &segments, query.wait_ms).query(query)).await
+    answer(self.request(reqwest::Method::GET, &segments).query(query)).await
   }
 
   /// Appends a note to an item.
@@ -235,7 +233,7 @@ impl JobClient {
     body: &WorkOrderBody,
   ) -> Result<WorkOrder, ClientFailure> {
     let segments = ["items", &item_id.to_string(), "work-order"];
-    answer(self.request(reqwest::Method::PUT, &segments, None).json(body)).await
+    answer(self.request(reqwest::Method::PUT, &segments).json(body)).await
   }
 
   /// Changes an item's work order.
@@ -285,7 +283,7 @@ impl JobClient {
 
   /// Takes a lease: the item, or `None` where nothing waits once the wait has run out.
   pub async fn take_lease(&self, ask: &LeaseAsk, wait: &LeaseWait) -> Result<Option<Lease>, ClientFailure> {
-    let request = self.request(reqwest::Method::POST, &["leases"], wait.wait_ms).query(wait).json(ask);
+    let request = self.request(reqwest::Method::POST, &["leases"]).query(wait).json(ask);
     let response = sent(request).await?;
     if response.status() == StatusCode::NO_CONTENT {
       return Ok(None);
@@ -340,7 +338,7 @@ impl JobClient {
   /// A question's replies past a cursor, waiting for one where `waitMs` asks.
   pub async fn replies(&self, question_id: i64, query: &WaitQuery) -> Result<Page<Reply>, ClientFailure> {
     let segments = ["questions", &question_id.to_string(), "replies"];
-    answer(self.request(reqwest::Method::GET, &segments, query.wait_ms).query(query)).await
+    answer(self.request(reqwest::Method::GET, &segments).query(query)).await
   }
 
   /// Replies to a question.

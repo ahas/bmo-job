@@ -79,7 +79,6 @@ pub fn shown(path: &Path) -> String {
 /// Delivery that retries at once and gives up after three failures, so no test waits on its backoff.
 pub fn quick_delivery() -> DeliveryPolicy {
   DeliveryPolicy {
-    answer_within: Duration::from_secs(5),
     first_retry: Duration::from_millis(1),
     longest_retry: Duration::from_millis(4),
     failures_to_failing: 3,

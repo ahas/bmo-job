@@ -228,31 +228,30 @@ given back, run out or ended by its item's move, is answered 410 `gone` from the
 A question is asked about an item or on its own: `id`, `itemId`, `askerName`, `scope`, `text`, `choices` (empty
 for an open question), `recommendation` (the answer the asker would take by itself, and why, or null), `state`,
 `dueAt` and `createdAt`. A reply is `id`, `questionId`, `choice`, `text`, `actorName`, `settles`, `source`
-(`person` or `recommendation`), `why` (the recommendation's reason, or null) and `createdAt`.
+and `why` and `createdAt`. Every reply is written with `source` `person` and `why` null; the type also reads
+`recommendation` with that recommendation's reason, which a reply kept in the store may carry.
 
 - **States:** `open`, `paused`, `answered`, `withdrawn`. `open` and `paused` move to each other and to
   `withdrawn` by a change; a settling reply moves `open` or `paused` to `answered`. Any other move is answered
   409 `conflict`.
-- **The wait.** `waitMs` is the wait the asker gives, from 1 000 to 86 400 000 milliseconds, and 60 000 where
-  left out. A question's `dueAt` is that far from when it was asked. Pausing a question keeps the time it had
-  left and reads `dueAt` as null; opening it again sets `dueAt` that far from then.
+- **The due time.** `waitMs` is how long the asker lets the question go unanswered before it is told of as
+  due, from 1 000 to 86 400 000 milliseconds, and 60 000 where left out. A question's `dueAt` is that far from
+  when it was asked. Pausing a question keeps the time it had left and reads `dueAt` as null; opening it again
+  sets `dueAt` that far from then. The due time paces a notice and nothing more: a question waits for its answer
+  however long that takes.
 - **The recommendation.** `recommendation` is `{answer, why}`: `answer` is one of the question's choices or a
-  free answer where the choices do not cover it, and `why` is the one line saying why that is the answer. The
+  free answer where the choices do not cover it, and `why` is the one line saying why that is the answer. It is
+  shown to whoever answers, and taken only where a person settles the question with it. The
   asker sets it only where it can make the case for that answer on the merits of the work and the rules; it is
   never the safe option by default, and it is left null where it cannot make the case. An answer and a reason
   are both required where it is given.
-- **When the wait runs out.** On an open question whose `dueAt` has passed:
-  - **with a recommendation,** the service writes a settling reply for it, its `source` `recommendation`, its
-    `why` the recommendation's reason, its `actorName` `recommendation`, and the question moves to `answered`
-    as any settling reply does; the service tells `reply.created` and `question.changed`, and the answer is
-    the one the job goes on with.
-  - **without one,** the service tells `question.due` once and the question stays open for a person.
+- **When the due time passes** on an open question, the service tells `question.due` once and the question stays
+  open for a person, with or without a recommendation. Nothing settles it but a settling reply or a withdrawal.
 - **A question's scope** is the one asked with, or the item's where it is left out.
 - **A reply settles the question** when its `settles` says so; left out, a reply settles when it carries a
   `choice` or the question has no choices, and is a word on the question otherwise. A `choice` is one of the
   question's choices or is answered 422 `not-a-choice`. A settling reply to a question already answered or
-  withdrawn is answered 409 `conflict`; a word may be added in any state. A reply a caller gives has `source`
-  `person` and no `why`; the recommendation's reply is the service's, and no caller writes one.
+  withdrawn is answered 409 `conflict`; a word may be added in any state.
 
 | Method and path | Does |
 |---|---|
@@ -279,8 +278,8 @@ with the events still to come; a page asked with none starts at the oldest the w
 | `task.changed` | A task moved, made or removed by a save (a removed task is told with its key alone) |
 | `queue.changed` | A queue paused, opened or its holds changed, by a change or by a hold running out |
 | `lease.created`, `lease.expired`, `lease.deleted` | A lease taken, run out, or given back or ended by its item's move |
-| `question.created`, `question.changed`, `question.due`, `question.deleted` | A question asked, moved, past its due time while open and carrying no recommendation, or let go with its scope |
-| `reply.created` | A reply given by a person, or by the recommendation when the wait ran out |
+| `question.created`, `question.changed`, `question.due`, `question.deleted` | A question asked, moved, past its due time while open, or let go with its scope |
+| `reply.created` | A reply given |
 | `subscription.created`, `subscription.changed`, `subscription.deleted` | A subscription made, changed, moved to `failing`, or deleted or run out |
 
 - **Narrowing:** `kinds` (comma-separated), `scope`, and `subscriptionId` for the events a subscription
@@ -306,8 +305,10 @@ A subscription is how a caller is told of changes: `id`, `holderName`, `kinds`, 
 - **Pushed to a `url`:** each matching event is posted there in event order, at least once, as the
   `subscription-event` webhook the OpenAPI document states: the event as the body, the subscription's key in
   the `Job-Subscription` header and, where a `secret` was given, `sha256=` and the lowercase hex HMAC-SHA256 of
-  the body under that secret in `Job-Signature`. A 2xx acknowledges it. Any other answer, or none within ten
-  seconds, is tried again after one second, doubling to a minute; ten failures in a row move the subscription
+  the body under that secret in `Job-Signature`. A 2xx acknowledges it. A post waits for the subscriber's answer
+  however long it takes; a connection that is refused or breaks, a subscriber gone silent under the TCP
+  keep-alive probe among them, or any other answer than a 2xx, is tried again after one second, doubling to a
+  minute; ten failures in a row move the subscription
   to `failing`, and nothing more is posted until its `state` is set back to `active`, when delivery goes on
   from the event after `deliveredEventId`. The subscriber drops an event it has seen by its `id`. A
   subscription whose next event has left the window moves to `failing` at once, since nothing can be delivered
@@ -358,10 +359,8 @@ its `scope`. Every route takes the bearer token as the others do.
 | `POST /question-talk` | Writes a line of talk on an open question and stops its clock: `id` and `say`. Answers 204 |
 | `POST /queue/moved` | Puts a `queue.moved` event into the stream, its data `detail?` where one is given. Answers 204 |
 
-- **The open questions** are the room's questions in `open` whose due time is null or has not passed, and its
-  `paused` ones, the one asked last first. A question whose due time has passed is settled on its
-  recommendation, or waits with no answer from the chat where it carries none; the port lists the ones still
-  waiting. The port reads `talks` as true: any question may be talked over, which is how far the service's own
+- **The open questions** are the room's questions in `open`, whether or not their due time has passed, and its
+  `paused` ones, the one asked last first: every question still waiting for an answer. The port reads `talks` as true: any question may be talked over, which is how far the service's own
   questions go.
 - **A talk is a reply that does not settle,** from the actor `owner`, its `source` a person, and the asker hears
   it as a `reply.created` event. Stopping the clock is the question moving to `paused` with what it had left.

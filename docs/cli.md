@@ -51,4 +51,4 @@ The reports are written first, then `PATCH /items/{itemId}` sets the item's stat
 | `--without <tools>` | Tools the server leaves out, their names comma-separated, the option given once or more; read from `BMO_JOB_MCP_WITHOUT` where it is left out. A tool left out is neither listed nor called; a name that is no tool of the plugin refuses the start |
 
 The server ends when the harness closes its input, and then gives back the leases and deletes the
-subscriptions it kept, within ten seconds.
+subscriptions it kept, waiting for the service to answer each.

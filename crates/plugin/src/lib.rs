@@ -10,8 +10,6 @@ mod openapi;
 mod server;
 mod tools;
 
-use std::time::Duration;
-
 use bmo_job_client::JobClient;
 use rmcp::ServiceExt;
 use rmcp::transport::stdio;
@@ -75,7 +73,7 @@ pub async fn serve_stdio(start: Start) -> Result<(), String> {
     Err(error) => Err(format!("the MCP session did not start: {error}")),
   };
   renewing.abort();
-  // What the server kept is let go within a bound, so a service that no longer answers does not hold the exit.
-  let _ = tokio::time::timeout(Duration::from_secs(10), harness.let_go()).await;
+  // What the server kept is let go before it exits; the release waits for the service's answer.
+  harness.let_go().await;
   ended
 }

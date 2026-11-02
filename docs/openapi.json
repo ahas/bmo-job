@@ -715,7 +715,7 @@
             "type": "string"
           },
           "waitMs": {
-            "description": "The wait before the due time, 1 000 to 86 400 000 milliseconds; 60 000 where left out.",
+            "description": "How long the question goes unanswered before it is told of as due, 1 000 to 86 400 000 milliseconds;\n60 000 where left out. It paces that notice alone: the question waits for its answer.",
             "format": "int64",
             "type": [
               "integer",
@@ -1153,7 +1153,7 @@
         "description": "A reply to a question.",
         "properties": {
           "actorName": {
-            "description": "The caller's name, or `recommendation` where the recommendation gave it.",
+            "description": "The caller's name.",
             "type": "string"
           },
           "choice": {
@@ -1181,13 +1181,13 @@
           },
           "source": {
             "$ref": "#/components/schemas/ReplySource",
-            "description": "Who gave it: a person, or the recommendation when the wait ran out."
+            "description": "Who gave it: a person for every reply written; a reply kept in the store may read `recommendation`."
           },
           "text": {
             "type": "string"
           },
           "why": {
-            "description": "The recommendation's reason where the recommendation gave it; null for a person's reply.",
+            "description": "The recommendation's reason on a reply whose source is the recommendation; null for a person's reply.",
             "type": [
               "string",
               "null"
@@ -4519,7 +4519,7 @@
             "type": "string"
           },
           "waitMs": {
-            "description": "The wait before the due time, 1 000 to 86 400 000 milliseconds; 60 000 where left out.",
+            "description": "How long the question goes unanswered before it is told of as due, 1 000 to 86 400 000 milliseconds;\n60 000 where left out. It paces that notice alone: the question waits for its answer.",
             "format": "int64",
             "type": [
               "integer",

@@ -17,8 +17,9 @@ bmo-testbed's. This document states what the declaration says of this service.
   data root is the one `[deploy] data_root` names.
 - **The service runs as one user unit,** `deploy/bmo-job.service`, linked from the deploy tree: the release
   binary run as `bmo-job serve` in the release (docs/cli.md). It carries the `bot` mark, so it is the
-  repository's one service, stopped, restarted and watched staying up by every deployment, and it does not
-  start where the data root holds no settings.
+  repository's one service, stopped, restarted and watched by every deployment, and it
+  does not start where the data root holds no settings. A stop waits for it to end: on `SIGTERM` it ends
+  its event streams, answers the requests it holds, and exits.
 - **The MCP server is no unit.** A harness starts `bmo-job mcp` itself, from a release's `bin/`, for as long as
   its session lasts.
 

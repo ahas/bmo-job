@@ -10,11 +10,9 @@ use tokio::task::JoinHandle;
 
 use crate::store::{Delivery, EventFilter, Store};
 
-/// How delivery waits and when it gives up.
+/// How delivery paces its retries and when it counts a subscription failing.
 #[derive(Debug, Clone)]
 pub struct DeliveryPolicy {
-  /// How long a post waits for its answer.
-  pub answer_within: Duration,
   /// The wait before the first retry, doubled after each failure.
   pub first_retry: Duration,
   /// The longest wait between retries.
@@ -26,7 +24,6 @@ pub struct DeliveryPolicy {
 impl Default for DeliveryPolicy {
   fn default() -> Self {
     Self {
-      answer_within: Duration::from_secs(10),
       first_retry: Duration::from_secs(1),
       longest_retry: Duration::from_secs(60),
       failures_to_failing: 10,
@@ -40,10 +37,13 @@ const DELIVERY_BATCH: i64 = 50;
 /// How often the deliverer looks again for subscriptions to deliver where nothing changed.
 const LOOK_AGAIN: Duration = Duration::from_secs(1);
 
+/// How often a quiet connection to a subscriber is probed, so a subscriber gone is told from one still answering.
+const KEEP_ALIVE: Duration = Duration::from_secs(30);
+
 /// Keeps one delivery running for each active subscription with a url, until the service stops.
 pub async fn deliver(store: Store, policy: DeliveryPolicy) {
   let http = reqwest::Client::builder()
-    .timeout(policy.answer_within)
+    .tcp_keepalive(KEEP_ALIVE)
     .build()
     .expect("an HTTP client builds");
   let mut running: HashMap<i64, JoinHandle<()>> = HashMap::new();

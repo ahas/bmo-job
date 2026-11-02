@@ -21,9 +21,6 @@ const DEFAULT_ASK_WAIT_MS: i64 = 60_000;
 const LEAST_ASK_WAIT_MS: i64 = 1_000;
 const LONGEST_ASK_WAIT_MS: i64 = 86_400_000;
 
-/// Who the recommendation's reply is written as.
-const RECOMMENDATION: &str = "recommendation";
-
 /// A question as it is kept: the member, and the time its clock had left when it was paused.
 struct Kept {
   question: Question,
@@ -122,8 +119,8 @@ pub(crate) async fn delete_question(tx: &mut Tx, id: i64, now: i64) -> Result<()
   Ok(())
 }
 
-/// Settles each open question whose due time has passed by `now` on its recommendation, or tells it once
-/// where it carries none.
+/// Tells once of each open question whose due time has passed by `now`; the question stays open for a person,
+/// its recommendation unanswered until someone takes it.
 pub(crate) async fn tell_due_questions(tx: &mut Tx, now: i64) -> Result<usize, Refusal> {
   let rows = sqlx::query(&format!(
     "SELECT {QUESTION_COLUMNS} FROM questions WHERE state = 'open' AND due_told = 0 AND due_at IS NOT NULL \
@@ -133,32 +130,9 @@ pub(crate) async fn tell_due_questions(tx: &mut Tx, now: i64) -> Result<usize, R
   .fetch_all(&mut **tx)
   .await?;
   for row in &rows {
-    let mut kept = kept_from(row)?;
-    match kept.question.recommendation.clone() {
-      Some(recommendation) => {
-        let choice = kept
-          .question
-          .choices
-          .contains(&recommendation.answer)
-          .then(|| recommendation.answer.clone());
-        write_reply(
-          tx,
-          &mut kept,
-          choice,
-          recommendation.answer,
-          RECOMMENDATION.to_owned(),
-          true,
-          ReplySource::Recommendation,
-          Some(recommendation.why),
-          now,
-        )
-        .await?;
-      }
-      None => {
-        save_question(tx, &kept, true).await?;
-        told_question(tx, now, EventKind::QuestionDue, &kept.question).await?;
-      }
-    }
+    let kept = kept_from(row)?;
+    save_question(tx, &kept, true).await?;
+    told_question(tx, now, EventKind::QuestionDue, &kept.question).await?;
   }
   Ok(rows.len())
 }
@@ -203,18 +177,16 @@ impl Store {
     Ok(count)
   }
 
-  /// The questions under `scope` still waiting at `now`, the one asked last first: those open with no due
-  /// time or one not yet passed, and those paused.
-  pub async fn open_questions_in(&self, scope: &str, now: i64) -> Result<Vec<Question>, Refusal> {
+  /// The questions under `scope` still waiting, the one asked last first: those open, whether or not their due
+  /// time has passed, and those paused.
+  pub async fn open_questions_in(&self, scope: &str) -> Result<Vec<Question>, Refusal> {
     let mut tx = self.begin().await?;
     let rows = sqlx::query(&format!(
-      "SELECT {QUESTION_COLUMNS} FROM questions WHERE scope = $1 \
-       AND (state = $2 OR (state = $3 AND (due_at IS NULL OR due_at > $4))) ORDER BY id DESC"
+      "SELECT {QUESTION_COLUMNS} FROM questions WHERE scope = $1 AND state IN ($2, $3) ORDER BY id DESC"
     ))
     .bind(scope)
     .bind(QuestionState::Paused.as_str())
     .bind(QuestionState::Open.as_str())
-    .bind(now)
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;

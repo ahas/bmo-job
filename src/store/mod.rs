@@ -42,6 +42,11 @@ const MOST_LIMIT: i64 = 500;
 /// The longest a caller may ask an answer to be held open.
 pub const MOST_WAIT_MS: i64 = 60_000;
 
+/// How long a change waits for the database: for the one connection, and for a lock another process holds. The
+/// library takes a span, never "until it comes", and SQLite's busy handler counts it in an `int` of milliseconds,
+/// so this is the longest the library can be told: a change waits for the holder to let go.
+const LOCK_WAIT: Duration = Duration::from_millis(i32::MAX as u64);
+
 /// The database, the clock it is written by, and the signal of each committed change.
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -56,9 +61,13 @@ impl Store {
     let options = SqliteConnectOptions::from_str(url)?
       .create_if_missing(true)
       .journal_mode(SqliteJournalMode::Wal)
-      .busy_timeout(Duration::from_secs(10));
+      .busy_timeout(LOCK_WAIT);
     // One connection: every change runs alone, so a lease raced for by several holders goes to one.
-    let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await?;
+    let pool = SqlitePoolOptions::new()
+      .max_connections(1)
+      .acquire_timeout(LOCK_WAIT)
+      .connect_with(options)
+      .await?;
     let version: i64 = sqlx::query_scalar("PRAGMA user_version").fetch_one(&pool).await?;
     if version == 0 || version == 1 {
       let mut tx = pool.begin().await?;

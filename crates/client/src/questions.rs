@@ -67,7 +67,8 @@ pub struct NewQuestion {
   /// The answer the asker would take by itself, and why; left out where it cannot make the case.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub recommendation: Option<QuestionRecommendation>,
-  /// The wait before the due time, 1 000 to 86 400 000 milliseconds; 60 000 where left out.
+  /// How long the question goes unanswered before it is told of as due, 1 000 to 86 400 000 milliseconds;
+  /// 60 000 where left out. It paces that notice alone: the question waits for its answer.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub wait_ms: Option<i64>,
 }
@@ -106,13 +107,13 @@ pub struct Reply {
   pub question_id: i64,
   pub choice: Option<String>,
   pub text: String,
-  /// The caller's name, or `recommendation` where the recommendation gave it.
+  /// The caller's name.
   pub actor_name: String,
   /// Whether the reply settled the question, or is a word on it.
   pub settles: bool,
-  /// Who gave it: a person, or the recommendation when the wait ran out.
+  /// Who gave it: a person for every reply written; a reply kept in the store may read `recommendation`.
   pub source: ReplySource,
-  /// The recommendation's reason where the recommendation gave it; null for a person's reply.
+  /// The recommendation's reason on a reply whose source is the recommendation; null for a person's reply.
   pub why: Option<String>,
   /// Epoch milliseconds.
   pub created_at: i64,

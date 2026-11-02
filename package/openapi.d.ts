@@ -657,7 +657,8 @@ export interface components {
             text: string;
             /**
              * Format: int64
-             * @description The wait before the due time, 1 000 to 86 400 000 milliseconds; 60 000 where left out.
+             * @description How long the question goes unanswered before it is told of as due, 1 000 to 86 400 000 milliseconds;
+             *     60 000 where left out. It paces that notice alone: the question waits for its answer.
              */
             waitMs?: number | null;
         };
@@ -813,7 +814,7 @@ export interface components {
         QueueState: "open" | "paused";
         /** @description A reply to a question. */
         Reply: {
-            /** @description The caller's name, or `recommendation` where the recommendation gave it. */
+            /** @description The caller's name. */
             actorName: string;
             choice: string | null;
             /**
@@ -827,10 +828,10 @@ export interface components {
             questionId: number;
             /** @description Whether the reply settled the question, or is a word on it. */
             settles: boolean;
-            /** @description Who gave it: a person, or the recommendation when the wait ran out. */
+            /** @description Who gave it: a person for every reply written; a reply kept in the store may read `recommendation`. */
             source: components["schemas"]["ReplySource"];
             text: string;
-            /** @description The recommendation's reason where the recommendation gave it; null for a person's reply. */
+            /** @description The recommendation's reason on a reply whose source is the recommendation; null for a person's reply. */
             why: string | null;
         };
         /** @description One page of a list, and whether anything stands past its last member. */

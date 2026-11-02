@@ -107,7 +107,7 @@ pub(super) async fn open_questions(
   State(app): State<App>,
   InQuery(query): InQuery<ChatQuery>,
 ) -> Result<Response, PortError> {
-  let open = app.store.open_questions_in(&query.chat.to_string(), app.store.now()).await?;
+  let open = app.store.open_questions_in(&query.chat.to_string()).await?;
   let questions: Vec<OpenQuestion> = open
     .into_iter()
     .map(|question| {

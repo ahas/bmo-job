@@ -194,10 +194,11 @@ async fn a_rooms_open_questions_are_read_last_asked_first() {
     open,
     json!([
       { "id": suggested.id, "options": ["a", "b"], "recommendation": "b", "why": "It keeps the old name.", "talks": true },
+      { "id": past.id, "options": ["x", "y"], "recommendation": null, "why": null, "talks": true },
       { "id": paused.id, "options": ["a", "b"], "recommendation": null, "why": null, "talks": true },
       { "id": first.id, "options": ["strict", "loose"], "recommendation": null, "why": null, "talks": true },
     ]),
-    "the passed question {past:?} and the answered one take no answer"
+    "a question past its due time still waits, and the answered one takes no answer"
   );
 }
 

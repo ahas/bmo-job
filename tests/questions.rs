@@ -226,7 +226,7 @@ async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_another() {
 }
 
 #[tokio::test]
-async fn a_due_question_with_a_recommendation_is_answered_by_it() {
+async fn a_due_question_with_a_recommendation_stays_open_for_a_person_and_tells_once() {
   let service = Service::start().await;
   let client = service.client();
   let question = client
@@ -246,21 +246,27 @@ async fn a_due_question_with_a_recommendation_is_answered_by_it() {
   assert_eq!(question.recommendation.as_ref().map(|one| one.answer.as_str()), Some("strict"));
 
   service.pass(1_000).await;
-  assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Answered);
-  let replies = client.replies(question.id, &WaitQuery::default()).await.expect("replies");
-  assert_eq!(replies.items.len(), 1);
-  let answer = &replies.items[0];
-  assert_eq!((answer.choice.as_deref(), answer.text.as_str()), (Some("strict"), "strict"));
-  assert_eq!(answer.actor_name, "recommendation");
-  assert!(answer.settles);
-  assert_eq!(answer.source, ReplySource::Recommendation);
-  assert_eq!(answer.why.as_deref(), Some("A loose grammar reads a stray token as a rule."));
-
+  assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Open);
+  assert!(
+    client
+      .replies(question.id, &WaitQuery::default())
+      .await
+      .expect("replies")
+      .items
+      .is_empty()
+  );
   let due = EventQuery {
     kinds: Some("question.due".into()),
     ..EventQuery::default()
   };
-  assert!(client.events_page(&due).await.expect("events").items.is_empty());
+  assert_eq!(client.events_page(&due).await.expect("events").items.len(), 1);
+
+  let answer = client
+    .reply(question.id, &reply(Some("strict"), "strict, as recommended"))
+    .await
+    .expect("answered");
+  assert_eq!((answer.source, answer.why.as_deref()), (ReplySource::Person, None));
+  assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Answered);
 }
 
 #[tokio::test]
@@ -328,34 +334,6 @@ async fn a_persons_reply_before_the_due_time_wins() {
   assert_eq!(replies.items.len(), 1);
   assert_eq!(replies.items[0].source, ReplySource::Person);
   assert_eq!(replies.items[0].choice.as_deref(), Some("loose"));
-}
-
-#[tokio::test]
-async fn a_recommendation_outside_the_choices_answers_with_its_own_words() {
-  let service = Service::start().await;
-  let client = service.client();
-  let question = client
-    .ask(&NewQuestion {
-      asker_name: "builder".into(),
-      text: "Which grammar?".into(),
-      choices: vec!["strict".into(), "loose".into()],
-      recommendation: Some(QuestionRecommendation {
-        answer: "neither: a third grammar".into(),
-        why: "Both refuse a token the format allows.".into(),
-      }),
-      wait_ms: Some(1_000),
-      ..NewQuestion::default()
-    })
-    .await
-    .expect("asked");
-
-  service.pass(1_000).await;
-  let replies = client.replies(question.id, &WaitQuery::default()).await.expect("replies");
-  let answer = &replies.items[0];
-  assert_eq!(answer.choice, None);
-  assert_eq!(answer.text, "neither: a third grammar");
-  assert_eq!(answer.source, ReplySource::Recommendation);
-  assert_eq!(answer.why.as_deref(), Some("Both refuse a token the format allows."));
 }
 
 #[tokio::test]

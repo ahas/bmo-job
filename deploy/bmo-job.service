@@ -13,7 +13,7 @@ WorkingDirectory=%h/.local/share/bmo-job/deploy
 ExecStart=%h/.local/share/bmo-job/deploy/bin/bmo-job serve
 Restart=always
 RestartSec=2
-TimeoutStopSec=30
+TimeoutStopSec=infinity
 
 [Install]
 WantedBy=default.target
