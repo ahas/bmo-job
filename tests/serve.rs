@@ -2,7 +2,7 @@
 //! the tokens, records an approval as its caller's and of the kind the settings give that caller, and stops on a
 //! termination signal even with a stream open (docs/settings.md, docs/cli.md).
 
-mod support;
+use crate::support;
 
 use std::path::Path;
 use std::process::Stdio;

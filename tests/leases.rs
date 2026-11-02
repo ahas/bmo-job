@@ -1,7 +1,7 @@
 //! Leases through the real server: the next item or the one named, raced for, held to their queue's state,
 //! renewed, given back and run out (docs/api.md, "Leases").
 
-mod support;
+use crate::support;
 
 use bmo_job_client::{
   Hold, ItemChange, ItemState, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait, NewItem, QueueChange,

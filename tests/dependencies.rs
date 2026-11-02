@@ -1,6 +1,6 @@
 //! Dependencies: no path out of the repository, and no other unit's crate but the base libraries.
 
-mod support;
+use crate::support;
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};

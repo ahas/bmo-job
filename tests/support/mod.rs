@@ -2,9 +2,6 @@
 //! the service run in process on loopback over a scratch database, its clock moved by hand, taking the shared
 //! token and the tokens of two callers, one of them an approver.
 
-// Each test file is its own crate and uses only part of this module.
-#![allow(dead_code)]
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;

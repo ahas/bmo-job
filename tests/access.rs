@@ -1,7 +1,7 @@
 //! Access and the error shape: the token on every route, a route that is not served, and a request not of a
 //! route's shape (docs/api.md, "Access").
 
-mod support;
+use crate::support;
 
 use bmo_job_client::{ErrorBody, Health, JobClient};
 

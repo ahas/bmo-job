@@ -1,6 +1,6 @@
 //! No Hangul in code or tests: the service answers in English and in status codes.
 
-mod support;
+use crate::support;
 
 use std::fs;
 use std::path::Path;

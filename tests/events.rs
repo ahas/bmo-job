@@ -1,7 +1,7 @@
 //! The event stream through the real server: narrowed by kind and scope, published by the service's own
 //! process, and kept for its window (docs/api.md, "Events").
 
-mod support;
+use crate::support;
 
 use bmo_job::store::EVENT_WINDOW_MS;
 use bmo_job_client::{EventQuery, NewEvent, NewItem};

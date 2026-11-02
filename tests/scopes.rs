@@ -1,6 +1,6 @@
 //! What the service holds under a caller's scope, counted and let go (docs/api.md, "Scopes").
 
-mod support;
+use crate::support;
 
 use bmo_job_client::{
   EventQuery, LeaseAsk, LeaseWait, NewItem, NewNote, NewQuestion, NewSubscription, ScopeCounts,

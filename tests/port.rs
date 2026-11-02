@@ -1,7 +1,7 @@
 //! The bmo-receiver port through the real server: a room's holdings, its open questions and items, and the
 //! owner's answer or talk on a question (docs/api.md, "The bmo-receiver port").
 
-mod support;
+use crate::support;
 
 use bmo_job_client::{
   ApprovalGiven, EventQuery, Item, ItemChange, ItemState, JobClient, NewItem, NewQuestion, NewReply,

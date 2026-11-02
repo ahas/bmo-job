@@ -4,7 +4,7 @@
 //! "The harness plugin"). An approval it gives is its token's caller's and carries no name the harness typed.
 //! The command runs as its own process, spoken to over its pipes, and is taken down before each test ends.
 
-mod support;
+use crate::support;
 
 use std::collections::HashMap;
 use std::process::Stdio;

@@ -1,7 +1,7 @@
 //! Subscriptions through the real server: read as a stream, posted to a webhook and signed, moved to failing
 //! and resumed, and run out (docs/api.md, "Subscriptions").
 
-mod support;
+use crate::support;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

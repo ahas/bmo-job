@@ -1,7 +1,7 @@
 //! Items through the real server: raised as drafts, opened by an approval, moved by the moves allowed, and
 //! listed in queue order (docs/api.md, "Items").
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 

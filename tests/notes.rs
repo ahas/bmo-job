@@ -1,6 +1,6 @@
 //! Notes and reports on an item through the real server (docs/api.md, "Notes" and "Reports").
 
-mod support;
+use crate::support;
 
 use bmo_job_client::{NewNote, NewReport, PageQuery, ReportKind, WaitQuery};
 

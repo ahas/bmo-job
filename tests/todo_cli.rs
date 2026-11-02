@@ -1,7 +1,7 @@
 //! `bmo-job todo --done` from a shell (docs/cli.md): the closing goes through the service's own report and
 //! item routes, keeping the run's account and what it could not reach on the item, and closing it.
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 

@@ -2,7 +2,7 @@
 //! directory, email address, telephone number, credential, private network address and no name of the machine the
 //! check runs on. The check names nobody itself: the machine's name is read where it stands.
 
-mod support;
+use crate::support;
 
 use std::fs;
 use std::path::Path;

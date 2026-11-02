@@ -1,7 +1,7 @@
 //! The repository's layout: only Cargo manifests at the root, no directory named after its parent, and
 //! one version.
 
-mod support;
+use crate::support;
 
 use std::fs;
 use std::path::Path;

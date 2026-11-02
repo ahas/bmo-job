@@ -1,6 +1,6 @@
 //! Work orders and the tasks their steps make, through the real server (docs/api.md, "Work orders and tasks").
 
-mod support;
+use crate::support;
 
 use bmo_job_client::{TaskChange, TaskQuery, TaskState, WorkOrderBody, WorkOrderChange, WorkOrderState};
 

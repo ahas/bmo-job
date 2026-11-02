@@ -1,6 +1,6 @@
 //! Questions, their clocks and their replies, through the real server (docs/api.md, "Questions and replies").
 
-mod support;
+use crate::support;
 
 use bmo_job_client::{
   EventQuery, NewItem, NewQuestion, NewReply, QuestionQuery, QuestionRecommendation, QuestionState,

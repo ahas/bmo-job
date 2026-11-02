@@ -1,7 +1,7 @@
 //! The contract: the committed OpenAPI document is what the code generates, its tools are the draft's, every
 //! route it states is served, and it names nothing of the units that call it (docs/api.md).
 
-mod support;
+use crate::support;
 
 use std::fs;
 use std::path::Path;

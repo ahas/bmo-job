@@ -10,7 +10,7 @@ languages = ["cargo", "bun"]
 setup = ["bun install --frozen-lockfile --cwd package"]
 
 [check]
-quick = ["layout", "dependencies"]
+quick = ["layout", "dependencies", "cargo-profile"]
 base_libraries = ["bmo-chat", "bmo-chat-client", "bmo-ui"]
 
 # The service's binary, which serves the API, starts the MCP server and prints the OpenAPI document, goes into
