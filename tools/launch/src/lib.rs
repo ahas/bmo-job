@@ -7,7 +7,10 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use tool_call::{Answer, Handed, call_back, entry_name, queue_name, read_handed, result_failed, result_structured, result_text, shortened, turn_agent, turn_room, write_answer};
+use tool_call::{
+  Answer, Handed, call_back, entry_name, queue_name, read_handed, result_failed, result_structured,
+  result_text, shortened, turn_agent, turn_room, write_answer,
+};
 
 /// The entries this executable answers, as its manifest declares them.
 pub const ENTRIES: [&str; 2] = ["task", "search"];
@@ -89,7 +92,12 @@ pub fn options_of(args: &SearchArgs) -> Option<String> {
     ("demand", args.demand.as_deref()),
   ]
   .into_iter()
-  .filter_map(|(name, value)| value.map(str::trim).filter(|value| !value.is_empty()).map(|value| format!("{name}: {value}")))
+  .filter_map(|(name, value)| {
+    value
+      .map(str::trim)
+      .filter(|value| !value.is_empty())
+      .map(|value| format!("{name}: {value}"))
+  })
   .collect();
 
   if parts.is_empty() { None } else { Some(parts.join("; ")) }

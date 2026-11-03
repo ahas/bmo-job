@@ -169,7 +169,10 @@ pub fn env_file(path: &Path) -> BTreeMap<String, String> {
 
 /// The text a token file holds, trimmed, or none where it does not stand.
 pub fn token_file(path: &Path) -> Option<String> {
-  std::fs::read_to_string(path).ok().map(|text| text.trim().to_owned()).filter(|text| !text.is_empty())
+  std::fs::read_to_string(path)
+    .ok()
+    .map(|text| text.trim().to_owned())
+    .filter(|text| !text.is_empty())
 }
 
 /// The data root: the record's, else this process's, else the deployment's conventional one under the home the
@@ -235,12 +238,18 @@ pub fn job_service(session: &Session) -> Result<Service, String> {
     .ok()
     .and_then(|text| text.parse().ok())
     .unwrap_or_default();
-  let listen = settings.get("server").and_then(|server| server.get("listen")).and_then(toml::Value::as_str);
+  let listen = settings
+    .get("server")
+    .and_then(|server| server.get("listen"))
+    .and_then(toml::Value::as_str);
   let url = std::env::var("BMO_JOB_URL")
     .ok()
     .filter(|url| !url.is_empty())
     .or_else(|| listen.map(address))
-    .ok_or_else(|| "the job service's address is set nowhere: no BMO_JOB_URL and no server.listen in env/bmo-job.toml".to_owned())?;
+    .ok_or_else(|| {
+      "the job service's address is set nowhere: no BMO_JOB_URL and no server.listen in env/bmo-job.toml"
+        .to_owned()
+    })?;
   let token = std::env::var("BMO_JOB_TOKEN")
     .ok()
     .filter(|token| !token.is_empty())
@@ -255,14 +264,11 @@ pub fn job_service(session: &Session) -> Result<Service, String> {
 pub fn agency_service(session: &Session) -> Result<Service, String> {
   let root = data_root(session);
   let file = env_file(&root.join("env/agency.env"));
-  let url = variable("BMO_AGENCY_URL", &file).or_else(|| {
-    variable("AGENCY_CONTROL_PORT", &file).map(|port| address(&format!("127.0.0.1:{port}")))
-  });
+  let url = variable("BMO_AGENCY_URL", &file)
+    .or_else(|| variable("AGENCY_CONTROL_PORT", &file).map(|port| address(&format!("127.0.0.1:{port}"))));
   let url = url.ok_or_else(|| "the agency's address is set nowhere".to_owned())?;
   let token = variable("AGENCY_CONTROL_TOKEN", &file)
-    .or_else(|| {
-      variable("AGENCY_CONTROL_TOKEN_FILE", &file).and_then(|path| token_file(Path::new(&path)))
-    })
+    .or_else(|| variable("AGENCY_CONTROL_TOKEN_FILE", &file).and_then(|path| token_file(Path::new(&path))))
     .ok_or_else(|| "the agency's token is set nowhere".to_owned())?;
 
   Ok(Service { url, token })
@@ -282,9 +288,7 @@ pub fn receiver_service(session: &Session) -> Result<Service, String> {
     .ok()
     .filter(|token| !token.is_empty())
     .or_else(|| variable("RECEIVER_TOKEN", &file))
-    .or_else(|| {
-      variable("BMO_RECEIVER_TOKEN_FILE", &agency).and_then(|path| token_file(Path::new(&path)))
-    })
+    .or_else(|| variable("BMO_RECEIVER_TOKEN_FILE", &agency).and_then(|path| token_file(Path::new(&path))))
     .or_else(|| token_file(&root.join("env/receiver.token")))
     .ok_or_else(|| "the receiver's token is set nowhere".to_owned())?;
 
@@ -330,7 +334,10 @@ pub async fn get(service: &Service, path: &str, query: &[(&str, String)]) -> Res
     request = request.query(&[(key, value)]);
   }
 
-  let response = request.send().await.map_err(|why| format!("{} could not be reached: {why}", service.url))?;
+  let response = request
+    .send()
+    .await
+    .map_err(|why| format!("{} could not be reached: {why}", service.url))?;
 
   answered(response).await
 }

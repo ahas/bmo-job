@@ -66,7 +66,8 @@ fn a_job_read_whole_carries_its_report() {
 
 #[test]
 fn a_message_reads_as_one_line() {
-  let message = json!({ "id": 5, "senderName": "a person", "sentAt": 1700000000000_i64, "text": "hello\nthere" });
+  let message =
+    json!({ "id": 5, "senderName": "a person", "sentAt": 1700000000000_i64, "text": "hello\nthere" });
 
   assert_eq!(message_line(&message), "#5 a person 1700000000000: hello there");
 }

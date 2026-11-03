@@ -52,7 +52,13 @@ fn the_default_reading_asks_for_what_is_open() {
 #[test]
 fn each_filter_asks_for_its_own_state() {
   let list = |all, pending, held, merged| {
-    states(&ListArgs { all, pending, held, merged, chat: None })
+    states(&ListArgs {
+      all,
+      pending,
+      held,
+      merged,
+      chat: None,
+    })
   };
 
   assert_eq!(list(None, Some(true), None, None).as_deref(), Some("draft"));

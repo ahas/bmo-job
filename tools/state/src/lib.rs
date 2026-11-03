@@ -49,7 +49,11 @@ pub struct ScanArgs {
 }
 
 fn text(value: &Value, key: &str) -> Option<String> {
-  value.get(key).and_then(Value::as_str).map(str::to_owned).filter(|text| !text.is_empty())
+  value
+    .get(key)
+    .and_then(Value::as_str)
+    .map(str::to_owned)
+    .filter(|text| !text.is_empty())
 }
 
 fn number(value: &Value, key: &str) -> Option<i64> {
@@ -191,11 +195,7 @@ async fn work_order(handed: &Handed) -> Answer {
     &[("limit", "500".to_owned())],
   )
   .await;
-  let mut lines = vec![format!(
-    "item #{} — {}",
-    args.item,
-    text(&order, "state").unwrap_or_default()
-  )];
+  let mut lines = vec![format!("item #{} — {}", args.item, text(&order, "state").unwrap_or_default())];
 
   if let Some(purpose) = text(&order, "purpose") {
     lines.push(format!("purpose: {purpose}"));
@@ -228,7 +228,13 @@ async fn archive_scan(handed: &Handed) -> Answer {
     Ok(args) => args,
     Err(why) => return Answer::refusal(format!("archive_scan: {why}")),
   };
-  let chat = match room(&RunsArgs { chat: args.chat, ..Default::default() }, handed) {
+  let chat = match room(
+    &RunsArgs {
+      chat: args.chat,
+      ..Default::default()
+    },
+    handed,
+  ) {
     Ok(chat) => chat,
     Err(refused) => return refused,
   };

@@ -7,8 +7,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use tool_call::{
-  Answer, Handed, Service, entry_name, job_service, queue_name, read_handed, turn_agent,
-  turn_room, write_answer,
+  Answer, Handed, Service, entry_name, job_service, queue_name, read_handed, turn_agent, turn_room,
+  write_answer,
 };
 
 /// The entries this executable answers, as its manifest declares them.
@@ -132,11 +132,11 @@ pub async fn resolve(service: &Service, said: &str) -> Result<Value, String> {
     return tool_call::get(service, &format!("/items/{id}"), &[]).await;
   }
 
-  let found = tool_call::get(service, "/items", &[("q", trimmed.to_owned()), ("limit", "50".to_owned())]).await?;
+  let found =
+    tool_call::get(service, "/items", &[("q", trimmed.to_owned()), ("limit", "50".to_owned())]).await?;
   let items = found.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
-  let unfinished = |item: &&Value| {
-    !matches!(text(item, "state").as_deref(), Some("done" | "dropped" | "merged"))
-  };
+  let unfinished =
+    |item: &&Value| !matches!(text(item, "state").as_deref(), Some("done" | "dropped" | "merged"));
 
   items
     .iter()
@@ -147,7 +147,13 @@ pub async fn resolve(service: &Service, said: &str) -> Result<Value, String> {
 }
 
 fn joined(parts: &[Option<String>]) -> String {
-  parts.iter().flatten().map(|part| part.trim()).filter(|part| !part.is_empty()).collect::<Vec<_>>().join("\n\n")
+  parts
+    .iter()
+    .flatten()
+    .map(|part| part.trim())
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n\n")
 }
 
 /// The two readings, the filing, the words added and the approval.
@@ -247,7 +253,8 @@ async fn show(service: &Service, arguments: &Value) -> Answer {
     }
   }
 
-  let reports = tool_call::get(service, &format!("/items/{id}/reports"), &[("limit", MOST.to_owned())]).await;
+  let reports =
+    tool_call::get(service, &format!("/items/{id}/reports"), &[("limit", MOST.to_owned())]).await;
   if let Ok(page) = reports
     && let Some(items) = page.get("items").and_then(Value::as_array)
     && !items.is_empty()
@@ -309,7 +316,10 @@ async fn append(service: &Service, arguments: &Value, handed: &Handed) -> Answer
     Err(why) => return Answer::refusal(why),
   };
   let id = item.get("id").and_then(Value::as_i64).unwrap_or(0);
-  let actor = args.by.or_else(|| turn_agent(&handed.session)).unwrap_or_else(|| "agent-session".to_owned());
+  let actor = args
+    .by
+    .or_else(|| turn_agent(&handed.session))
+    .unwrap_or_else(|| "agent-session".to_owned());
   let body = json!({ "text": args.text, "actorName": actor });
 
   match tool_call::post(service, &format!("/items/{id}/notes"), &body).await {
@@ -376,4 +386,3 @@ pub async fn run() -> std::process::ExitCode {
 
   write_answer(&answer(&handed).await)
 }
-
