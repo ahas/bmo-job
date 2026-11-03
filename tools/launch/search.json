@@ -1,0 +1,60 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "type": ["string", "null"],
+      "description": "What to find out."
+    },
+    "import": {
+      "type": ["string", "null"],
+      "description": "A page to bring in whole instead of a question."
+    },
+    "depth": {
+      "type": ["string", "null"],
+      "enum": ["basic", "thorough", "exhaustive", null],
+      "description": "How hard to look."
+    },
+    "demand": {
+      "type": ["string", "null"],
+      "enum": ["explicit", "optional", null],
+      "description": "Whether the person insisted on the depth."
+    },
+    "period": {
+      "type": ["string", "null"],
+      "description": "The span it looks in."
+    },
+    "region": {
+      "type": ["string", "null"],
+      "description": "The region it looks in."
+    },
+    "shape": {
+      "type": ["string", "null"],
+      "description": "The shape of the answer."
+    },
+    "exclude": {
+      "type": ["string", "null"],
+      "description": "Sources to leave out."
+    },
+    "mode": {
+      "type": ["string", "null"],
+      "enum": ["sync", "async", null],
+      "description": "Accepted and ignored: a research's result comes back to the room when it ends."
+    },
+    "into": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "An earlier search of this room it carries on. Accepted and ignored."
+    },
+    "message": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "The message the search answers. Accepted and ignored."
+    },
+    "chat": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "The room, by chat id, where it is not this turn's own."
+    }
+  }
+}

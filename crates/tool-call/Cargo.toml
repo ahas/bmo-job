@@ -1,0 +1,17 @@
+[package]
+name = "tool-call"
+description = "The tool host's call protocol, and the service access the job service's tools share."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

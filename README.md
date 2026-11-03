@@ -15,6 +15,7 @@ through the `bmo-job` plugin: the MCP server `bmo-job mcp` and its skill.
 | `crates/` | `client`, the crate `bmo-job-client`: the contract in Rust, every body as a type, every route as a call, the event stream, the webhook's signature and the OpenAPI document generated from those types; and `plugin`, the crate `bmo-job-plugin`: the harness plugin, the MCP server and its tools over the client, the whole OpenAPI document with the tools, and the `bmo-job` skill under `skills/` |
 | `package/` | The TypeScript package `bmo-job-client`, packed for a downstream checkout: types generated from `docs/openapi.json` and a client over them |
 | `deploy/` | The service's user unit, which runs `bmo-job serve` out of the deploy tree (docs/deploy.md) |
+| `tools/` | The service's tools for the tool host: `todo`, `state` and `launch`, each a manifest, an executable and its schemas (docs/tools.md) |
 | `tests/` | The root package's tests: the repository checks, the contract's checks, every route through the real server, and the binary as a unit and a harness run it |
 | `docs/` | The canonical statements of what the service does, and `openapi.json`, the contract as the code generates it |
 | `.graph/` | The code dependency graph: the repository's settings, one node per feature with its files and the features it needs, and a boundary node for each API the service exposes. Its area files are generated in the checkout and untracked, so a fresh checkout builds them again, while `settings.toml` is the repository's configuration and stays tracked |
@@ -29,6 +30,7 @@ this repository is tested, checked, built and deployed, docs/deploy.md), `rustfm
 |---|---|
 | `docs/api.md` | The API: every resource, its states and moves, its routes, the events, subscriptions and webhook delivery, the client and the harness plugin |
 | `docs/openapi.json` | The contract as the code generates it, with the tools under `x-tools` and the harness entry under `x-harness` |
+| `docs/tools.md` | The tools the service places: the queue's entries, the chat agent's state readings and its launching entries |
 | `docs/cli.md` | The command line: `serve`, `mcp` and `openapi` |
 | `docs/settings.md` | The settings file: where the service listens, its tokens and the callers they name, the labels whose items open by themselves, and its database |
 | `docs/schema.md` | The schema: the tables and the rules they keep |

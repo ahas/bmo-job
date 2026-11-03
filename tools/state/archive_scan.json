@@ -1,0 +1,35 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "chat": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "The room, by chat id, where it is not this turn's own."
+    },
+    "id": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "One message, whole."
+    },
+    "limit": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "How many, at most 500."
+    },
+    "before_id": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "Carry on before this message."
+    },
+    "contains": {
+      "type": ["string", "null"],
+      "description": "Only messages holding this text."
+    },
+    "sender": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "Only this sender's messages."
+    }
+  }
+}

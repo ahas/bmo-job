@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["lines"],
+  "properties": {
+    "lines": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "The reading, one line each."
+    }
+  }
+}

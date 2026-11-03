@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["item"],
+  "properties": {
+    "item": {
+      "type": "integer",
+      "format": "int64",
+      "description": "The item's number."
+    }
+  }
+}

@@ -6,7 +6,8 @@ bmo-testbed's. This document states what the declaration says of this service.
 
 ## What a release holds
 
-- **A release is the repository at a commit,** its `bin/` holding the binary built for that commit, `bmo-job`.
+- **A release is the repository at a commit,** its `bin/` holding the binary built for that commit, `bmo-job`,
+  and the executables of the service's tools, `todo-tool`, `state-tool` and `launch-tool`.
 - **The settings are the data root's,** never a release's: the settings file `[deploy] env_links` names under
   the data root, which each release links to as `settings.toml`, the file the service reads in its working
   directory (docs/settings.md, "Where the file is"). A deployment with no such file is refused.
@@ -22,6 +23,15 @@ bmo-testbed's. This document states what the declaration says of this service.
   its event streams, answers the requests it holds, and exits.
 - **The MCP server is no unit.** A harness starts `bmo-job mcp` itself, from a release's `bin/`, for as long as
   its session lasts.
+
+## Its tools
+
+- **Each tool is placed before the flip,** by a `[[deploy.step]]` named `place-<tool>-tool`: the release's
+  executable, the tool's manifest and its schemas are copied into `tools/<tool>/.placed`, the folder the tool
+  host reads.
+- **Each is registered after the service answers ready,** by a `[[deploy.step]]` named
+  `register-<tool>-tool`: `bmo-pocket put --service bmo-job --placed`, allowing the capabilities the tool
+  declares, so every release carries its tools without a hand on the registry (docs/tools.md).
 
 ## The unit command
 

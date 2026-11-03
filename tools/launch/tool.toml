@@ -1,0 +1,29 @@
+# The chat agent's launching entries for the tool host: a job filed on a worker, which reports to the room when
+# it ends, and a research sent out at a depth, whose result comes back to the room (docs/tools.md). A search is
+# unbounded: a call ends with the research unit's answer, never on a clock.
+
+[tool]
+name = "launch"
+protocol = 1
+language = "rust"
+build = 'cargo build --release -p launch-tool && cp "$BMO_CARGO_TARGET/release/launch-tool" "$BMO_TOOL_OUT/"'
+check = 'cargo test -p launch-tool'
+run = ["launch-tool"]
+timeout = 180
+
+[[entry]]
+namespace = "bmo"
+name = "task"
+description = "Launch a job on a worker; it reports to the room when done. An item that already stands is not filed again: a worker leases it from its queue."
+input = "task.json"
+hints = { open_world = true }
+capabilities = ["room.tools"]
+
+[[entry]]
+namespace = "bmo"
+name = "search"
+description = "Launch a web search or a browse; its result comes back to the room when the research ends."
+input = "search.json"
+hints = { open_world = true }
+capabilities = ["room.tools"]
+unbounded = true

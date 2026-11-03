@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "chat": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "The room, by chat id, where it is not this turn's own."
+    },
+    "limit": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "How many, at most 500."
+    },
+    "full": {
+      "type": "boolean",
+      "description": "Each job's report whole."
+    }
+  }
+}

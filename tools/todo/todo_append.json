@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["item", "text"],
+  "properties": {
+    "item": {
+      "type": "string",
+      "description": "The item's number or title."
+    },
+    "text": {
+      "type": "string",
+      "description": "The words to add."
+    },
+    "by": {
+      "type": ["string", "null"],
+      "description": "Whose words, where not the agent's own."
+    }
+  }
+}

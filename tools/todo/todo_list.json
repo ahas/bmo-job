@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "all": {
+      "type": ["boolean", "null"],
+      "description": "Finished ones too."
+    },
+    "pending": {
+      "type": ["boolean", "null"],
+      "description": "Only what awaits a person's approval."
+    },
+    "held": {
+      "type": ["boolean", "null"],
+      "description": "Only what is set aside."
+    },
+    "merged": {
+      "type": ["boolean", "null"],
+      "description": "Only rows merged away."
+    },
+    "chat": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "One room, by chat id."
+    }
+  }
+}

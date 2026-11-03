@@ -1,0 +1,47 @@
+# The chat agent's state readings for the tool host: what runs and what waits on this machine, a room's job
+# runs, one item's work order and a room's archived messages, each answered as lines (docs/tools.md).
+
+[tool]
+name = "state"
+protocol = 1
+language = "rust"
+build = 'cargo build --release -p state-tool && cp "$BMO_CARGO_TARGET/release/state-tool" "$BMO_TOOL_OUT/"'
+check = 'cargo test -p state-tool'
+run = ["state-tool"]
+timeout = 60
+
+[[entry]]
+namespace = "bmo"
+name = "running"
+description = "What is running on this machine and what is waiting."
+input = "running.json"
+output = "reading.json"
+hints = { read_only = true }
+capabilities = ["room.tools"]
+
+[[entry]]
+namespace = "bmo"
+name = "jobs"
+description = "A room's job runs, newest first."
+input = "jobs.json"
+output = "reading.json"
+hints = { read_only = true }
+capabilities = ["room.tools"]
+
+[[entry]]
+namespace = "bmo"
+name = "work_order"
+description = "One item's work order: its state, its stages and each task."
+input = "work_order.json"
+output = "reading.json"
+hints = { read_only = true }
+capabilities = ["room.tools"]
+
+[[entry]]
+namespace = "bmo"
+name = "archive_scan"
+description = "A room's archived messages, newest first."
+input = "archive_scan.json"
+output = "reading.json"
+hints = { read_only = true }
+capabilities = ["room.tools"]

@@ -1270,6 +1270,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "launch-tool"
+version = "0.1.0-rev.8"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "tool-call",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2329,6 +2340,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
+name = "state-tool"
+version = "0.1.0-rev.8"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "tool-call",
+]
+
+[[package]]
 name = "strum"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2468,6 +2490,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
+name = "todo-tool"
+version = "0.1.0-rev.8"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "tool-call",
+]
+
+[[package]]
 name = "tokio"
 version = "1.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2573,6 +2606,18 @@ dependencies = [
  "serde_spanned",
  "toml_datetime",
  "winnow",
+]
+
+[[package]]
+name = "tool-call"
+version = "0.1.0-rev.8"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
 ]
 
 [[package]]

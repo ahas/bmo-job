@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["item"],
+  "properties": {
+    "item": {
+      "type": "string",
+      "description": "The item's number or title."
+    },
+    "note": {
+      "type": ["string", "null"],
+      "description": "The note that goes with the approval."
+    },
+    "unapprove": {
+      "type": "boolean",
+      "description": "Take the approval back. The job service cannot: the call is refused."
+    }
+  }
+}

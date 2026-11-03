@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["prompt"],
+  "properties": {
+    "prompt": {
+      "type": "string",
+      "description": "What the job is to do."
+    },
+    "chat": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "The room, by chat id, where it is not this turn's own."
+    },
+    "worker": {
+      "type": ["string", "null"],
+      "description": "The repository whose worker takes it, where the work is in one."
+    },
+    "model": {
+      "type": ["string", "null"],
+      "description": "The job model."
+    },
+    "todo": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "The TODO item this is a run of. The call refuses it: an item already filed is leased from its queue."
+    },
+    "why": {
+      "type": ["string", "null"],
+      "description": "For a job with no item: one line naming what it is for."
+    },
+    "cowork": {
+      "type": "boolean",
+      "description": "Run it as a co-work."
+    }
+  }
+}

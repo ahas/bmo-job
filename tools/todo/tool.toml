@@ -1,0 +1,73 @@
+# The queue's entries for the tool host: the worker's two readings and the chat agent's readings, filing, words
+# and approval, each answered out of the job service's own routes (docs/tools.md).
+
+[tool]
+name = "todo"
+protocol = 1
+language = "rust"
+build = 'cargo build --release -p todo-tool && cp "$BMO_CARGO_TARGET/release/todo-tool" "$BMO_TOOL_OUT/"'
+check = 'cargo test -p todo-tool'
+run = ["todo-tool"]
+timeout = 30
+
+[[entry]]
+namespace = "worker"
+name = "todo_list"
+title = "TODO list"
+description = "The work queue in its own order. By default what is open: not finished, not set aside, not merged into another row."
+input = "todo_list.json"
+output = "reading.json"
+hints = { read_only = true }
+capabilities = ["queue.read"]
+
+[[entry]]
+namespace = "worker"
+name = "todo_show"
+title = "TODO show"
+description = "The whole of one item: what it was filed with, what was added since, its questions, its report and what it left."
+input = "todo_show.json"
+output = "reading.json"
+hints = { read_only = true }
+capabilities = ["queue.read"]
+
+[[entry]]
+namespace = "bmo"
+name = "todo_list"
+description = "The work queue in its own order; by default what is open."
+input = "todo_list.json"
+output = "reading.json"
+hints = { read_only = true }
+capabilities = ["room.tools"]
+
+[[entry]]
+namespace = "bmo"
+name = "todo_show"
+description = "The whole of one TODO item."
+input = "todo_show.json"
+output = "reading.json"
+hints = { read_only = true }
+capabilities = ["room.tools"]
+
+[[entry]]
+namespace = "bmo"
+name = "todo_add"
+description = "File a TODO row, out of the conversation or out of the agent's own judgement. Filing approves nothing."
+input = "todo_add.json"
+hints = { idempotent = false }
+capabilities = ["room.tools"]
+
+[[entry]]
+namespace = "bmo"
+name = "todo_append"
+description = "Add words to an open TODO item; a running job is handed them before it reports."
+input = "todo_append.json"
+hints = { idempotent = false }
+capabilities = ["room.tools"]
+
+[[entry]]
+namespace = "bmo"
+name = "todo_approve"
+description = "Approve a TODO item into the queue. The job service keeps an approval and cannot take one back."
+input = "todo_approve.json"
+hints = { idempotent = true }
+capabilities = ["room.tools"]

@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title"],
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "The row's title."
+    },
+    "what": {
+      "type": ["string", "null"],
+      "description": "What the work is."
+    },
+    "do": {
+      "type": ["string", "null"],
+      "description": "What has to be done."
+    },
+    "conclusion": {
+      "type": ["string", "null"],
+      "description": "What was concluded."
+    },
+    "chat": {
+      "type": ["integer", "null"],
+      "format": "int64",
+      "description": "The room, by chat id, where it is not this turn's own."
+    },
+    "cowork": {
+      "type": "boolean",
+      "description": "Run it as a co-work."
+    },
+    "requester": {
+      "type": ["string", "null"],
+      "description": "Who asked, where the archive names nobody."
+    },
+    "model": {
+      "type": ["string", "null"],
+      "description": "The job model."
+    }
+  }
+}
