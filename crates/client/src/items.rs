@@ -95,6 +95,8 @@ pub struct Item {
   pub approvals: Vec<Approval>,
   pub cowork: bool,
   pub merged_into: Option<i64>,
+  /// The item this one was raised from, fixed when it is raised; null where there is none.
+  pub raised_by: Option<i64>,
   pub lease_id: Option<i64>,
   /// Epoch milliseconds.
   pub created_at: i64,
@@ -124,6 +126,24 @@ pub struct NewItem {
   pub labels: Labels,
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub cowork: bool,
+  /// The standing item this one is raised from. Left out, it is the item of the one lease the caller the token
+  /// names holds, where that caller holds exactly one, and none otherwise.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub raised_by: Option<i64>,
+}
+
+/// An item as `item.created` and `item.changed` tell it: the item as a GET answers it, the state it left and who
+/// changed it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemEvent {
+  #[serde(flatten)]
+  pub item: Item,
+  /// The state the item stood in before the change; null where its state did not move, and on a raise.
+  pub previous_state: Option<ItemState>,
+  /// The caller the request's token named; null for the shared token, and `bmo-job` for the service's own
+  /// sweep.
+  pub changed_by: Option<String>,
 }
 
 /// A change of an item, as a merge patch: a field left out stays, a nullable field set to null is cleared.
@@ -178,6 +198,9 @@ pub struct ItemQuery {
   /// Item keys, comma-separated.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub ids: Option<String>,
+  /// The key of the item the items were raised from.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub raised_by: Option<i64>,
   /// Words found in the title or the brief, in any case.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub q: Option<String>,

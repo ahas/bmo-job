@@ -44,7 +44,7 @@ impl<S: Send + Sync, T: DeserializeOwned + Send> FromRequestParts<S> for InQuery
 /// The query of `GET /items`: the open listing the port asks for when `open` is set, or the list's own
 /// filters.
 pub enum ItemsQuery {
-  List(ItemQuery),
+  List(Box<ItemQuery>),
   Open,
 }
 
@@ -60,7 +60,7 @@ impl<S: Send + Sync> FromRequestParts<S> for InItemsQuery {
     match values.get("open") {
       None => {
         let Query(list) = Query::<ItemQuery>::from_request_parts(parts, state).await.map_err(not_read)?;
-        Ok(Self(ItemsQuery::List(list)))
+        Ok(Self(ItemsQuery::List(Box::new(list))))
       }
       Some(open) if matches!(open.as_str(), "false" | "0") => Err(Refusal::bad_request(
         "The open flag is false or 0; the open listing is the one this flag asks for.",

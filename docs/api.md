@@ -13,8 +13,8 @@ registered. Who a member belongs to is opaque to it: `scope`, `assigneeName`, `r
 `askerName` and `actorName` are the caller's strings, and `labels` the caller's metadata, none of which it reads
 but for one thing: an item raised with a label the settings name unattended opens at once (Items, "Unattended
 labels").
-Who gave an approval is the one name it does not take from a body: that is the caller the request's token
-names (Items, "Approvals").
+The names it does not take from a body are the caller's the request's token names: who gave an approval
+(Items, "Approvals"), who changed an item as its events tell it (Events), and who holds a lease (Leases).
 
 ## Access
 
@@ -23,7 +23,9 @@ names (Items, "Approvals").
   `unauthorized`.
 - **The token names the caller.** A request with a caller's own token is that caller's, known to the service
   by the caller's name in the settings; a request with the shared token is no named caller's. Every route
-  answers either alike; only an approval reads who the caller is.
+  answers either alike but for three readings of who the caller is: the kind of an approval it gives (Items,
+  "Approvals"), the `changedBy` the events of an item it writes carry (Events), and the `raisedBy` an item it
+  raises takes from the lease it holds (Items, "Raised from an item").
 - **A method and path no route answers** is answered 404 `no-route`.
 - **A body or query not of the route's shape** is answered 400 `bad-request`, the sentence naming what is
   wrong.
@@ -63,6 +65,7 @@ and who is to take it, the caller's scope and labels, its approvals and its stat
 | `approvals` | Each approval given, `kind`, `callerName` and `at`, oldest first (below) |
 | `cowork` | The caller's flag for work done by several at once |
 | `mergedInto` | The item a merged item was folded into, or null |
+| `raisedBy` | The item it was raised from, or null (below) |
 | `leaseId` | The lease standing on it, or null |
 | `createdAt`, `changedAt`, `endedAt` | When it was raised, last changed, and reached `done`, `dropped` or `merged` |
 
@@ -101,6 +104,18 @@ and who is to take it, the caller's scope and labels, its approvals and its stat
 - **Only the raise reads them.** Labels a later change gives a draft open nothing; that draft waits for an
   approver's approval as any other does.
 
+### Raised from an item
+
+- **`raisedBy` is the item an item was raised from.** `POST /items` takes it as the key of a standing item; one
+  naming no item is answered 422 `unknown-item`. It is fixed when the item is raised: a change carrying it is
+  answered 400 `bad-request`. Every read answers it, null where there is none.
+- **A raise with none takes it from the caller's lease.** Where `POST /items` carries no `raisedBy` and the
+  caller the request's token names holds exactly one standing lease (Leases), the item is raised with that
+  lease's item as its `raisedBy`: a holder filing a follow-up out of the item it holds names that item without
+  saying so. A caller holding no lease or several, and a request with the shared token, raise it with none.
+- **A label is not it.** A label naming an item, such as `raised-by`, is the caller's metadata like any other;
+  `raisedBy` is what a reader of the item reads.
+
 ### States and moves
 
 | From | To | By |
@@ -126,8 +141,8 @@ to an item past `draft` is recorded beside the others and moves nothing.
 
 | Method and path | Does |
 |---|---|
-| `GET /items` | Items in queue order, filtered by `state`, `queueName`, `assigneeName`, `scope`, `label` (a key, or `key=value`), `ids` and `q` (words found in the title or the brief, in any case) |
-| `POST /items` | Raises an item as a `draft`, or `open` where it carries an unattended label (above): `title`, `brief` and `queueName` required, `priority`, `assigneeName`, `requesterName`, `scope`, `labels` and `cowork` optional. Answers 201 and the item |
+| `GET /items` | Items in queue order, filtered by `state`, `queueName`, `assigneeName`, `scope`, `label` (a key, or `key=value`), `ids`, `raisedBy` (the items raised from that item) and `q` (words found in the title or the brief, in any case) |
+| `POST /items` | Raises an item as a `draft`, or `open` where it carries an unattended label (above): `title`, `brief` and `queueName` required, `priority`, `assigneeName`, `requesterName`, `scope`, `labels`, `cowork` and `raisedBy` optional, `raisedBy` taken from the caller's one standing lease where it is left out (above). A `raisedBy` naming no item is answered 422 `unknown-item`. Answers 201 and the item |
 | `GET /items/{itemId}` | One item |
 | `PATCH /items/{itemId}` | Changes an item as a merge patch: `state`, `approval` (`at`, which is the time of the change where left out; the caller is the token's), `mergedInto`, `title`, `brief`, `queueName`, `priority`, `position`, `assigneeName`, `requesterName`, `scope`, `labels`, `cowork`. A nullable field set to null is cleared |
 
@@ -207,6 +222,11 @@ A lease is an item held by one holder for a span: `id`, `queueName`, `itemId`, `
 renewed; one that runs out gives its item back to `open` and is told as `lease.expired`. An ended lease,
 given back, run out or ended by its item's move, is answered 410 `gone` from then on.
 
+- **A lease is held by the caller whose token took it** (Access): one taken with a caller's own token is that
+  caller's, one taken with the shared token no named caller's. `holderName` is the caller's string and is not
+  read for it. The service reads who holds a lease only to give an item a caller raises its `raisedBy` (Items,
+  "Raised from an item").
+
 - **`POST /leases` takes the next open item of `queueName`** for `holderName`, for `ttlMs`, which is 1 000 to
   3 600 000. An item with an `assigneeName` is taken only by a lease asking with that same `assigneeName`; one
   without, by any lease. Where nothing waits it answers 204, at once or once `waitMs` runs out.
@@ -269,9 +289,18 @@ The service's one stream is `GET /events`, in the shape the conventions state. E
 kind: `{"id"}`, and `{"id", "itemId"}` for a member nested under an item. A stream opened with no cursor starts
 with the events still to come; a page asked with none starts at the oldest the window holds.
 
+- **An item's events say what changed and who changed it.** The data of `item.created` and `item.changed` is the
+  item as a GET answers it, with two fields beside its own: `previousState`, the state the item stood in before
+  the change, or null where the change left its state where it was, and on `item.created`; and `changedBy`, the
+  caller the request's token names (Access), null for the shared token, and `bmo-job` where the service's own
+  sweep made the change.
+- **Every write of an item's state is told so:** a move of the state table (Items, "States and moves"), an
+  approval that opens a draft, a lease taken or given back, a lease the sweep finds run out, and a move that ends
+  a standing lease. Each is one `item.changed` naming the state it left.
+
 | Kind | When |
 |---|---|
-| `item.created`, `item.changed`, `item.deleted` | An item raised, changed in any field or state, or let go with its scope |
+| `item.created`, `item.changed`, `item.deleted` | An item raised, changed in any field or state, or let go with its scope; the first two carry `previousState` and `changedBy` (above) |
 | `note.created`, `note.deleted` | A note appended or taken back |
 | `report.created` | A report appended |
 | `work-order.changed` | A work order saved or changed |

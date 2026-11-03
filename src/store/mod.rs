@@ -33,7 +33,15 @@ pub use subscriptions::{Delivery, Kept};
 pub(crate) type Tx = Transaction<'static, Sqlite>;
 
 /// The schema's version, kept in the database's own user version.
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
+
+/// The steps that bring a store of an older version up to this one, each from the version it reads; a store
+/// with no tables takes the whole schema instead.
+const MIGRATIONS: [(i64, &str); 2] =
+  [(1, include_str!("migrate_v1.sql")), (2, include_str!("migrate_v2.sql"))];
+
+/// The name the service writes its own changes under: the notes it writes and the changes its sweep makes.
+pub(crate) const OWN_NAME: &str = "bmo-job";
 
 /// A page's size where the caller names none, and the most it may name.
 const DEFAULT_LIMIT: i64 = 50;
@@ -69,10 +77,15 @@ impl Store {
       .connect_with(options)
       .await?;
     let version: i64 = sqlx::query_scalar("PRAGMA user_version").fetch_one(&pool).await?;
-    if version == 0 || version == 1 {
+    if (0..SCHEMA_VERSION).contains(&version) {
       let mut tx = pool.begin().await?;
-      let schema = if version == 0 { include_str!("schema.sql") } else { include_str!("migrate_v1.sql") };
-      sqlx::raw_sql(schema).execute(&mut *tx).await?;
+      if version == 0 {
+        sqlx::raw_sql(include_str!("schema.sql")).execute(&mut *tx).await?;
+      } else {
+        for (_, step) in MIGRATIONS.iter().filter(|(from, _)| *from >= version) {
+          sqlx::raw_sql(step).execute(&mut *tx).await?;
+        }
+      }
       sqlx::raw_sql(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))
         .execute(&mut *tx)
         .await?;

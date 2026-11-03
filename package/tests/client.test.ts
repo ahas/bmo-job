@@ -19,6 +19,7 @@ const item: Item = {
   approvals: [{ kind: "approval", callerName: "qa-admin", at: 1 }],
   cowork: false,
   mergedInto: null,
+  raisedBy: null,
   leaseId: null,
   createdAt: 1,
   changedAt: 1,

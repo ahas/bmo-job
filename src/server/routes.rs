@@ -114,9 +114,13 @@ async fn items(State(app): State<App>, InItemsQuery(query): InItemsQuery) -> Res
   }
 }
 
-async fn create_item(State(app): State<App>, InBody(item): InBody<NewItem>) -> Answer {
+async fn create_item(
+  State(app): State<App>,
+  Extension(caller): Extension<Caller>,
+  InBody(item): InBody<NewItem>,
+) -> Answer {
   let unattended = app.unattended.matched(&item.labels).map(str::to_owned);
-  created(app.store.create_item(item, unattended.as_deref()).await?)
+  created(app.store.create_item(item, unattended.as_deref(), &caller).await?)
 }
 
 async fn item(State(app): State<App>, InPath(item_id): InPath<i64>) -> Answer {
@@ -232,6 +236,7 @@ async fn change_queue(
 
 async fn take_lease(
   State(app): State<App>,
+  Extension(caller): Extension<Caller>,
   InQuery(wait): InQuery<LeaseWait>,
   InBody(ask): InBody<LeaseAsk>,
 ) -> Answer {
@@ -239,7 +244,7 @@ async fn take_lease(
   let mut changes = app.store.changes();
   loop {
     changes.borrow_and_update();
-    if let Some(lease) = app.store.take_lease(&ask).await? {
+    if let Some(lease) = app.store.take_lease(&ask, &caller).await? {
       return created(lease);
     }
     if Instant::now() >= deadline || tokio::time::timeout_at(deadline, changes.changed()).await.is_err() {
@@ -264,8 +269,12 @@ async fn renew_lease(
   ok(app.store.renew_lease(lease_id, renewal.ttl_ms).await?)
 }
 
-async fn release_lease(State(app): State<App>, InPath(lease_id): InPath<i64>) -> Answer {
-  app.store.release_lease(lease_id).await?;
+async fn release_lease(
+  State(app): State<App>,
+  Extension(caller): Extension<Caller>,
+  InPath(lease_id): InPath<i64>,
+) -> Answer {
+  app.store.release_lease(lease_id, &caller).await?;
   none()
 }
 

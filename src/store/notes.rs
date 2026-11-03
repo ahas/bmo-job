@@ -6,7 +6,7 @@ use sqlx::sqlite::SqliteRow;
 
 use super::events::{emit, key_alone};
 use super::items::{item_at, item_keys};
-use super::{Store, Tx, filled, from_json, page_limit, paged, to_json};
+use super::{OWN_NAME, Store, Tx, filled, from_json, page_limit, paged, to_json};
 use crate::refusal::Refusal;
 
 fn note_from(row: &SqliteRow) -> Result<Note, Refusal> {
@@ -19,9 +19,6 @@ fn note_from(row: &SqliteRow) -> Result<Note, Refusal> {
     created_at: row.try_get("created_at")?,
   })
 }
-
-/// The actor name the service writes its own notes under.
-const OWN_ACTOR: &str = "bmo-job";
 
 /// The note on an item raised open by its unattended `label` (docs/api.md, "Unattended labels").
 pub(super) async fn opened_unattended(
@@ -40,7 +37,7 @@ pub(super) async fn opened_unattended(
   )
   .bind(item.id)
   .bind(&text)
-  .bind(OWN_ACTOR)
+  .bind(OWN_NAME)
   .bind(to_json(&labels))
   .bind(now)
   .fetch_one(&mut **tx)
@@ -49,7 +46,7 @@ pub(super) async fn opened_unattended(
     id,
     item_id: item.id,
     text,
-    actor_name: OWN_ACTOR.to_owned(),
+    actor_name: OWN_NAME.to_owned(),
     labels,
     created_at: now,
   };

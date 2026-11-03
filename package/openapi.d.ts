@@ -46,7 +46,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Items by state, queue, assignee, scope, label, ids or words, in queue order. */
+        /** Items by state, queue, assignee, scope, label, ids, the item they were raised from or words, in queue order. */
         get: operations["listItems"];
         put?: never;
         /** Raise an item: a draft, or open where it carries an unattended label. */
@@ -446,7 +446,11 @@ export interface components {
              * @description Epoch milliseconds.
              */
             at: number;
-            /** @description The member as a GET answers it, or its key alone for a deleted kind. */
+            /**
+             * @description The member as a GET answers it, or its key alone for a deleted kind. An item's `item.created` and
+             *     `item.changed` carry beside its fields `previousState`, the state it left or null, and `changedBy`, the
+             *     caller the token named or null.
+             */
             data: {
                 [key: string]: unknown;
             };
@@ -516,6 +520,11 @@ export interface components {
             /** Format: int64 */
             priority: number;
             queueName: string;
+            /**
+             * Format: int64
+             * @description The item this one was raised from, fixed when it is raised; null where there is none.
+             */
+            raisedBy: number | null;
             requesterName: string | null;
             scope: string | null;
             state: components["schemas"]["ItemState"];
@@ -631,6 +640,12 @@ export interface components {
             /** Format: int64 */
             priority?: number | null;
             queueName: string;
+            /**
+             * Format: int64
+             * @description The standing item this one is raised from. Left out, it is the item of the one lease the caller the token
+             *     names holds, where that caller holds exactly one, and none otherwise.
+             */
+            raisedBy?: number | null;
             requesterName?: string | null;
             scope?: string | null;
             title: string;
@@ -1142,6 +1157,8 @@ export interface operations {
                 /** @description Words found in the title or the brief, in any case. */
                 q?: string;
                 queueName?: string;
+                /** @description The key of the item the items were raised from. */
+                raisedBy?: number;
                 scope?: string;
                 /** @description One state, or several comma-separated. */
                 state?: string;

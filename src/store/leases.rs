@@ -7,7 +7,8 @@ use sqlx::sqlite::SqliteRow;
 use super::events::{emit, key_alone};
 use super::items::{item_at, item_keys, save_item, told_changed};
 use super::queues::{find_queue, gives_leases};
-use super::{Store, Tx, filled, page_limit, paged, queue_name};
+use super::{OWN_NAME, Store, Tx, filled, page_limit, paged, queue_name};
+use crate::access::Caller;
 use crate::refusal::Refusal;
 
 /// The span a lease may be taken or renewed for.
@@ -107,7 +108,21 @@ pub(crate) async fn end_standing_lease(tx: &mut Tx, item: &mut Item, now: i64) -
   end_lease(tx, item, now, EventKind::LeaseDeleted).await
 }
 
-/// Gives back every lease past its span at `now`, each item open again.
+/// The item of the one standing lease the caller `name` holds, or none where it holds none or several
+/// (docs/api.md, "Leases").
+pub(crate) async fn held_lease_item(tx: &mut Tx, name: &str) -> Result<Option<i64>, Refusal> {
+  let items: Vec<i64> =
+    sqlx::query_scalar("SELECT item_id FROM leases WHERE ended_at IS NULL AND caller_name = $1 LIMIT 2")
+      .bind(name)
+      .fetch_all(&mut **tx)
+      .await?;
+  Ok(match items[..] {
+    [item_id] => Some(item_id),
+    _ => None,
+  })
+}
+
+/// Gives back every lease past its span at `now`, each item open again, as the service's own change.
 pub(crate) async fn expire_leases(tx: &mut Tx, now: i64) -> Result<usize, Refusal> {
   let ids: Vec<i64> =
     sqlx::query_scalar("SELECT item_id FROM leases WHERE ended_at IS NULL AND expires_at <= $1")
@@ -116,20 +131,22 @@ pub(crate) async fn expire_leases(tx: &mut Tx, now: i64) -> Result<usize, Refusa
       .await?;
   for item_id in &ids {
     let mut item = item_at(tx, *item_id).await?;
+    let previous = item.state;
     if item.state == ItemState::Leased {
       item.state = ItemState::Open;
     }
     item.changed_at = now;
     end_lease(tx, &mut item, now, EventKind::LeaseExpired).await?;
     save_item(tx, &item).await?;
-    told_changed(tx, now, &item).await?;
+    told_changed(tx, now, &item, previous, Some(OWN_NAME)).await?;
   }
   Ok(ids.len())
 }
 
 impl Store {
-  /// Takes the item the ask names, or the next open one of its queue; none where nothing may be taken.
-  pub async fn take_lease(&self, ask: &LeaseAsk) -> Result<Option<Lease>, Refusal> {
+  /// Takes the item the ask names, or the next open one of its queue, held by `caller`; none where nothing may be
+  /// taken.
+  pub async fn take_lease(&self, ask: &LeaseAsk, caller: &Caller) -> Result<Option<Lease>, Refusal> {
     span(ask.ttl_ms)?;
     filled("holderName", &ask.holder_name)?;
     queue_name(&ask.queue_name)?;
@@ -185,25 +202,27 @@ impl Store {
 
     let expires_at = now + ask.ttl_ms;
     let lease_id: i64 = sqlx::query_scalar(
-      "INSERT INTO leases (queue_name, item_id, holder_name, ttl_ms, expires_at, created_at) \
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+      "INSERT INTO leases (queue_name, item_id, holder_name, caller_name, ttl_ms, expires_at, created_at) \
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
     )
     .bind(&ask.queue_name)
     .bind(item.id)
     .bind(&ask.holder_name)
+    .bind(&caller.name)
     .bind(ask.ttl_ms)
     .bind(expires_at)
     .bind(now)
     .fetch_one(&mut *tx)
     .await?;
     let mut item = item;
+    let previous = item.state;
     item.state = ItemState::Leased;
     item.lease_id = Some(lease_id);
     item.changed_at = now;
     save_item(&mut tx, &item).await?;
     let lease = lease_row_at(&mut tx, lease_id).await?.with(item.clone());
     emit(&mut tx, now, EventKind::LeaseCreated.as_str(), &lease, &item_keys(&item)).await?;
-    told_changed(&mut tx, now, &item).await?;
+    told_changed(&mut tx, now, &item, previous, caller.name.as_deref()).await?;
     self.commit(tx).await?;
     Ok(Some(lease))
   }
@@ -259,19 +278,20 @@ impl Store {
     Ok(lease.with(item))
   }
 
-  /// Gives a standing lease back; its item is open again.
-  pub async fn release_lease(&self, id: i64) -> Result<(), Refusal> {
+  /// Gives a standing lease back, by `caller`; its item is open again.
+  pub async fn release_lease(&self, id: i64, caller: &Caller) -> Result<(), Refusal> {
     let now = self.now();
     let mut tx = self.begin().await?;
     let lease = standing_lease(&mut tx, id).await?;
     let mut item = item_at(&mut tx, lease.item_id).await?;
+    let previous = item.state;
     end_standing_lease(&mut tx, &mut item, now).await?;
     if item.state == ItemState::Leased {
       item.state = ItemState::Open;
     }
     item.changed_at = now;
     save_item(&mut tx, &item).await?;
-    told_changed(&mut tx, now, &item).await?;
+    told_changed(&mut tx, now, &item, previous, caller.name.as_deref()).await?;
     self.commit(tx).await?;
     Ok(())
   }

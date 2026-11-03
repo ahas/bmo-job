@@ -40,7 +40,9 @@ pub struct Event {
   pub kind: String,
   /// Epoch milliseconds.
   pub at: i64,
-  /// The member as a GET answers it, or its key alone for a deleted kind.
+  /// The member as a GET answers it, or its key alone for a deleted kind. An item's `item.created` and
+  /// `item.changed` carry beside its fields `previousState`, the state it left or null, and `changedBy`, the
+  /// caller the token named or null.
   pub data: Map<String, Value>,
 }
 

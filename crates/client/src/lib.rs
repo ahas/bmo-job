@@ -69,7 +69,9 @@ pub use codes::{Code, ErrorBody};
 pub use events::{Event, EventKind, EventQuery, NewEvent};
 pub use fields::Labels;
 pub use health::Health;
-pub use items::{Approval, ApprovalGiven, ApprovalKind, Item, ItemChange, ItemQuery, ItemState, NewItem};
+pub use items::{
+  Approval, ApprovalGiven, ApprovalKind, Item, ItemChange, ItemEvent, ItemQuery, ItemState, NewItem,
+};
 pub use leases::{Lease, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait};
 pub use notes::{NewNote, Note, WaitQuery};
 pub use page::{Page, PageQuery};

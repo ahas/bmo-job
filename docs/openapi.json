@@ -96,7 +96,7 @@
           },
           "data": {
             "additionalProperties": true,
-            "description": "The member as a GET answers it, or its key alone for a deleted kind.",
+            "description": "The member as a GET answers it, or its key alone for a deleted kind. An item's `item.created` and\n`item.changed` carry beside its fields `previousState`, the state it left or null, and `changedBy`, the\ncaller the token named or null.",
             "type": "object"
           },
           "id": {
@@ -261,6 +261,14 @@
           "queueName": {
             "type": "string"
           },
+          "raisedBy": {
+            "description": "The item this one was raised from, fixed when it is raised; null where there is none.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "requesterName": {
             "type": [
               "string",
@@ -295,6 +303,7 @@
           "approvals",
           "cowork",
           "mergedInto",
+          "raisedBy",
           "leaseId",
           "createdAt",
           "changedAt",
@@ -625,6 +634,14 @@
           },
           "queueName": {
             "type": "string"
+          },
+          "raisedBy": {
+            "description": "The standing item this one is raised from. Left out, it is the item of the one lease the caller the token\nnames holds, where that caller holds exactly one, and none otherwise.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "requesterName": {
             "type": [
@@ -2033,6 +2050,16 @@
             }
           },
           {
+            "description": "The key of the item the items were raised from.",
+            "in": "query",
+            "name": "raisedBy",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
             "in": "query",
             "name": "scope",
             "required": false,
@@ -2065,7 +2092,7 @@
             "$ref": "#/components/responses/Error"
           }
         },
-        "summary": "Items by state, queue, assignee, scope, label, ids or words, in queue order.",
+        "summary": "Items by state, queue, assignee, scope, label, ids, the item they were raised from or words, in queue order.",
         "tags": [
           "items"
         ],
@@ -2107,7 +2134,8 @@
         ],
         "x-codes": [
           "unauthorized",
-          "bad-request"
+          "bad-request",
+          "unknown-item"
         ]
       }
     },
@@ -3937,6 +3965,14 @@
               "null"
             ]
           },
+          "raisedBy": {
+            "description": "The key of the item the items were raised from.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "scope": {
             "type": [
               "string",
@@ -3993,6 +4029,14 @@
           },
           "queueName": {
             "type": "string"
+          },
+          "raisedBy": {
+            "description": "The standing item this one is raised from. Left out, it is the item of the one lease the caller the token\nnames holds, where that caller holds exactly one, and none otherwise.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "requesterName": {
             "type": [

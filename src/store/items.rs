@@ -1,21 +1,21 @@
 //! Items: raised, read in queue order, and changed by the moves docs/api.md lists (docs/api.md, "Items").
 
 use bmo_job_client::{
-  Approval, ApprovalKind, EventKind, Item, ItemChange, ItemQuery, ItemState, NewItem, Page,
+  Approval, ApprovalKind, Code, EventKind, Item, ItemChange, ItemEvent, ItemQuery, ItemState, NewItem, Page,
 };
 use serde::Deserialize;
 use sqlx::sqlite::SqliteRow;
 use sqlx::{QueryBuilder, Row, Sqlite};
 
 use super::events::{EventKeys, emit};
-use super::leases::end_standing_lease;
+use super::leases::{end_standing_lease, held_lease_item};
 use super::queues::ensure_queue;
 use super::{Store, Tx, filled, from_json, listed, page_limit, paged, queue_name, stored, to_json};
 use crate::access::Caller;
 use crate::refusal::Refusal;
 
 const ITEM_COLUMNS: &str = "id, title, brief, state, queue_name, position, priority, assignee_name, requester_name, \
-  scope, labels, approvals, cowork, merged_into, lease_id, created_at, changed_at, ended_at";
+  scope, labels, approvals, cowork, merged_into, raised_by, lease_id, created_at, changed_at, ended_at";
 
 /// An approval as the store holds it. One held with no kind, such as one imported, reads as an approval of no
 /// caller (docs/api.md, "Approvals").
@@ -63,6 +63,7 @@ fn item_from(row: &SqliteRow) -> Result<Item, Refusal> {
     approvals: approvals_from(row.try_get::<&str, _>("approvals")?)?,
     cowork: row.try_get::<i64, _>("cowork")? != 0,
     merged_into: row.try_get("merged_into")?,
+    raised_by: row.try_get("raised_by")?,
     lease_id: row.try_get("lease_id")?,
     created_at: row.try_get("created_at")?,
     changed_at: row.try_get("changed_at")?,
@@ -124,10 +125,37 @@ pub(crate) fn item_keys(item: &Item) -> EventKeys {
   }
 }
 
-/// Tells that the item changed.
-pub(crate) async fn told_changed(tx: &mut Tx, at: i64, item: &Item) -> Result<(), Refusal> {
-  emit(tx, at, EventKind::ItemChanged.as_str(), item, &item_keys(item)).await?;
+/// Tells that the item changed from the state `previous`, by `changed_by` (docs/api.md, "Events").
+pub(crate) async fn told_changed(
+  tx: &mut Tx,
+  at: i64,
+  item: &Item,
+  previous: ItemState,
+  changed_by: Option<&str>,
+) -> Result<(), Refusal> {
+  let told = ItemEvent {
+    item: item.clone(),
+    previous_state: (previous != item.state).then_some(previous),
+    changed_by: changed_by.map(str::to_owned),
+  };
+  emit(tx, at, EventKind::ItemChanged.as_str(), &told, &item_keys(item)).await?;
   Ok(())
+}
+
+/// The item a raise names as `raisedBy`: the one it carries, which must stand, or else the item of the one lease
+/// its caller holds (docs/api.md, "Raised from an item").
+async fn raised_from(tx: &mut Tx, given: Option<i64>, caller: &Caller) -> Result<Option<i64>, Refusal> {
+  match (given, &caller.name) {
+    (Some(id), _) => match find_item(tx, id).await? {
+      Some(_) => Ok(Some(id)),
+      None => Err(Refusal::new(
+        Code::UnknownItem,
+        format!("There is no item {id} to raise this one from."),
+      )),
+    },
+    (None, Some(name)) => held_lease_item(tx, name).await,
+    (None, None) => Ok(None),
+  }
 }
 
 /// Whether a state may move to another by a change (docs/api.md, "States and moves"); `leased` is reached
@@ -144,13 +172,19 @@ fn may_move(from: ItemState, to: ItemState) -> bool {
 }
 
 impl Store {
-  /// Raises an item as a draft, or open where it carries `unattended`, a label the settings name unattended, with
-  /// a note saying it opened by itself (docs/api.md, "Unattended labels").
-  pub async fn create_item(&self, new: NewItem, unattended: Option<&str>) -> Result<Item, Refusal> {
+  /// Raises an item for `caller` as a draft, or open where it carries `unattended`, a label the settings name
+  /// unattended, with a note saying it opened by itself (docs/api.md, "Unattended labels").
+  pub async fn create_item(
+    &self,
+    new: NewItem,
+    unattended: Option<&str>,
+    caller: &Caller,
+  ) -> Result<Item, Refusal> {
     filled("title", &new.title)?;
     queue_name(&new.queue_name)?;
     let now = self.now();
     let mut tx = self.begin().await?;
+    let raised_by = raised_from(&mut tx, new.raised_by, caller).await?;
     ensure_queue(&mut tx, &new.queue_name, now).await?;
     let position: i64 =
       sqlx::query_scalar("SELECT COALESCE(MAX(position), 0) + 1 FROM items WHERE queue_name = $1")
@@ -159,8 +193,8 @@ impl Store {
         .await?;
     let id: i64 = sqlx::query_scalar(
       "INSERT INTO items (title, brief, state, queue_name, position, priority, assignee_name, requester_name, scope, \
-       labels, approvals, cowork, created_at, changed_at) \
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '[]', $11, $12, $12) RETURNING id",
+       labels, approvals, cowork, raised_by, created_at, changed_at) \
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '[]', $11, $12, $13, $13) RETURNING id",
     )
     .bind(&new.title)
     .bind(&new.brief)
@@ -173,11 +207,17 @@ impl Store {
     .bind(&new.scope)
     .bind(to_json(&new.labels))
     .bind(i64::from(new.cowork))
+    .bind(raised_by)
     .bind(now)
     .fetch_one(&mut *tx)
     .await?;
     let item = item_at(&mut tx, id).await?;
-    emit(&mut tx, now, EventKind::ItemCreated.as_str(), &item, &item_keys(&item)).await?;
+    let told = ItemEvent {
+      item: item.clone(),
+      previous_state: None,
+      changed_by: caller.name.clone(),
+    };
+    emit(&mut tx, now, EventKind::ItemCreated.as_str(), &told, &item_keys(&item)).await?;
     if let Some(label) = unattended {
       super::notes::opened_unattended(&mut tx, now, &item, label).await?;
     }
@@ -222,6 +262,9 @@ impl Store {
     }
     if let Some(assignee) = &query.assignee_name {
       select.push(" AND assignee_name = ").push_bind(assignee.clone());
+    }
+    if let Some(raised_by) = query.raised_by {
+      select.push(" AND raised_by = ").push_bind(raised_by);
     }
     if let Some(scope) = &query.scope {
       select.push(" AND scope = ").push_bind(scope.clone());
@@ -310,6 +353,7 @@ impl Store {
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut item = item_at(&mut tx, id).await?;
+    let previous = item.state;
 
     if let Some(title) = change.title {
       filled("title", &title)?;
@@ -399,10 +443,7 @@ impl Store {
           return Err(Refusal::conflict("An item cannot be merged into itself."));
         }
         let Some(other) = find_item(&mut tx, into).await? else {
-          return Err(Refusal::new(
-            bmo_job_client::Code::UnknownItem,
-            format!("There is no item {into} to merge into."),
-          ));
+          return Err(Refusal::new(Code::UnknownItem, format!("There is no item {into} to merge into.")));
         };
         if matches!(other.state, ItemState::Dropped | ItemState::Merged) {
           return Err(Refusal::conflict(format!("The item {into} is {} and takes no merge.", other.state)));
@@ -420,7 +461,7 @@ impl Store {
 
     item.changed_at = now;
     save_item(&mut tx, &item).await?;
-    told_changed(&mut tx, now, &item).await?;
+    told_changed(&mut tx, now, &item, previous, caller.name.as_deref()).await?;
     self.commit(tx).await?;
     Ok(item)
   }

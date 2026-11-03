@@ -3,7 +3,9 @@
 The service keeps everything it holds in one SQLite database, the one `[database] url` names (docs/settings.md).
 The service makes its tables itself the first time it opens a database with none, and records the schema's
 version in the database's own user version; a database of an older version is brought up to it at start, and
-one of a later version is refused.
+one of a later version is refused. Bringing a database up to the version that keeps the item an item was raised
+from fills it, for each item standing then, from the item's `raised-by` label where that label is the key of
+another standing item, and leaves it null otherwise; a lease standing then is held by no named caller.
 
 ## The rules of every table
 
@@ -20,13 +22,13 @@ one of a later version is refused.
 
 | Table | One row is |
 |---|---|
-| `items` | An item: its words, state, queue and place there, the names and scope the caller gave, its labels, approvals, merge and standing lease |
+| `items` | An item: its words, state, queue and place there, the names and scope the caller gave, its labels, approvals, merge, the item it was raised from, and standing lease |
 | `notes` | A note on an item |
 | `reports` | A report on an item |
 | `work_orders` | An item's work order, keyed by the item |
 | `tasks` | A task of a work order: its stage, title, state and assignee |
 | `queues` | A queue by its name: its state and holds |
-| `leases` | A lease, standing or ended; an ended one is kept so its key is answered `gone` |
+| `leases` | A lease, standing or ended, and the caller whose token took it; an ended one is kept so its key is answered `gone` |
 | `questions` | A question: its words and choices, the recommendation it carries and why, its state, its due time, the time its clock had left when paused, and whether its due time was told |
 | `replies` | A reply to a question: its choice and words, who gave it, whether it settled, and where the recommendation gave it, that source and its reason |
 | `subscriptions` | A subscription, standing or ended: what it matches, where it posts and its secret, its state, span, failures, and the events it starts after and has handed over |

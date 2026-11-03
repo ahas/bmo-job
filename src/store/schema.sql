@@ -16,6 +16,7 @@ CREATE TABLE items (
   approvals TEXT NOT NULL,
   cowork INTEGER NOT NULL,
   merged_into INTEGER,
+  raised_by INTEGER,
   lease_id INTEGER,
   created_at INTEGER NOT NULL,
   changed_at INTEGER NOT NULL,
@@ -23,6 +24,7 @@ CREATE TABLE items (
 );
 CREATE INDEX items_by_queue ON items (queue_name, state, priority DESC, position, id);
 CREATE INDEX items_by_scope ON items (scope);
+CREATE INDEX items_by_raised_by ON items (raised_by);
 
 CREATE TABLE notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -77,6 +79,7 @@ CREATE TABLE leases (
   queue_name TEXT NOT NULL,
   item_id INTEGER NOT NULL,
   holder_name TEXT NOT NULL,
+  caller_name TEXT,
   ttl_ms INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
