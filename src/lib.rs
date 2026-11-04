@@ -1,17 +1,21 @@
 //! The job service: a todo kept as middleware (docs/api.md). It stores items, their notes, reports and work
 //! orders, queues, leases, questions and subscriptions, serves them over HTTP, tells every change as an event,
-//! and delivers the events its subscribers asked for. It never executes and calls no other unit.
+//! and delivers the events its subscribers asked for. The service never executes and calls no other unit; a verb
+//! of its command that puts words before a person reaches the receiver from its own process (docs/cli.md).
 
 pub mod access;
 pub mod clock;
 pub mod delivery;
 pub mod import;
+pub mod job_ask;
 pub mod job_close;
+pub mod outside;
 pub mod refusal;
 pub mod server;
 pub mod settings;
 pub mod store;
 pub mod todo_cli;
+pub mod work_order_cli;
 
 use std::time::Duration;
 

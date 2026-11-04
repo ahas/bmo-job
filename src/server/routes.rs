@@ -295,7 +295,7 @@ async fn change_question(
   InPath(question_id): InPath<i64>,
   InBody(change): InBody<QuestionChange>,
 ) -> Answer {
-  ok(app.store.change_question(question_id, change.state).await?)
+  ok(app.store.change_question(question_id, change).await?)
 }
 
 async fn replies(

@@ -37,8 +37,8 @@ bmo-testbed's. This document states what the declaration says of this service.
 
 - **The deployment links the release's binary into `~/.local/bin/bmo-job`,** by the `[[deploy.step]]` named
   `link-command`, so the platform `bmo` finds the unit command and reads the nouns it declares.
-- **`bmo` hands it `job` and `todo`:** `bmo job close` runs `bmo-job job close`, and `bmo todo --done` runs
-  `bmo-job todo --done` (docs/cli.md).
+- **`bmo` hands it `job`, `todo` and `work-order`:** `bmo job close` runs `bmo-job job close`, and `bmo todo --done`
+  runs `bmo-job todo --done` (docs/cli.md).
 
 ## A job closes
 

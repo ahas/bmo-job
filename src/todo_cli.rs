@@ -1,13 +1,14 @@
-//! `bmo-job todo` from a shell (docs/cli.md): the closing a worker runs when it ends its item, through the
-//! job service's own routes — a report for what the run tells of it, and the item's state set to done —
-//! rather than any database of an older era.
+//! `bmo-job todo` from a shell (docs/cli.md): the closing a worker runs when it ends its item, the hold it leaves
+//! its account on where it stops short, and the row it raises for what it found, all through the job service's
+//! own routes.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use bmo_job_client::{ItemChange, ItemState, JobClient, NewReport, Report, ReportKind};
+use bmo_job_client::{ItemChange, ItemState, JobClient, NewItem, NewReport, Report, ReportKind};
 
 use crate::Settings;
+use crate::outside::outside_refusal;
 
 /// What a closing hands the service: the item, its report and what it could not reach, and the actor the
 /// reports are kept under.
@@ -84,6 +85,15 @@ pub async fn close(client: &JobClient, args: &TodoArgs) -> Result<Vec<String>, S
     return Err("the closing names who writes it with --by, BMO_TURN_AGENT or USER".to_owned());
   }
 
+  let texts = [
+    args.report.as_deref().unwrap_or_default(),
+    args.unfinished.as_deref().unwrap_or_default(),
+  ];
+
+  if let Some(refusal) = outside_refusal(&texts) {
+    return Err(refusal);
+  }
+
   let mut lines = vec![];
 
   if let Some(unfinished) = args.unfinished.as_deref().map(str::trim).filter(|said| !said.is_empty()) {
@@ -141,4 +151,137 @@ async fn report_line(
   by: &str,
 ) -> Result<Report, String> {
   report(client, item, kind, body, by).await
+}
+
+/// What a job leaves on an item it stops short on: its account, and, for an item not yet held, why it holds it and
+/// the condition that makes it ready.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StopHereArgs {
+  pub item: i64,
+  pub report: Option<String>,
+  pub why: Option<String>,
+  pub after: Option<String>,
+  pub after_deploy: Option<String>,
+  pub by: String,
+}
+
+/// The run's account left on the item as a held report, and the item held where it is not yet. A condition names
+/// what makes it ready and releases nothing.
+pub async fn stop_here(client: &JobClient, args: &StopHereArgs) -> Result<Vec<String>, String> {
+  let by = args.by.trim();
+  if by.is_empty() {
+    return Err("the account names who writes it with --by, BMO_TURN_AGENT or USER".to_owned());
+  }
+
+  let Some(account) = args.report.as_deref().map(str::trim).filter(|said| !said.is_empty()) else {
+    return Err(
+      "--stop-here takes --report '<what is finished and where the next run picks up>'".to_owned(),
+    );
+  };
+
+  if args.after.is_some() && args.after_deploy.is_some() {
+    return Err("--after and --after-deploy name one condition between them".to_owned());
+  }
+
+  if let Some(refusal) = outside_refusal(&[account]) {
+    return Err(refusal);
+  }
+
+  let why = args.why.as_deref().map(str::trim).filter(|why| !why.is_empty());
+  let item = client
+    .item(args.item)
+    .await
+    .map_err(|why| format!("item {} could not be read: {why}", args.item))?;
+  let holds = item.state != ItemState::Held;
+
+  if holds && why.is_none() {
+    return Err(format!(
+      "item {} is not held: --stop-here {} --why '<reason>' holds it",
+      args.item, args.item
+    ));
+  }
+
+  let kept = report(client, args.item, ReportKind::Held, account, by).await?;
+  let mut lines = vec![serde_json::to_string(&kept).unwrap_or_default()];
+
+  if holds {
+    let mut labels = item.labels.clone();
+
+    for (label, value) in [
+      ("hold-why", why),
+      ("hold-after", args.after.as_deref()),
+      ("hold-after-deploy", args.after_deploy.as_deref()),
+    ] {
+      if let Some(value) = value {
+        labels.insert(label.to_owned(), value.trim().to_owned());
+      }
+    }
+
+    let change = ItemChange {
+      state: Some(ItemState::Held),
+      labels: Some(labels),
+      ..ItemChange::default()
+    };
+    let held = client
+      .change_item(args.item, &change)
+      .await
+      .map_err(|why| format!("item {} was not held: {why}", args.item))?;
+
+    lines.push(serde_json::to_string(&held).unwrap_or_default());
+  }
+
+  Ok(lines)
+}
+
+/// A row a job raises out of its own work.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AddArgs {
+  pub title: String,
+  pub judgement: String,
+  pub raised_by: Option<i64>,
+  pub from_todo: Option<String>,
+  pub by: String,
+}
+
+/// The row raised in the queue and scope of the item it was raised from, a draft until an approver takes it.
+pub async fn add(client: &JobClient, args: &AddArgs) -> Result<String, String> {
+  if args.title.trim().is_empty() {
+    return Err("--add takes --title '<title>'".to_owned());
+  }
+
+  if args.judgement.trim().is_empty() {
+    return Err(
+      "--add takes --judgement '<what the work is, why it was left and what to do about it>'".to_owned(),
+    );
+  }
+
+  let Some(raised_by) = args.raised_by else {
+    return Err("--add takes --raised-by <your item>".to_owned());
+  };
+  let from = client
+    .item(raised_by)
+    .await
+    .map_err(|why| format!("item {raised_by} could not be read: {why}"))?;
+  let mut labels = BTreeMap::new();
+
+  if let Some(strands) = args.from_todo.as_deref().map(str::trim).filter(|strands| !strands.is_empty()) {
+    labels.insert("from-todo".to_owned(), strands.to_owned());
+  }
+
+  let by = args.by.trim();
+  let raised = client
+    .create_item(&NewItem {
+      title: args.title.trim().to_owned(),
+      brief: args.judgement.trim().to_owned(),
+      queue_name: from.queue_name,
+      requester_name: (!by.is_empty()).then(|| by.to_owned()),
+      scope: from.scope,
+      labels,
+      raised_by: Some(raised_by),
+      ..NewItem::default()
+    })
+    .await
+    .map_err(|why| format!("the row was not raised: {why}"))?;
+
+  Ok(serde_json::to_string(&raised).unwrap_or_default())
 }

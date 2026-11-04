@@ -172,7 +172,10 @@ pub(super) async fn settle(
     Err(refusal) if refusal.code == Code::NotFound => return Err(absent(chosen.id)),
     Err(refusal) => return Err(refusal.into()),
   };
-  if matches!(question.state, QuestionState::Answered | QuestionState::Withdrawn) {
+  if matches!(
+    question.state,
+    QuestionState::Answered | QuestionState::Withdrawn | QuestionState::Unsent
+  ) {
     return Ok(StatusCode::NO_CONTENT.into_response());
   }
   let at = usize::try_from(chosen.chosen)

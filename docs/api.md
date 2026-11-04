@@ -247,13 +247,16 @@ given back, run out or ended by its item's move, is answered 410 `gone` from the
 
 A question is asked about an item or on its own: `id`, `itemId`, `askerName`, `scope`, `text`, `choices` (empty
 for an open question), `recommendation` (the answer the asker would take by itself, and why, or null), `state`,
-`dueAt` and `createdAt`. A reply is `id`, `questionId`, `choice`, `text`, `actorName`, `settles`, `source`
+`dueAt`, `toldByAsker` (whether the asker puts it before whoever answers it itself), `heardThrough` (the last
+reply its asker has been handed, or null) and `createdAt`. A reply is `id`, `questionId`, `choice`, `text`, `actorName`, `settles`, `source`
 and `why` and `createdAt`. Every reply is written with `source` `person` and `why` null; the type also reads
 `recommendation` with that recommendation's reason, which a reply kept in the store may carry.
 
-- **States:** `open`, `paused`, `answered`, `withdrawn`. `open` and `paused` move to each other and to
-  `withdrawn` by a change; a settling reply moves `open` or `paused` to `answered`. Any other move is answered
-  409 `conflict`.
+- **States:** `open`, `paused`, `answered`, `withdrawn`, `unsent`. `open` and `paused` move to each other, to
+  `withdrawn` and to `unsent` by a change; a settling reply moves `open` or `paused` to `answered`. Any other
+  move is answered 409 `conflict`. `withdrawn` is a question its asker took back or stopped waiting on; `unsent`
+  is one that never reached anybody, because putting it to them failed. Neither waits for an answer, and neither
+  is ever answered.
 - **The due time.** `waitMs` is how long the asker lets the question go unanswered before it is told of as
   due, from 1 000 to 86 400 000 milliseconds, and 60 000 where left out. A question's `dueAt` is that far from
   when it was asked. Pausing a question keeps the time it had left and reads `dueAt` as null; opening it again
@@ -268,6 +271,13 @@ and `why` and `createdAt`. Every reply is written with `source` `person` and `wh
 - **When the due time passes** on an open question, the service tells `question.due` once and the question stays
   open for a person, with or without a recommendation. Nothing settles it but a settling reply or a withdrawal.
 - **A question's scope** is the one asked with, or the item's where it is left out.
+- **Who tells of it.** A consumer that watches the events tells of a new question, except one asked with
+  `toldByAsker`: that asker puts it before whoever answers it itself, so it can see the failure and close the
+  question `unsent`.
+- **A change while it waits.** `text`, `choices` and `recommendation` put an `open` or `paused` question again in
+  other words, judged as an ask is, and answered 409 `conflict` on any other. `heardThrough` moves on the last
+  reply the asker was handed, so a reply said after it is not lost between one wait and the next; it never moves
+  back. A change holding none of the four is `bad-request`.
 - **A reply settles the question** when its `settles` says so; left out, a reply settles when it carries a
   `choice` or the question has no choices, and is a word on the question otherwise. A `choice` is one of the
   question's choices or is answered 422 `not-a-choice`. A settling reply to a question already answered or
@@ -276,9 +286,9 @@ and `why` and `createdAt`. Every reply is written with `source` `person` and `wh
 | Method and path | Does |
 |---|---|
 | `GET /questions` | Questions filtered by `scope`, `itemId` and `state` |
-| `POST /questions` | Asks: `askerName`, `text` and `choices` required, `itemId`, `scope`, `recommendation` and `waitMs` optional. An `itemId` naming no item is answered 422 `unknown-item`. Answers 201 |
+| `POST /questions` | Asks: `askerName`, `text` and `choices` required, `itemId`, `scope`, `recommendation`, `waitMs` and `toldByAsker` optional. An `itemId` naming no item is answered 422 `unknown-item`. Answers 201 |
 | `GET /questions/{questionId}` | One question |
-| `PATCH /questions/{questionId}` | Pauses it, opens it again or withdraws it, with `state` |
+| `PATCH /questions/{questionId}` | Pauses it, opens it again, withdraws it or closes it unsent, with `state`; puts it again in other words with `text`, `choices` and `recommendation`; moves what its asker was handed with `heardThrough` |
 | `GET /questions/{questionId}/replies` | Its replies in key order, past `after`; `waitMs` waits for one |
 | `POST /questions/{questionId}/replies` | Replies: `text` and `actorName` required, `choice` and `settles` optional. Answers 201 |
 
@@ -395,7 +405,7 @@ its `scope`. Every route takes the bearer token as the others do.
   it as a `reply.created` event. Stopping the clock is the question moving to `paused` with what it had left.
 - **A settle is a settling reply** carrying the chosen option as its `choice` and its text, from the actor
   `owner`, its `source` a person, which moves the question to `answered` as any settling reply does. A question
-  already `answered` or `withdrawn` answers 204 and takes no reply.
+  already `answered`, `withdrawn` or `unsent` answers 204 and takes no reply.
 - **A refused talk** answers `question_talk_settled` (409) on a question already settled,
   `question_absent` (404) for a number naming no question, and `question_talk_say` (400) for a talk with no
   words. **A refused settle** answers `question_absent` (404) for a number naming no question and
@@ -488,4 +498,5 @@ harness:
 
 ## What the service calls
 
-Nothing but the `url` of each subscription that names one, as stated under Subscriptions.
+Nothing but the `url` of each subscription that names one, as stated under Subscriptions. `bmo-job job ask` is a
+verb in the asker's own process, and it is that process that reaches the receiver (docs/cli.md).

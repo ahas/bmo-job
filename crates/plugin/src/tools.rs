@@ -273,7 +273,7 @@ pub fn tools() -> Vec<JobTool> {
     ),
     tool::<NewQuestion, Question, _, _>(
       "job_question_ask",
-      "Ask a question about an item, with choices or open; a recommendation to take when the wait ends, and why.",
+      "Ask a question about an item, with choices or open; a recommendation shown to whoever answers, and why.",
       "POST /questions",
       |harness, question| async move { harness.client.ask(&question).await },
     ),

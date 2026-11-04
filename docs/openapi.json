@@ -731,6 +731,10 @@
           "text": {
             "type": "string"
           },
+          "toldByAsker": {
+            "description": "Whether the asker puts it before whoever answers it itself; false where left out.",
+            "type": "boolean"
+          },
           "waitMs": {
             "description": "How long the question goes unanswered before it is told of as due, 1 000 to 86 400 000 milliseconds;\n60 000 where left out. It paces that notice alone: the question waits for its answer.",
             "format": "int64",
@@ -964,6 +968,14 @@
               "null"
             ]
           },
+          "heardThrough": {
+            "description": "The last reply its asker has been handed; null where it has been handed none.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "id": {
             "format": "int64",
             "type": "integer"
@@ -997,6 +1009,10 @@
           },
           "text": {
             "type": "string"
+          },
+          "toldByAsker": {
+            "description": "Whether the asker puts it before whoever answers it itself, so no consumer of the events tells of it.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1009,21 +1025,60 @@
           "recommendation",
           "state",
           "dueAt",
+          "toldByAsker",
+          "heardThrough",
           "createdAt"
         ],
         "type": "object"
       },
       "QuestionChange": {
         "additionalProperties": false,
-        "description": "A question paused, opened again or withdrawn.",
+        "description": "A question paused, opened again, withdrawn or closed unsent; put again in other words; or told how far its\nasker has been handed its replies.",
         "properties": {
+          "choices": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "heardThrough": {
+            "description": "The last reply the asker was handed.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recommendation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionRecommendation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "state": {
-            "$ref": "#/components/schemas/QuestionState"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
-        "required": [
-          "state"
-        ],
         "type": "object"
       },
       "QuestionPage": {
@@ -1070,7 +1125,8 @@
           "open",
           "paused",
           "answered",
-          "withdrawn"
+          "withdrawn",
+          "unsent"
         ],
         "type": "string"
       },
@@ -3245,7 +3301,7 @@
             "$ref": "#/components/responses/Error"
           }
         },
-        "summary": "Pause or start a question's clock again, or withdraw it.",
+        "summary": "Pause or start a question's clock again, withdraw it or close it unsent, put it again in other words, or move what its asker was handed.",
         "tags": [
           "questions"
         ],
@@ -4520,7 +4576,7 @@
       "route": "DELETE /leases/{leaseId}"
     },
     {
-      "description": "Ask a question about an item, with choices or open; a recommendation to take when the wait ends, and why.",
+      "description": "Ask a question about an item, with choices or open; a recommendation shown to whoever answers, and why.",
       "input": {
         "additionalProperties": false,
         "description": "A question asked.",
@@ -4561,6 +4617,10 @@
           },
           "text": {
             "type": "string"
+          },
+          "toldByAsker": {
+            "description": "Whether the asker puts it before whoever answers it itself; false where left out.",
+            "type": "boolean"
           },
           "waitMs": {
             "description": "How long the question goes unanswered before it is told of as due, 1 000 to 86 400 000 milliseconds;\n60 000 where left out. It paces that notice alone: the question waits for its answer.",

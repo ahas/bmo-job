@@ -430,7 +430,7 @@ pub fn routes() -> Vec<Route> {
       "/questions/{questionId}",
       "changeQuestionsByQuestionId",
       "questions",
-      "Pause or start a question's clock again, or withdraw it.",
+      "Pause or start a question's clock again, withdraw it or close it unsent, put it again in other words, or move what its asker was handed.",
     )
     .with(
       None,

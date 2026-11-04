@@ -62,7 +62,7 @@ fn collect(dir: &Path, files: &mut Vec<PathBuf>) {
       if !is_skipped(&entry.file_name().to_string_lossy()) {
         collect(&entry.path(), files);
       }
-    } else if kind.is_file() {
+    } else if kind.is_file() && !is_skipped(&entry.file_name().to_string_lossy()) {
       files.push(entry.path());
     }
   }

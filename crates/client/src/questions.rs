@@ -10,6 +10,7 @@ wire_enum! {
     Paused = "paused",
     Answered = "answered",
     Withdrawn = "withdrawn",
+    Unsent = "unsent",
   }
 }
 
@@ -47,6 +48,10 @@ pub struct Question {
   pub state: QuestionState,
   /// Epoch milliseconds the asker wants an answer by; null while paused or where none was given.
   pub due_at: Option<i64>,
+  /// Whether the asker puts it before whoever answers it itself, so no consumer of the events tells of it.
+  pub told_by_asker: bool,
+  /// The last reply its asker has been handed; null where it has been handed none.
+  pub heard_through: Option<i64>,
   /// Epoch milliseconds.
   pub created_at: i64,
 }
@@ -71,13 +76,27 @@ pub struct NewQuestion {
   /// 60 000 where left out. It paces that notice alone: the question waits for its answer.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub wait_ms: Option<i64>,
+  /// Whether the asker puts it before whoever answers it itself; false where left out.
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub told_by_asker: bool,
 }
 
-/// A question paused, opened again or withdrawn.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// A question paused, opened again, withdrawn or closed unsent; put again in other words; or told how far its
+/// asker has been handed its replies.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QuestionChange {
-  pub state: QuestionState,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub state: Option<QuestionState>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub text: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub choices: Option<Vec<String>>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub recommendation: Option<QuestionRecommendation>,
+  /// The last reply the asker was handed.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub heard_through: Option<i64>,
 }
 
 /// The filters of the question list.

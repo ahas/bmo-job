@@ -29,7 +29,7 @@ another standing item, and leaves it null otherwise; a lease standing then is he
 | `tasks` | A task of a work order: its stage, title, state and assignee |
 | `queues` | A queue by its name: its state and holds |
 | `leases` | A lease, standing or ended, and the caller whose token took it; an ended one is kept so its key is answered `gone` |
-| `questions` | A question: its words and choices, the recommendation it carries and why, its state, its due time, the time its clock had left when paused, and whether its due time was told |
+| `questions` | A question: its words and choices, the recommendation it carries and why, its state, its due time, the time its clock had left when paused, whether its due time was told, whether its asker tells of it itself, and the last reply its asker was handed |
 | `replies` | A reply to a question: its choice and words, who gave it, whether it settled, and where the recommendation gave it, that source and its reason |
 | `subscriptions` | A subscription, standing or ended: what it matches, where it posts and its secret, its state, span, failures, and the events it starts after and has handed over |
 | `events` | An event told, with the queue, scope and item it is narrowed by, kept for the window |

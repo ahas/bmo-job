@@ -107,7 +107,8 @@ async fn the_clock_pauses_resumes_and_tells_once_when_due() {
     .change_question(
       question.id,
       &bmo_job_client::QuestionChange {
-        state: QuestionState::Paused,
+        state: Some(QuestionState::Paused),
+        ..Default::default()
       },
     )
     .await
@@ -122,7 +123,8 @@ async fn the_clock_pauses_resumes_and_tells_once_when_due() {
     .change_question(
       question.id,
       &bmo_job_client::QuestionChange {
-        state: QuestionState::Open,
+        state: Some(QuestionState::Open),
+        ..Default::default()
       },
     )
     .await
@@ -139,7 +141,8 @@ async fn the_clock_pauses_resumes_and_tells_once_when_due() {
     .change_question(
       question.id,
       &bmo_job_client::QuestionChange {
-        state: QuestionState::Withdrawn,
+        state: Some(QuestionState::Withdrawn),
+        ..Default::default()
       },
     )
     .await
@@ -149,7 +152,8 @@ async fn the_clock_pauses_resumes_and_tells_once_when_due() {
     .change_question(
       question.id,
       &bmo_job_client::QuestionChange {
-        state: QuestionState::Open,
+        state: Some(QuestionState::Open),
+        ..Default::default()
       },
     )
     .await;
@@ -369,4 +373,149 @@ async fn a_recommendation_carries_an_answer_and_a_reason() {
     .await
     .expect_err("no reason");
   assert_eq!(no_reason.code(), Some("bad-request"));
+}
+
+#[tokio::test]
+async fn a_question_closed_unsent_takes_no_answer_and_stands_with_nothing_waiting() {
+  let service = Service::start().await;
+  let client = service.client();
+  let question = client
+    .ask(&NewQuestion {
+      asker_name: "job-1".into(),
+      scope: Some("7".into()),
+      text: "which grammar?".into(),
+      choices: vec!["strict".into(), "loose".into()],
+      told_by_asker: true,
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+
+  assert!(question.told_by_asker);
+
+  let unsent = client
+    .change_question(
+      question.id,
+      &bmo_job_client::QuestionChange {
+        state: Some(QuestionState::Unsent),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("closed");
+
+  assert_eq!(unsent.state, QuestionState::Unsent);
+  client
+    .reply(question.id, &reply(Some("strict"), "strict"))
+    .await
+    .expect_err("a question that reached nobody is never answered");
+
+  let waiting = service.raw(reqwest::Method::GET, "/questions/open?chat=7").send().await.expect("read");
+  let waiting: serde_json::Value = waiting.json().await.expect("the room's questions");
+
+  assert_eq!(waiting, serde_json::json!([]));
+}
+
+#[tokio::test]
+async fn a_question_is_put_again_in_other_words_and_keeps_what_its_asker_was_handed() {
+  let service = Service::start().await;
+  let client = service.client();
+  let question = client
+    .ask(&NewQuestion {
+      asker_name: "job-1".into(),
+      text: "which grammar?".into(),
+      choices: vec!["strict".into(), "loose".into()],
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+  let again = client
+    .change_question(
+      question.id,
+      &bmo_job_client::QuestionChange {
+        text: Some("which parser?".into()),
+        choices: Some(vec!["pest".into(), "nom".into()]),
+        recommendation: Some(QuestionRecommendation {
+          answer: "nom".into(),
+          why: "No generated code.".into(),
+        }),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("put again");
+
+  assert_eq!(again.text, "which parser?");
+  assert_eq!(again.choices, ["pest", "nom"]);
+  assert_eq!(again.state, QuestionState::Open);
+
+  for (heard, stands) in [(5, 5), (3, 5), (9, 9)] {
+    let moved = client
+      .change_question(
+        question.id,
+        &bmo_job_client::QuestionChange {
+          heard_through: Some(heard),
+          ..Default::default()
+        },
+      )
+      .await
+      .expect("moved");
+
+    assert_eq!(moved.heard_through, Some(stands), "it never moves back");
+  }
+
+  client
+    .change_question(question.id, &bmo_job_client::QuestionChange::default())
+    .await
+    .expect_err("a change naming nothing is refused");
+  client.reply(question.id, &reply(Some("nom"), "nom")).await.expect("answered");
+  client
+    .change_question(
+      question.id,
+      &bmo_job_client::QuestionChange {
+        text: Some("too late".into()),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect_err("a settled question is not put again");
+}
+
+#[tokio::test]
+async fn an_asker_tracking_what_it_heard_does_not_tell_the_due_time_again() {
+  let service = Service::start().await;
+  let client = service.client();
+  let question = client
+    .ask(&NewQuestion {
+      asker_name: "job-1".into(),
+      text: "which grammar?".into(),
+      choices: vec!["strict".into(), "loose".into()],
+      wait_ms: Some(1_000),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+
+  service.pass(1_000).await;
+  client
+    .change_question(
+      question.id,
+      &bmo_job_client::QuestionChange {
+        heard_through: Some(1),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("moved");
+  service.pass(1_000).await;
+
+  let told = client
+    .events_page(&EventQuery {
+      kinds: Some("question.due".into()),
+      ..EventQuery::default()
+    })
+    .await
+    .expect("the events");
+
+  assert_eq!(told.items.len(), 1, "the due time is told once");
 }

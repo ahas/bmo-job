@@ -100,6 +100,8 @@ CREATE TABLE questions (
   due_at INTEGER,
   remaining_ms INTEGER,
   due_told INTEGER NOT NULL,
+  told_by_asker INTEGER NOT NULL DEFAULT 0,
+  heard_through INTEGER,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX questions_by_item ON questions (item_id);

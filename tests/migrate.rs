@@ -1,7 +1,8 @@
 //! A store of an older schema version brought up to the current one at start: from version 1, the question's
 //! recommendation and the reply's source and reason are added, a reply already standing coming from a person;
 //! from version 2, the item an item was raised from, filled from its `raised-by` label where that label is the
-//! key of another standing item, and the caller who holds a lease (docs/schema.md).
+//! key of another standing item, and the caller who holds a lease; from version 3, whether a question's asker
+//! tells of it and what it was handed (docs/schema.md).
 
 use bmo_job::{Clock, Store};
 use sqlx::Row;
@@ -76,7 +77,7 @@ async fn migrated(directory: &tempfile::TempDir, schema: &str, version: i64) -> 
 
   let pool = sqlx::SqlitePool::connect(&url).await.expect("the store");
   let version: i64 = sqlx::query_scalar("PRAGMA user_version").fetch_one(&pool).await.expect("the version");
-  assert_eq!(version, 3);
+  assert_eq!(version, 4);
   pool
 }
 
@@ -101,6 +102,8 @@ async fn a_version_one_store_is_brought_to_the_questions_recommendation() {
   let pool = migrated(&directory, &schema, 1).await;
   let questions = columns(&pool, "questions").await;
   assert!(questions.iter().any(|column| column == "recommendation"), "{questions:?}");
+  assert!(questions.iter().any(|column| column == "told_by_asker"), "{questions:?}");
+  assert!(questions.iter().any(|column| column == "heard_through"), "{questions:?}");
   let source: String = sqlx::query_scalar("SELECT source FROM replies WHERE id = 1")
     .fetch_one(&pool)
     .await
@@ -120,6 +123,7 @@ async fn a_version_two_store_fills_raised_by_from_a_label_naming_a_standing_item
   };
   let schema = [
     ITEMS_AND_LEASES_V1.to_owned(),
+    QUESTIONS_AND_REPLIES_V1.to_owned(),
     item(1, "{}"),
     item(2, r#"{"raised-by":"1"}"#),
     item(3, r#"{"raised-by":"99"}"#),

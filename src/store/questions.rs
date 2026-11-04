@@ -3,7 +3,8 @@
 use std::collections::HashSet;
 
 use bmo_job_client::{
-  Code, EventKind, NewQuestion, NewReply, Page, Question, QuestionQuery, QuestionState, Reply, ReplySource,
+  Code, EventKind, NewQuestion, NewReply, Page, Question, QuestionChange, QuestionQuery,
+  QuestionRecommendation, QuestionState, Reply, ReplySource,
 };
 use sqlx::Row;
 use sqlx::sqlite::SqliteRow;
@@ -14,7 +15,7 @@ use super::{Store, Tx, filled, from_json, listed, page_limit, paged, stored, to_
 use crate::refusal::Refusal;
 
 const QUESTION_COLUMNS: &str = "id, item_id, asker_name, scope, text, choices, recommendation, state, due_at, \
-  remaining_ms, due_told, created_at";
+  remaining_ms, due_told, told_by_asker, heard_through, created_at";
 
 /// The wait a question gets where the asker names none, and the least and longest it may name.
 const DEFAULT_ASK_WAIT_MS: i64 = 60_000;
@@ -25,6 +26,7 @@ const LONGEST_ASK_WAIT_MS: i64 = 86_400_000;
 struct Kept {
   question: Question,
   remaining_ms: Option<i64>,
+  due_told: bool,
 }
 
 fn kept_from(row: &SqliteRow) -> Result<Kept, Refusal> {
@@ -42,9 +44,12 @@ fn kept_from(row: &SqliteRow) -> Result<Kept, Refusal> {
       },
       state: stored(row.try_get("state")?, QuestionState::parse)?,
       due_at: row.try_get("due_at")?,
+      told_by_asker: row.try_get::<i64, _>("told_by_asker")? != 0,
+      heard_through: row.try_get("heard_through")?,
       created_at: row.try_get("created_at")?,
     },
     remaining_ms: row.try_get("remaining_ms")?,
+    due_told: row.try_get::<i64, _>("due_told")? != 0,
   })
 }
 
@@ -86,14 +91,17 @@ pub(crate) async fn question_keys(tx: &mut Tx, question: &Question) -> Result<Ev
 
 async fn save_question(tx: &mut Tx, kept: &Kept, due_told: bool) -> Result<(), Refusal> {
   sqlx::query(
-    "UPDATE questions SET state = $1, due_at = $2, remaining_ms = $3, due_told = $4, recommendation = $5 \
-     WHERE id = $6",
+    "UPDATE questions SET state = $1, due_at = $2, remaining_ms = $3, due_told = $4, recommendation = $5, \
+     text = $6, choices = $7, heard_through = $8 WHERE id = $9",
   )
   .bind(kept.question.state.as_str())
   .bind(kept.question.due_at)
   .bind(kept.remaining_ms)
   .bind(i64::from(due_told))
   .bind(kept.question.recommendation.as_ref().map(to_json))
+  .bind(&kept.question.text)
+  .bind(to_json(&kept.question.choices))
+  .bind(kept.question.heard_through)
   .bind(kept.question.id)
   .execute(&mut **tx)
   .await?;
@@ -104,6 +112,24 @@ async fn told_question(tx: &mut Tx, at: i64, kind: EventKind, question: &Questio
   let keys = question_keys(tx, question).await?;
   emit(tx, at, kind.as_str(), question, &keys).await?;
   Ok(())
+}
+
+/// What a question's choices must be: each filled, none twice.
+fn judged_choices(choices: &[String]) -> Result<(), Refusal> {
+  let mut seen = HashSet::new();
+  for choice in choices {
+    filled("choice", choice)?;
+    if !seen.insert(choice.as_str()) {
+      return Err(Refusal::bad_request(format!("The choice {choice:?} stands twice.")));
+    }
+  }
+  Ok(())
+}
+
+/// What a recommendation must hold: an answer and a reason.
+fn judged_recommendation(recommendation: &QuestionRecommendation) -> Result<(), Refusal> {
+  filled("recommendation.answer", &recommendation.answer)?;
+  filled("recommendation.why", &recommendation.why)
 }
 
 /// Removes a question and its replies, telling it as deleted.
@@ -197,16 +223,9 @@ impl Store {
   pub async fn ask(&self, new: NewQuestion) -> Result<Question, Refusal> {
     filled("askerName", &new.asker_name)?;
     filled("text", &new.text)?;
-    let mut seen = HashSet::new();
-    for choice in &new.choices {
-      filled("choice", choice)?;
-      if !seen.insert(choice.as_str()) {
-        return Err(Refusal::bad_request(format!("The choice {choice:?} stands twice.")));
-      }
-    }
+    judged_choices(&new.choices)?;
     if let Some(recommendation) = &new.recommendation {
-      filled("recommendation.answer", &recommendation.answer)?;
-      filled("recommendation.why", &recommendation.why)?;
+      judged_recommendation(recommendation)?;
     }
     let wait = new.wait_ms.unwrap_or(DEFAULT_ASK_WAIT_MS);
     if !(LEAST_ASK_WAIT_MS..=LONGEST_ASK_WAIT_MS).contains(&wait) {
@@ -227,7 +246,7 @@ impl Store {
     }
     let id: i64 = sqlx::query_scalar(
       "INSERT INTO questions (item_id, asker_name, scope, text, choices, recommendation, state, due_at, \
-       due_told, created_at) VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, 0, $8) RETURNING id",
+       due_told, told_by_asker, created_at) VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, 0, $8, $9) RETURNING id",
     )
     .bind(new.item_id)
     .bind(&new.asker_name)
@@ -236,6 +255,7 @@ impl Store {
     .bind(to_json(&new.choices))
     .bind(new.recommendation.as_ref().map(to_json))
     .bind(now + wait)
+    .bind(i64::from(new.told_by_asker))
     .bind(now)
     .fetch_one(&mut *tx)
     .await?;
@@ -252,32 +272,78 @@ impl Store {
     Ok(question)
   }
 
-  /// Pauses a question's clock, starts it again, or withdraws the question.
-  pub async fn change_question(&self, id: i64, state: QuestionState) -> Result<Question, Refusal> {
+  /// Pauses a question's clock, starts it again, withdraws the question or closes it unsent; puts it again in
+  /// other words; moves what its asker was handed.
+  pub async fn change_question(&self, id: i64, change: QuestionChange) -> Result<Question, Refusal> {
+    let QuestionChange {
+      state,
+      text,
+      choices,
+      recommendation,
+      heard_through,
+    } = change;
+    if state.is_none()
+      && text.is_none()
+      && choices.is_none()
+      && recommendation.is_none()
+      && heard_through.is_none()
+    {
+      return Err(Refusal::bad_request("A change names a state, words, or what the asker was handed."));
+    }
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut kept = kept_at(&mut tx, id).await?;
-    let from = kept.question.state;
-    if from == state {
-      tx.commit().await?;
-      return Ok(kept.question);
-    }
-    let mut due_told = false;
-    match (from, state) {
-      (QuestionState::Open, QuestionState::Paused) => {
-        kept.remaining_ms = kept.question.due_at.map(|due| (due - now).max(0));
-        kept.question.due_at = None;
+    let mut due_told = kept.due_told;
+    let mut moved = false;
+    if text.is_some() || choices.is_some() || recommendation.is_some() {
+      if !matches!(kept.question.state, QuestionState::Open | QuestionState::Paused) {
+        return Err(Refusal::conflict(format!(
+          "The question is {} and is not put again.",
+          kept.question.state
+        )));
       }
-      (QuestionState::Paused, QuestionState::Open) => {
-        kept.question.due_at = kept.remaining_ms.map(|left| now + left);
-        kept.remaining_ms = None;
+      if let Some(text) = text {
+        filled("text", &text)?;
+        kept.question.text = text;
       }
-      (QuestionState::Open | QuestionState::Paused, QuestionState::Withdrawn) => due_told = true,
-      _ => return Err(Refusal::conflict(format!("A question {from} cannot move to {state}."))),
+      if let Some(choices) = choices {
+        judged_choices(&choices)?;
+        kept.question.choices = choices;
+      }
+      if let Some(recommendation) = recommendation {
+        judged_recommendation(&recommendation)?;
+        kept.question.recommendation = Some(recommendation);
+      }
+      moved = true;
     }
-    kept.question.state = state;
+    if let Some(heard) = heard_through {
+      kept.question.heard_through = Some(kept.question.heard_through.map_or(heard, |had| had.max(heard)));
+    }
+    if let Some(state) = state.filter(|state| *state != kept.question.state) {
+      let from = kept.question.state;
+      match (from, state) {
+        (QuestionState::Open, QuestionState::Paused) => {
+          kept.remaining_ms = kept.question.due_at.map(|due| (due - now).max(0));
+          kept.question.due_at = None;
+          due_told = false;
+        }
+        (QuestionState::Paused, QuestionState::Open) => {
+          kept.question.due_at = kept.remaining_ms.map(|left| now + left);
+          kept.remaining_ms = None;
+          due_told = false;
+        }
+        (QuestionState::Open | QuestionState::Paused, QuestionState::Withdrawn | QuestionState::Unsent) => {
+          due_told = true;
+        }
+        _ => return Err(Refusal::conflict(format!("A question {from} cannot move to {state}."))),
+      }
+      kept.question.state = state;
+      moved = true;
+    }
     save_question(&mut tx, &kept, due_told).await?;
-    told_question(&mut tx, now, EventKind::QuestionChanged, &kept.question).await?;
+    if moved {
+      told_question(&mut tx, now, EventKind::QuestionChanged, &kept.question).await?;
+    }
     self.commit(tx).await?;
     Ok(kept.question)
   }
@@ -385,7 +451,7 @@ async fn reply_in(tx: &mut Tx, question_id: i64, new: NewReply, now: i64) -> Res
 }
 
 /// Writes a reply to a question in the transaction given, telling it and answering the question where it
-/// settles: from a person, or from the recommendation when the wait ran out.
+/// settles.
 #[allow(clippy::too_many_arguments)]
 async fn write_reply(
   tx: &mut Tx,

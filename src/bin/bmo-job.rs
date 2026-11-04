@@ -5,8 +5,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use bmo_job::Settings;
+use bmo_job::job_ask::{self, Ending, NewAsk, Receiver, TALK_EXIT, TalkAsk};
 use bmo_job::job_close::{self, JobCloseArgs};
-use bmo_job::todo_cli::{self, TodoArgs};
+use bmo_job::todo_cli::{self, AddArgs, StopHereArgs, TodoArgs};
+use bmo_job::work_order_cli;
 use bmo_job_plugin::Start;
 use clap::{Parser, Subcommand};
 
@@ -49,21 +51,60 @@ enum Verb {
     #[arg(long, value_name = "tools", env = "BMO_JOB_MCP_WITHOUT", value_delimiter = ',')]
     without: Vec<String>,
   },
-  /// Closes an item through the service's own routes: its report and what it could not reach are kept on it,
-  /// and its state is set to done.
+  /// An item closed, held with the run's account on it, or raised, each through the service's own routes.
   Todo {
     /// The item to close, by its number, with or without a leading `#`.
-    #[arg(long, value_name = "item")]
-    done: String,
-    /// How the work was done, kept as the item's final report.
+    #[arg(long, value_name = "item", conflicts_with_all = ["stop_here", "add"])]
+    done: Option<String>,
+    /// The item the run stops short on: its account left on it, and the item held where it is not yet.
+    #[arg(long = "stop-here", value_name = "item", conflicts_with = "add")]
+    stop_here: Option<String>,
+    /// Raises a new row out of the run's own work.
+    #[arg(long)]
+    add: bool,
+    /// The account of the work: on a closing the final report, on a stop the held one.
     #[arg(long, value_name = "text", allow_hyphen_values = true)]
     report: Option<String>,
     /// What the job's hands could not reach, kept as a held report.
     #[arg(long, value_name = "text", allow_hyphen_values = true)]
     unfinished: Option<String>,
-    /// Who writes the closing; the run's agent where left out.
+    /// Why the run holds the item, in English.
+    #[arg(long, value_name = "reason", allow_hyphen_values = true)]
+    why: Option<String>,
+    /// The item whose finishing makes this one ready.
+    #[arg(long, value_name = "item")]
+    after: Option<String>,
+    /// The item, or the commit, whose going live makes this one ready.
+    #[arg(long = "after-deploy", value_name = "item or commit")]
+    after_deploy: Option<String>,
+    /// The new row's title.
+    #[arg(long, value_name = "words", allow_hyphen_values = true)]
+    title: Option<String>,
+    /// What the work is, why it was left and what to do about it: the new row's brief.
+    #[arg(long, value_name = "words", allow_hyphen_values = true)]
+    judgement: Option<String>,
+    /// The strands of notes the new row takes up, as `<id>:<strand>[,<id>:<strand>]`.
+    #[arg(long = "from-todo", value_name = "strands")]
+    from_todo: Option<String>,
+    /// The item the new row was raised from.
+    #[arg(long = "raised-by", value_name = "item")]
+    raised_by: Option<String>,
+    /// Who writes it; the run's agent where left out.
     #[arg(long, value_name = "name")]
     by: Option<String>,
+  },
+  /// A step added to an item's work order.
+  #[command(name = "work-order")]
+  WorkOrder {
+    /// The item whose work order it is.
+    #[arg(long, value_name = "item")]
+    todo: String,
+    /// The step's title.
+    #[arg(long, value_name = "title", allow_hyphen_values = true)]
+    add: String,
+    /// What the step is to do.
+    #[arg(long, value_name = "words", allow_hyphen_values = true)]
+    instruction: Option<String>,
   },
   /// Prints the OpenAPI document.
   Openapi,
@@ -92,6 +133,131 @@ enum JobVerb {
     #[arg(long = "skip-suite", value_name = "why", allow_hyphen_values = true)]
     skip_suite: Option<String>,
   },
+  /// Puts a choice to the owner in the middle of a job and waits for a person to settle it, or with --talk answers
+  /// his talk over the question and waits on it again.
+  Ask {
+    /// The item it is asked about.
+    #[arg(long, value_name = "item")]
+    todo: Option<String>,
+    /// What is to be settled.
+    #[arg(long, value_name = "words", allow_hyphen_values = true)]
+    question: Option<String>,
+    /// One option apiece, in the order the room numbers them.
+    #[arg(long = "option", value_name = "words", allow_hyphen_values = true)]
+    options: Vec<String>,
+    /// The option you would take, by its number.
+    #[arg(long, value_name = "n", allow_hyphen_values = true)]
+    recommend: Option<String>,
+    /// Why you cannot settle it yourself, in one line.
+    #[arg(long, value_name = "words", allow_hyphen_values = true)]
+    why: Option<String>,
+    /// The question whose talk this answers, by the number its talk came back with.
+    #[arg(long, value_name = "question")]
+    talk: Option<String>,
+    /// Your answer in the talk.
+    #[arg(long, value_name = "words", allow_hyphen_values = true)]
+    say: Option<String>,
+  },
+}
+
+// A number as a shell names it, with or without a leading `#`.
+fn numbered(said: &str) -> Option<i64> {
+  said.trim().trim_start_matches('#').parse().ok()
+}
+
+// Who the run writes as: the name given, else the run's agent, else the shell's user.
+fn writer(named: Option<String>) -> String {
+  named
+    .or_else(|| std::env::var("BMO_TURN_AGENT").ok())
+    .or_else(|| std::env::var("USER").ok())
+    .unwrap_or_default()
+}
+
+// What the run was told to stop by: the signals a run and its pane are ended with.
+async fn told_to_stop() {
+  use tokio::signal::unix::{SignalKind, signal};
+
+  let kinds = [SignalKind::terminate(), SignalKind::interrupt(), SignalKind::hangup()];
+  let mut heard: Vec<_> = kinds.into_iter().filter_map(|kind| signal(kind).ok()).collect();
+
+  if heard.is_empty() {
+    return std::future::pending().await;
+  }
+
+  let waits = heard.iter_mut().map(|one| Box::pin(one.recv()));
+
+  futures_util::future::select_all(waits).await;
+}
+
+// The verb asked: a new question or a talk, and how its wait ended as the job reads it.
+async fn job_ask(
+  todo: Option<String>,
+  question: Option<String>,
+  options: Vec<String>,
+  recommend: Option<String>,
+  why: Option<String>,
+  talk: Option<String>,
+  say: Option<String>,
+) -> ExitCode {
+  let reached = todo_cli::client().and_then(|client| Ok((client, Receiver::of_process(&data_root())?)));
+  let (client, receiver) = match reached {
+    Ok(reached) => reached,
+    Err(why) => {
+      eprintln!("ask: {why}");
+
+      return ExitCode::FAILURE;
+    }
+  };
+  let recommend = recommend.as_deref().and_then(numbered);
+  let waited = match talk {
+    Some(talk) => {
+      let Some(question_id) = numbered(&talk) else {
+        eprintln!("ask: --talk {talk:?} is not a question's number\n{}", job_ask::USAGE);
+
+        return ExitCode::FAILURE;
+      };
+      let asked = TalkAsk {
+        question: question_id,
+        say: say.unwrap_or_default(),
+        options,
+        recommend,
+        text: question,
+        why,
+      };
+
+      job_ask::talk(&client, &receiver, &asked, told_to_stop()).await
+    }
+    None => {
+      let asked = NewAsk {
+        item: todo.as_deref().and_then(numbered),
+        question: question.unwrap_or_default(),
+        options,
+        recommend,
+        why: why.unwrap_or_default(),
+        by: std::env::var("BMO_RUN_NAME").unwrap_or_else(|_| writer(None)),
+      };
+
+      job_ask::ask(&client, &receiver, &asked, told_to_stop()).await
+    }
+  };
+
+  match waited {
+    Ok(Ending::Settled(line)) => {
+      println!("{line}");
+
+      ExitCode::SUCCESS
+    }
+    Ok(Ending::Talk(message)) => {
+      println!("{message}");
+
+      ExitCode::from(TALK_EXIT)
+    }
+    Err(why) => {
+      eprintln!("{why}");
+
+      ExitCode::FAILURE
+    }
+  }
 }
 
 /// The import's report, one table a line.
@@ -137,7 +303,9 @@ async fn main() -> ExitCode {
   match verb {
     Verb::Nouns => {
       println!("job");
+      println!("job ask\thome");
       println!("todo");
+      println!("work-order");
 
       ExitCode::SUCCESS
     }
@@ -166,40 +334,101 @@ async fn main() -> ExitCode {
           }
         }
       }
+      JobVerb::Ask {
+        todo,
+        question,
+        options,
+        recommend,
+        why,
+        talk,
+        say,
+      } => job_ask(todo, question, options, recommend, why, talk, say).await,
     },
     Verb::Todo {
       done,
+      stop_here,
+      add,
       report,
       unfinished,
+      why,
+      after,
+      after_deploy,
+      title,
+      judgement,
+      from_todo,
+      raised_by,
       by,
-    } => ended(match done.trim().trim_start_matches('#').parse::<i64>() {
-      Err(_) => Err(format!("--done {done:?} is not an item number")),
-      Ok(done) => match todo_cli::client() {
-        Ok(client) => {
-          let by = by
-            .or_else(|| std::env::var("BMO_TURN_AGENT").ok())
-            .or_else(|| std::env::var("USER").ok())
-            .unwrap_or_default();
-
-          todo_cli::close(
-            &client,
-            &TodoArgs {
-              done,
-              report,
-              unfinished,
-              by,
-            },
-          )
-          .await
-          .map(|lines| {
-            for line in lines {
-              println!("{line}")
+    } => ended(
+      async {
+        let client = todo_cli::client()?;
+        let by = writer(by);
+        let lines = if add {
+          let raised_by = match raised_by.as_deref() {
+            Some(said) => {
+              Some(numbered(said).ok_or_else(|| format!("--raised-by {said:?} is not an item number"))?)
             }
-          })
+            None => None,
+          };
+          let args = AddArgs {
+            title: title.unwrap_or_default(),
+            judgement: judgement.unwrap_or_default(),
+            raised_by,
+            from_todo,
+            by,
+          };
+
+          vec![todo_cli::add(&client, &args).await?]
+        } else if let Some(said) = stop_here {
+          let item =
+            numbered(&said).ok_or_else(|| format!("--stop-here {said:?} is not an item number"))?;
+          let args = StopHereArgs {
+            item,
+            report,
+            why,
+            after,
+            after_deploy,
+            by,
+          };
+
+          todo_cli::stop_here(&client, &args).await?
+        } else if let Some(said) = done {
+          let done = numbered(&said).ok_or_else(|| format!("--done {said:?} is not an item number"))?;
+          let args = TodoArgs {
+            done,
+            report,
+            unfinished,
+            by,
+          };
+
+          todo_cli::close(&client, &args).await?
+        } else {
+          return Err("todo takes --done <item>, --stop-here <item> or --add".to_owned());
+        };
+
+        for line in lines {
+          println!("{line}");
         }
-        Err(why) => Err(why),
-      },
-    }),
+
+        Ok::<(), String>(())
+      }
+      .await,
+    ),
+    Verb::WorkOrder {
+      todo,
+      add,
+      instruction,
+    } => ended(
+      async {
+        let item = numbered(&todo).ok_or_else(|| format!("--todo {todo:?} is not an item number"))?;
+        let client = todo_cli::client()?;
+        let line = work_order_cli::add_step(&client, item, &add, instruction.as_deref()).await?;
+
+        println!("{line}");
+
+        Ok::<(), String>(())
+      }
+      .await,
+    ),
     Verb::Serve => ended(match Settings::load(&Settings::place()) {
       Ok(settings) => bmo_job::serve(settings).await,
       Err(why) => Err(why),

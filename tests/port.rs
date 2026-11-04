@@ -145,7 +145,8 @@ async fn a_rooms_open_questions_are_read_last_asked_first() {
     .change_question(
       paused.id,
       &QuestionChange {
-        state: QuestionState::Paused,
+        state: Some(QuestionState::Paused),
+        ..Default::default()
       },
     )
     .await

@@ -251,7 +251,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Pause or start a question's clock again, or withdraw it. */
+        /** Pause or start a question's clock again, withdraw it or close it unsent, put it again in other words, or move what its asker was handed. */
         patch: operations["changeQuestionsByQuestionId"];
         trace?: never;
     };
@@ -670,6 +670,8 @@ export interface components {
             /** @description The item's scope where left out. */
             scope?: string | null;
             text: string;
+            /** @description Whether the asker puts it before whoever answers it itself; false where left out. */
+            toldByAsker?: boolean;
             /**
              * Format: int64
              * @description How long the question goes unanswered before it is told of as due, 1 000 to 86 400 000 milliseconds;
@@ -766,6 +768,11 @@ export interface components {
              * @description Epoch milliseconds the asker wants an answer by; null while paused or where none was given.
              */
             dueAt: number | null;
+            /**
+             * Format: int64
+             * @description The last reply its asker has been handed; null where it has been handed none.
+             */
+            heardThrough: number | null;
             /** Format: int64 */
             id: number;
             /** Format: int64 */
@@ -775,10 +782,23 @@ export interface components {
             scope: string | null;
             state: components["schemas"]["QuestionState"];
             text: string;
+            /** @description Whether the asker puts it before whoever answers it itself, so no consumer of the events tells of it. */
+            toldByAsker: boolean;
         };
-        /** @description A question paused, opened again or withdrawn. */
+        /**
+         * @description A question paused, opened again, withdrawn or closed unsent; put again in other words; or told how far its
+         *     asker has been handed its replies.
+         */
         QuestionChange: {
-            state: components["schemas"]["QuestionState"];
+            choices?: string[] | null;
+            /**
+             * Format: int64
+             * @description The last reply the asker was handed.
+             */
+            heardThrough?: number | null;
+            recommendation?: components["schemas"]["QuestionRecommendation"] | null;
+            state?: components["schemas"]["QuestionState"] | null;
+            text?: string | null;
         };
         /** @description One page of a list, and whether anything stands past its last member. */
         QuestionPage: {
@@ -796,7 +816,7 @@ export interface components {
          * @description Where a question stands.
          * @enum {string}
          */
-        QuestionState: "open" | "paused" | "answered" | "withdrawn";
+        QuestionState: "open" | "paused" | "answered" | "withdrawn" | "unsent";
         /** @description A queue. */
         Queue: {
             /**
