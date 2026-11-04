@@ -114,7 +114,6 @@ fn the_contract_names_nothing_of_its_callers() {
     "room",
     "owner",
     "persona",
-    "companion",
     "receiver",
     "console",
   ];

@@ -36,7 +36,7 @@ carries them and a change that breaks a rule fails like any other test.
 
 - **What it reads:** the OpenAPI document the code generates, its tools among it, and the `bmo-job` skill.
 - **What fails:** a word that names a unit's caller or a concept only a caller holds: an agent, the agency, a
-  worker, a room, the owner, a persona, a companion, the receiver, the console. Callers are the caller's own
+  worker, a room, the owner, a persona, the receiver, the console. Callers are the caller's own
   opaque `scope`, `<role>Name` and `labels`.
 
 ## The committed contract is the generated one
