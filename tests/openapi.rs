@@ -107,16 +107,7 @@ async fn every_stated_route_is_served() {
 
 #[test]
 fn the_contract_names_nothing_of_its_callers() {
-  let words = [
-    "agent",
-    "agency",
-    "worker",
-    "room",
-    "owner",
-    "persona",
-    "receiver",
-    "console",
-  ];
+  let words = ["agent", "agency", "worker", "room", "owner", "persona", "receiver", "console"];
   let mut text = serde_json::to_string(&document()).expect("the document renders");
   text.push_str(
     &fs::read_to_string(Path::new(ROOT).join("crates/plugin/skills/bmo-job/SKILL.md"))
