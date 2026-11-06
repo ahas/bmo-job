@@ -1,5 +1,6 @@
 //! `bmo-job job close` from a shell (docs/cli.md, docs/deploy.md): the job's commit handed over to its
-//! repository's deployment, with the range narrowed to the commit that deployment last wrote down as live.
+//! repository's deployment, with the range narrowed to the commit that deployment last wrote down as live,
+//! or to the job's own base where that commit is not in the repository the close runs in.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -36,7 +37,7 @@ pub fn close(
 
   let head =
     git(root, &["rev-parse", "HEAD"]).map_err(|why| format!("the checkout is on no commit: {why}"))?;
-  let short = head.chars().take(12).collect::<String>();
+  let short = short_of(&head);
   let mut lines = vec![format!("job-close: {}", args.then_reason.trim())];
   let deployed = deployed_commit_of(root, data_root);
 
@@ -48,11 +49,27 @@ pub fn close(
 
   let remote = remote_branch(root);
   let main = git(root, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_else(|_| "main".to_owned());
-  let base = match deployed {
-    Some(commit) => commit,
-    None => git(root, &["rev-parse", "--verify", &remote]).map_err(|_| {
-      format!("no deployment record names the live commit, and the remote {remote} is not known")
-    })?,
+  let base = match deployed.as_deref() {
+    // The record's commit is the range only where this repository holds it and HEAD stands past it.
+    Some(commit) if is_ancestor(root, commit, &head) => commit.to_owned(),
+    record => {
+      let base = job_base(root).ok_or_else(|| no_range_refusal(root, record))?;
+      lines.push(match record {
+        Some(commit) => format!(
+          "the deployment record's {} is not in this repository or not an ancestor of HEAD; the range is {}..{}",
+          short_of(commit),
+          short_of(&base),
+          short
+        ),
+        None => format!(
+          "no deployment record names the live commit; the range is {}..{}",
+          short_of(&base),
+          short
+        ),
+      });
+
+      base
+    }
   };
 
   if let Some(refusal) = commits_refusal(root, &base, &main)? {
@@ -192,9 +209,77 @@ fn is_ancestor(root: &Path, ancestor: &str, descendant: &str) -> bool {
     .arg("-C")
     .arg(root)
     .args(["merge-base", "--is-ancestor", ancestor, descendant])
-    .status()
-    .map(|status| status.success())
+    .output()
+    .map(|output| output.status.success())
     .unwrap_or(false)
+}
+
+// The job's own base commit: the last commit HEAD shares with the branch the checkout was made from, so the
+// range past it holds this job's commits alone.
+fn job_base(root: &Path) -> Option<String> {
+  let landing = landing_ref(root)?;
+  let base = git(root, &["merge-base", "HEAD", &landing]).ok()?;
+
+  (!base.is_empty()).then_some(base)
+}
+
+// The branch the checkout was made from: the one its git configuration writes down, else `main`, else
+// `master`, else the remote branch it follows.
+fn landing_ref(root: &Path) -> Option<String> {
+  let current = git(root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
+    .ok()
+    .filter(|branch| !branch.is_empty());
+  let remote = remote_branch(root);
+
+  if let Some(branch) = current.as_deref() {
+    for key in ["bmo-main", "bmo-from"] {
+      if let Ok(from) = git(root, &["config", "--get", &format!("branch.{branch}.{key}")])
+        && !from.is_empty()
+        && resolves(root, &from)
+      {
+        return Some(from);
+      }
+    }
+
+    if branch != "main" && branch != "master" {
+      for name in ["main", "master", remote.as_str()] {
+        if resolves(root, name) {
+          return Some(name.to_owned());
+        }
+      }
+    }
+  }
+
+  if resolves(root, &remote) {
+    return Some(remote);
+  }
+
+  ["main", "master"].into_iter().find(|name| resolves(root, name)).map(str::to_owned)
+}
+
+fn resolves(root: &Path, name: &str) -> bool {
+  git(root, &["rev-parse", "--verify", "--quiet", &format!("{name}^{{commit}}")]).is_ok()
+}
+
+// Why no range was established: the record's commit when it names one, and the repository the close runs in.
+fn no_range_refusal(root: &Path, record: Option<&str>) -> String {
+  let repository = root
+    .file_name()
+    .map_or_else(|| "this repository".to_owned(), |name| name.to_string_lossy().into_owned());
+
+  match record {
+    Some(commit) => format!(
+      "no range can be established in {repository}: the deployment record names {}, which is not an ancestor of HEAD there, and no branch of it serves as the job's base",
+      short_of(commit)
+    ),
+    None => format!(
+      "no range can be established in {repository}: no deployment record names the live commit, and no branch of it serves as the job's base"
+    ),
+  }
+}
+
+fn short_of(commit: &str) -> String {
+  commit.chars().take(12).collect()
 }
 
 fn run(root: &Path, testbed: &Path, verb: &str, what: &str) -> Result<(), String> {

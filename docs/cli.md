@@ -26,8 +26,10 @@ the unit command the deployment links into `~/.local/bin` (docs/deploy.md, "The 
 The close reads the live commit from the deployment record (docs/deploy.md, "A job closes"), narrows the job's
 own commits to those past it, refuses a commit whose message holds Hangul or one that is not on the remote,
 runs the check and the suite, and ends `waiting to go live: <commit> stands pushed for its deployment`. A
-commit the record already names as live runs nothing and ends clean. It reads no archive and no pending list;
-the deployment that records what goes live writes the commit down.
+commit the record already names as live runs nothing and ends clean. Where the record's commit is not in the
+repository or is no ancestor of `HEAD`, the range is taken from the job's own base commit instead, and the
+close says in one line which range it used. It reads no archive and no pending list; the deployment that
+records what goes live writes the commit down.
 
 ## `bmo-job job ask`
 

@@ -49,6 +49,12 @@ bmo-testbed's. This document states what the declaration says of this service.
 - **The close's range.** `bmo job close` reads the record's commit and takes the job's own commits as those past
   it. A commit before the record is not the job's, and its message is not read. A commit the record already
   names as live runs nothing and ends clean.
+- **A record commit the repository does not hold.** Where the record's commit is absent from the repository the
+  close runs in or is no ancestor of its `HEAD`, the close takes the job's own base commit instead: the last
+  commit `HEAD` shares with the branch the checkout was made from, read from the branch its git configuration
+  names for it, else `main`, else `master`, else the remote branch it follows. The close says in one line
+  which range it used. Where no such base can be read, it is refused with a reason naming the record's commit
+  and the repository.
 - **The handover.** A commit on the remote whose messages, and whose close reasons, are English runs the check
   and the suite (the suite skipped where `--skip-suite` gives the reason) and ends
   `waiting to go live: <commit> stands pushed for its deployment`. An unpushed commit, or one the remote does

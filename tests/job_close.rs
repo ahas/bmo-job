@@ -57,6 +57,20 @@ fn record_at(deploy_root: &Path, commit: &str) {
   fs::write(deploy_root.join("deployed.json"), RECORD.replace("{commit}", commit)).expect("the record");
 }
 
+// A record the platform's data root holds, which a checkout with no declaration reads.
+fn platform_record_at(data_root: &Path, commit: &str) {
+  fs::write(
+    data_root.join("deployed.json"),
+    format!(
+      "{{\"commit\":\"{commit}\",\"subject\":\"A deployment\",\"at\":\"2026-10-21T18:36:32.828Z\",\"backup\":\"\"}}"
+    ),
+  )
+  .expect("the platform record");
+}
+
+// A commit no checkout of the test's repository holds.
+const FOREIGN: &str = "b0dd02ec3a4edabffb3c794b3d4e54eeffbe561b";
+
 // A testbed standing in for the real one: it writes the verb it was asked on a line.
 fn testbed_at(dir: &Path) -> (PathBuf, PathBuf) {
   let calls = dir.join("testbed-calls");
@@ -272,6 +286,102 @@ fn a_reason_holding_hangul_is_refused() {
     .expect_err("a reason with Hangul");
 
   assert!(refused.contains("--then holds Hangul"), "{refused}");
+  assert!(!calls.exists(), "a refused close runs nothing");
+}
+
+#[test]
+fn a_foreign_record_falls_back_to_the_job_s_own_base_and_hands_the_commit_over() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+
+  init(repo.path());
+  let base = commit(repo.path(), "one.md", "Add the first page");
+  let head = commit(repo.path(), "two.md", "Add the second page");
+  git(repo.path(), &["update-ref", "refs/remotes/origin/main", &head]);
+  platform_record_at(data.path(), FOREIGN);
+
+  let (testbed, calls) = testbed_at(data.path());
+  let lines =
+    run_close(repo.path(), data.path(), "Land the second page", None, &testbed).expect("handed over");
+  let pushed = format!("waiting to go live: {} stands pushed for its deployment", &head[..12]);
+  let range = format!("the range is {}..{}", &head[..12], &head[..12]);
+
+  assert!(lines.iter().any(|line| line == &pushed), "{lines:?}");
+  assert!(
+    lines.iter().any(|line| line.contains(&FOREIGN[..12]) && line.contains(&range)),
+    "{lines:?}"
+  );
+  let said = fs::read_to_string(calls).expect("the testbed stand-in's calls");
+  assert!(said.contains("check"), "{said}");
+  assert!(said.contains("suite"), "{said}");
+
+  // The job's own base is the last commit HEAD shares with the branch it lands on, so the range is
+  // established without the foreign commit and the commit it is measured from is this repository's.
+  assert_ne!(&base[..12], &head[..12]);
+}
+
+#[test]
+fn a_foreign_record_does_not_read_an_earlier_hangul_commit_as_the_job_s_own() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+
+  init(repo.path());
+  commit(repo.path(), "old.md", &format!("Add the old page\n\nAs asked: {}", '\u{AC00}'));
+  commit(repo.path(), "one.md", "Add the first page");
+  let head = commit(repo.path(), "two.md", "Add the second page");
+  git(repo.path(), &["update-ref", "refs/remotes/origin/main", &head]);
+  platform_record_at(data.path(), FOREIGN);
+
+  let (testbed, _calls) = testbed_at(data.path());
+  let lines =
+    run_close(repo.path(), data.path(), "Land the second page", None, &testbed).expect("handed over");
+
+  assert!(lines.iter().any(|line| line.contains("stands pushed for its deployment")), "{lines:?}");
+}
+
+#[test]
+fn a_record_commit_on_another_branch_is_not_taken_as_the_base() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+
+  init(repo.path());
+  let base = commit(repo.path(), "one.md", "Add the first page");
+  let head = commit(repo.path(), "two.md", "Add the second page");
+  git(repo.path(), &["update-ref", "refs/remotes/origin/main", &head]);
+  git(repo.path(), &["checkout", "-q", "-b", "other", &base]);
+  let elsewhere = commit(repo.path(), "other.md", "Add the other page");
+  git(repo.path(), &["checkout", "-q", "main"]);
+  platform_record_at(data.path(), &elsewhere);
+
+  let (testbed, _calls) = testbed_at(data.path());
+  let lines =
+    run_close(repo.path(), data.path(), "Land the second page", None, &testbed).expect("handed over");
+  let pushed = format!("waiting to go live: {} stands pushed for its deployment", &head[..12]);
+
+  assert!(lines.iter().any(|line| line == &pushed), "{lines:?}");
+  assert!(lines.iter().any(|line| line.contains(&elsewhere[..12])), "{lines:?}");
+}
+
+#[test]
+fn an_unpushed_commit_is_refused_while_the_record_is_foreign() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+
+  init(repo.path());
+  let base = commit(repo.path(), "one.md", "Add the first page");
+  let head = commit(repo.path(), "two.md", "Add the second page");
+  git(repo.path(), &["update-ref", "refs/remotes/origin/main", &base]);
+  platform_record_at(data.path(), FOREIGN);
+
+  let (testbed, calls) = testbed_at(data.path());
+  let refused =
+    run_close(repo.path(), data.path(), "Land the second page", None, &testbed).expect_err("unpushed");
+
+  assert!(
+    refused
+      .contains(&format!("{} is not on origin/main; an unpushed commit is not deployable", &head[..12])),
+    "{refused}"
+  );
   assert!(!calls.exists(), "a refused close runs nothing");
 }
 
