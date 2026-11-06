@@ -225,8 +225,23 @@ fn recommendation(options: &[String], recommend: i64, why: &str) -> Option<Quest
   })
 }
 
-// The question as the room's supervisor is handed it to put to the owner.
-fn question_order(item: i64, id: i64, text: &str, options: &[String], recommend: i64, why: &str) -> String {
+// The short marker a turn opens on: the notice it names, and its number. What to do with a notice stands in the
+// receiving session's own instructions, never in the turn.
+fn notice(kind: &str, id: i64) -> String {
+  format!("{kind} #{id}")
+}
+
+// The item a turn is about: its number and, where it could be read, its title.
+fn item_line(item: i64, title: Option<&str>) -> String {
+  match (item > 0, title) {
+    (true, Some(title)) => format!("item #{item}: {title}"),
+    (true, None) => format!("item #{item}"),
+    (false, _) => "item: none".to_owned(),
+  }
+}
+
+// The question as data: its words, its options numbered as the owner answers them, and why it is asked.
+fn question_data(text: &str, options: &[String], recommend: i64, why: &str) -> String {
   let lines: Vec<String> = options
     .iter()
     .enumerate()
@@ -237,21 +252,33 @@ fn question_order(item: i64, id: i64, text: &str, options: &[String], recommend:
     })
     .collect();
 
+  format!("{text}\n\n{}\n\nwhy: {why}", lines.join("\n"))
+}
+
+// The question as the room's supervisor is handed it: the notice, the item it is about and the question's data.
+fn question_order(
+  item: i64,
+  title: Option<&str>,
+  id: i64,
+  text: &str,
+  options: &[String],
+  recommend: i64,
+  why: &str,
+) -> String {
   format!(
-    "The job of item #{item} asks the owner question #{id}, and its run stands still until he settles it.\n\n{text}\n\n{}\n\nWhy it asks: {why}\n\nPut it to him in this room now as it stands, its options numbered as they are and the recommended one marked. He answers with a number or in his own words, and his answer reaches the job by itself. Never answer it for him and never choose for him.",
-    lines.join("\n"),
+    "{}\n{}\n\n{}",
+    notice("question-awaits-answer", id),
+    item_line(item, title),
+    question_data(text, options, recommend, why),
   )
 }
 
-// The job's answer in a talk, as the room's supervisor is handed it.
-fn talk_order(item: i64, id: i64, say: &str, put_again: Option<String>) -> String {
-  let again = put_again.map_or_else(String::new, |order| {
-    format!("\n\nThe talk changed the question, so it now stands as: {order}")
-  });
+// The job's answer in a talk, as the room's supervisor is handed it: the notice, the item and the words, with the
+// question's data again where the talk changed it.
+fn talk_order(item: i64, title: Option<&str>, id: i64, say: &str, put_again: Option<String>) -> String {
+  let again = put_again.map_or_else(String::new, |data| format!("\n\nquestion now stands as:\n{data}"));
 
-  format!(
-    "The job of item #{item} answers the owner's talk on question #{id}. Say this in this room as the job's words, under the item's number, so they are not taken for your own.\n\n{say}{again}\n\nThe question is still open: only he ends it, by choosing. Never answer it for him."
-  )
+  format!("{}\n{}\n\n{say}{again}", notice("question-talk", id), item_line(item, title))
 }
 
 // What the waiting job is handed when the owner talks: his words as he wrote them, and the call that answers him.
@@ -346,7 +373,16 @@ pub async fn ask(
     })
     .await
     .map_err(|why| format!("ask: the question was not opened: {why}"))?;
-  let order = question_order(item, question.id, &asked.question, &asked.options, recommend, &asked.why);
+  let title = client.item(item).await.ok().map(|item| item.title);
+  let order = question_order(
+    item,
+    title.as_deref(),
+    question.id,
+    &asked.question,
+    &asked.options,
+    recommend,
+    &asked.why,
+  );
   let summary = format!("Question #{} awaits the owner", question.id);
   let told = match receiver.order(room, "question-awaits-answer", question.id, &summary, &order).await {
     Ok(told) => told,
@@ -399,6 +435,10 @@ pub async fn talk(
     .and_then(|scope| scope.parse::<i64>().ok())
     .ok_or_else(|| format!("ask: question #{} stands in no room, so it takes no talk", question.id))?;
   let item = question.item_id.unwrap_or_default();
+  let title = match item > 0 {
+    true => client.item(item).await.ok().map(|item| item.title),
+    false => None,
+  };
   let mut put_again = None;
   let mut question = question;
 
@@ -438,10 +478,10 @@ pub async fn talk(
       .change_question(question.id, &change)
       .await
       .map_err(|why| format!("ask: {why}"))?;
-    put_again = Some(question_order(item, question.id, &text, &asked.options, recommend, &why));
+    put_again = Some(question_data(&text, &asked.options, recommend, &why));
   }
 
-  let order = talk_order(item, question.id, &asked.say, put_again);
+  let order = talk_order(item, title.as_deref(), question.id, &asked.say, put_again);
   let summary = format!("Question #{} goes on in talk", question.id);
 
   receiver

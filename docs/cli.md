@@ -57,6 +57,10 @@ no clock is among it.
   through the receiver's `POST /instructions`, an order under the sort `job` of the kind
   `question-awaits-answer`. Anything but a queued instruction is a failed send. A question that is settled or
   stopped has its instruction withdrawn where it has not reached the supervisor yet.
+- **What a turn carries.** An order carries the notice's kind and number, the item's number and title, and the data
+  it is about: the question and its options numbered with the recommended one marked, or the job's words in a talk,
+  with the question's words and options again where the talk changed it. It carries no instruction, since how a
+  notice is read stands in the receiving session's own instructions.
 - **What ends no wait.** A service or a receiver that does not answer while the verb waits is asked again; a
   restart is not an answer. Only a question the service no longer holds ends it, with 1.
 - **The due time.** The question is asked with a due time of one hour, which paces the one notice

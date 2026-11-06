@@ -179,6 +179,14 @@ fn person(choice: Option<&str>, text: &str) -> NewReply {
   }
 }
 
+// What the order handed to the room at `at` says.
+fn order_text(heard: &Heard, at: usize) -> String {
+  heard.orders.lock().expect("the orders")[at]["said"]["order"]
+    .as_str()
+    .expect("the order's words")
+    .to_owned()
+}
+
 #[tokio::test]
 async fn a_failed_send_ends_non_zero_prints_no_option_and_closes_the_question_unsent() {
   let service = Service::start().await;
@@ -254,6 +262,43 @@ async fn a_passed_due_time_settles_nothing_and_a_persons_answer_does() {
   assert_eq!(code, 0, "{err}");
   assert_eq!(out, "loose grammar\n", "the person's choice, not the recommendation");
   assert_eq!(*heard.withdrawn.lock().expect("the withdrawals"), [1]);
+}
+
+#[tokio::test]
+async fn the_question_turn_carries_a_marker_and_the_data_and_no_instruction() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let item = item(&client).await;
+  let child = asked(&service, &address, item);
+  let question = opened(&client, &heard, 1).await;
+  let turn = order_text(&heard, 0);
+
+  assert!(
+    turn.starts_with(&format!("question-awaits-answer #{}", question.id)),
+    "the notice is named first: {turn}"
+  );
+  assert!(
+    turn.contains(&format!("item #{item}: an item asked about")),
+    "the item and its title: {turn}"
+  );
+  assert!(turn.contains("which one?"), "the question's words: {turn}");
+  assert!(turn.contains("1. strict grammar (recommended)"), "{turn}");
+  assert!(turn.contains("2. loose grammar"), "{turn}");
+  assert!(turn.contains("why: A loose grammar reads a stray token as a rule."), "{turn}");
+
+  for instruction in ["asks the owner", "Put it to him", "Never answer it", "never choose"] {
+    assert!(!turn.contains(instruction), "the turn holds no instruction ({instruction}): {turn}");
+  }
+
+  client
+    .reply(question.id, &person(Some("strict grammar"), "strict grammar"))
+    .await
+    .expect("answered");
+
+  let (code, _, err) = ended(child).await;
+
+  assert_eq!(code, 0, "{err}");
 }
 
 #[tokio::test]
@@ -338,6 +383,24 @@ async fn talk_exits_3_the_question_stays_open_and_the_answer_waits_on_it_again()
   assert!(!out.contains("what does loose mean?"), "what was heard is not handed twice: {out}");
   assert_eq!(heard.orders.lock().expect("the orders").len(), 2, "the answer went to the room");
 
+  let turn = order_text(&heard, 1);
+
+  assert!(turn.starts_with(&format!("question-talk #{}", question.id)), "{turn}");
+  assert!(
+    turn.contains(&format!("item #{item}: an item asked about")),
+    "the item and its title: {turn}"
+  );
+  assert!(turn.contains("loose reads a stray token as a rule."), "the job's words: {turn}");
+
+  for instruction in [
+    "answers the owner's talk",
+    "Say this in this room",
+    "Never answer it",
+    "not taken for your own",
+  ] {
+    assert!(!turn.contains(instruction), "the turn holds no instruction ({instruction}): {turn}");
+  }
+
   // His choice ends it, the question put again in other words on the way.
   let child = command(
     &service,
@@ -360,6 +423,21 @@ async fn talk_exits_3_the_question_stays_open_and_the_answer_waits_on_it_again()
 
   opened(&client, &heard, 3).await;
   assert_eq!(client.question(question.id).await.expect("the question").choices, ["strict", "loose"]);
+
+  let put_again = order_text(&heard, 2);
+
+  assert!(put_again.starts_with(&format!("question-talk #{}", question.id)), "{put_again}");
+  assert!(put_again.contains("it costs the same."), "the job's words: {put_again}");
+  assert!(put_again.contains("question now stands as:"), "{put_again}");
+  assert!(put_again.contains("1. strict"), "{put_again}");
+  assert!(put_again.contains("2. loose (recommended)"), "{put_again}");
+
+  for instruction in ["asks the owner", "Put it to him", "Never answer it", "never choose"] {
+    assert!(
+      !put_again.contains(instruction),
+      "the turn holds no instruction ({instruction}): {put_again}"
+    );
+  }
   client.reply(question.id, &person(Some("strict"), "strict")).await.expect("answered");
 
   let (code, out, err) = ended(child).await;
