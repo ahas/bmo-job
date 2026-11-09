@@ -5,6 +5,7 @@ use crate::support;
 
 use std::collections::BTreeMap;
 
+use bmo_job::job_close::{COMMIT_LABEL, PHASE_LABEL, Standing, waiting_commit, write_standing};
 use bmo_job::todo_cli::{AddArgs, StopHereArgs, TodoArgs, add, close, stop_here};
 use bmo_job::work_order_cli::add_step;
 use bmo_job_client::{ItemState, LeaseAsk, LeaseWait, NewItem, PageQuery, ReportKind, WorkOrderBody};
@@ -72,6 +73,100 @@ async fn a_closing_reports_and_closes_through_the_service_routes() {
   assert_eq!(reports.items[1].kind, ReportKind::Final);
   assert_eq!(reports.items[1].body, "The work is done.");
   assert_eq!(reports.items[1].actor_name, "helper");
+}
+
+#[tokio::test]
+async fn a_close_s_standing_is_written_on_the_item_and_a_waiting_item_is_not_closed() {
+  let service = Service::start_unattended(&["lane=todo"]).await;
+  let client = service.client();
+  let item = client
+    .create_item(&NewItem {
+      title: "a waiting item".to_owned(),
+      brief: "close it once it is live".to_owned(),
+      queue_name: "todo".to_owned(),
+      labels: BTreeMap::from([("lane".to_owned(), "todo".to_owned())]),
+      ..NewItem::default()
+    })
+    .await
+    .unwrap();
+
+  client
+    .take_lease(
+      &LeaseAsk {
+        queue_name: "todo".to_owned(),
+        holder_name: "worker".to_owned(),
+        ttl_ms: 60_000,
+        assignee_name: None,
+        item_id: Some(item.id),
+      },
+      &LeaseWait { wait_ms: None },
+    )
+    .await
+    .unwrap()
+    .expect("the item is leased");
+
+  write_standing(&client, item.id, &Standing::Testing).await.unwrap();
+
+  let testing = client.item(item.id).await.unwrap();
+
+  assert_eq!(testing.labels.get(PHASE_LABEL).map(String::as_str), Some("testing"));
+  assert_eq!(
+    testing.labels.get("lane").map(String::as_str),
+    Some("todo"),
+    "its other labels are kept"
+  );
+  assert_eq!(waiting_commit(&testing), None);
+
+  write_standing(&client, item.id, &Standing::WaitingLive("0123abcd".to_owned()))
+    .await
+    .unwrap();
+
+  let waiting = client.item(item.id).await.unwrap();
+
+  assert_eq!(waiting_commit(&waiting), Some("0123abcd"));
+  assert_eq!(waiting.labels.get(COMMIT_LABEL).map(String::as_str), Some("0123abcd"));
+
+  let lines = close(
+    &client,
+    &TodoArgs {
+      done: item.id,
+      report: Some("The work is done.".to_owned()),
+      unfinished: None,
+      by: "helper".to_owned(),
+    },
+  )
+  .await
+  .unwrap();
+
+  assert_eq!(lines.len(), 2, "the report and the line naming what it waits on");
+  assert!(lines[1].contains("\"waitsOn\":\"live\""), "{}", lines[1]);
+  assert!(lines[1].contains("0123abcd"), "{}", lines[1]);
+
+  let kept = client.item(item.id).await.unwrap();
+
+  assert_eq!(kept.state, ItemState::Leased, "it is done once its commit is live");
+  assert_eq!(client.reports(item.id, &PageQuery::default()).await.unwrap().items.len(), 1);
+
+  write_standing(&client, item.id, &Standing::Off).await.unwrap();
+
+  let off = client.item(item.id).await.unwrap();
+
+  assert!(!off.labels.contains_key(PHASE_LABEL) && !off.labels.contains_key(COMMIT_LABEL));
+  assert_eq!(off.labels.get("lane").map(String::as_str), Some("todo"));
+
+  close(
+    &client,
+    &TodoArgs {
+      done: item.id,
+      report: None,
+      unfinished: None,
+      by: "helper".to_owned(),
+    },
+  )
+  .await
+  .unwrap();
+
+  assert_eq!(client.item(item.id).await.unwrap().state, ItemState::Done);
 }
 
 #[test]

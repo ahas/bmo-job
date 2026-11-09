@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use bmo_job_client::{ItemChange, ItemState, JobClient, NewItem, NewReport, Report, ReportKind};
 
 use crate::Settings;
+use crate::job_close::waiting_commit;
 use crate::outside::outside_refusal;
 
 /// What a closing hands the service: the item, its report and what it could not reach, and the actor the
@@ -74,7 +75,8 @@ fn nonempty(name: &str) -> Option<String> {
 }
 
 /// The item closed: its unfinished note kept as a held report, its account as a final report, and its state
-/// set to done, each through the route that holds it. Each answer is printed as its JSON on a line.
+/// set to done, each through the route that holds it; an item whose commit waits to go live keeps its state.
+/// Each answer is printed as its JSON on a line.
 pub async fn close(client: &JobClient, args: &TodoArgs) -> Result<Vec<String>, String> {
   if args.done <= 0 {
     return Err("todo --done names the item by a positive number".to_owned());
@@ -106,6 +108,21 @@ pub async fn close(client: &JobClient, args: &TodoArgs) -> Result<Vec<String>, S
     let kept = report_line(client, args.done, ReportKind::Final, report, by).await?;
 
     lines.push(serde_json::to_string(&kept).unwrap_or_default());
+  }
+
+  // An item whose commit waits for its deployment keeps its state: it is done once that commit is live.
+  let stands = client
+    .item(args.done)
+    .await
+    .map_err(|why| format!("item {} could not be read: {why}", args.done))?;
+
+  if let Some(commit) = waiting_commit(&stands) {
+    lines.push(
+      serde_json::json!({ "itemId": args.done, "state": stands.state, "waitsOn": "live", "commit": commit })
+        .to_string(),
+    );
+
+    return Ok(lines);
   }
 
   let change = ItemChange {

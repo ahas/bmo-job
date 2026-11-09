@@ -60,6 +60,10 @@ bmo-testbed's. This document states what the declaration says of this service.
   `waiting to go live: <commit> stands pushed for its deployment`. An unpushed commit, or one the remote does
   not know, is refused with that reason. The service keeps no backlog and reads none: the deployment that
   records what goes live writes the commit down.
+- **The item waits with its commit.** A close told its item writes on it that the work is being tested, and then
+  that its commit waits to go live (docs/cli.md, 「`bmo-job job close`」). `bmo todo --done` leaves such an item
+  leased with its final report on it; it is moved to `done` once the commit is live, and a deployment that fails
+  leaves it leased for the same work to go on.
 
 ## What gates a deployment
 

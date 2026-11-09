@@ -6,7 +6,7 @@ use std::process::ExitCode;
 
 use bmo_job::Settings;
 use bmo_job::job_ask::{self, Ending, NewAsk, Receiver, TALK_EXIT, TalkAsk};
-use bmo_job::job_close::{self, JobCloseArgs};
+use bmo_job::job_close::{self, JobCloseArgs, Standing};
 use bmo_job::todo_cli::{self, AddArgs, StopHereArgs, TodoArgs};
 use bmo_job::work_order_cli;
 use bmo_job_plugin::Start;
@@ -132,6 +132,9 @@ enum JobVerb {
     /// Why the change reaches nothing the suite runs, in English.
     #[arg(long = "skip-suite", value_name = "why", allow_hyphen_values = true)]
     skip_suite: Option<String>,
+    /// The item the job works on, which the close writes where it stands onto.
+    #[arg(long, value_name = "item")]
+    todo: Option<i64>,
   },
   /// Puts a choice to the owner in the middle of a job and waits for a person to settle it, or with --talk answers
   /// his talk over the question and waits on it again.
@@ -187,6 +190,61 @@ async fn told_to_stop() {
   let waits = heard.iter_mut().map(|one| Box::pin(one.recv()));
 
   futures_util::future::select_all(waits).await;
+}
+
+// The close, with where it stands written on the item it was told as it moves. Told to stop while its check
+// runs, it takes its standing off the item and ends as a stopped run does.
+async fn job_close(args: JobCloseArgs, todo: Option<i64>) -> ExitCode {
+  let root = std::env::current_dir().unwrap_or_default();
+  let data_root = data_root();
+  let item = todo.and_then(|item| match todo_cli::client() {
+    Ok(client) => Some((client, item)),
+    Err(why) => {
+      eprintln!("job-close: item {item} is not written on — {why}");
+      None
+    }
+  });
+  let runtime = tokio::runtime::Handle::current();
+  let written = item.clone();
+  let close = tokio::task::spawn_blocking(move || {
+    job_close::close(&root, &data_root, &args, Path::new("bmo-testbed"), &|standing| {
+      if let Some((client, item)) = &written
+        && let Err(why) = runtime.block_on(job_close::write_standing(client, *item, &standing))
+      {
+        eprintln!("job-close: {why}");
+      }
+    })
+  });
+
+  tokio::select! {
+    closed = close => match closed {
+      Ok(Ok(lines)) => {
+        for line in lines {
+          println!("{line}");
+        }
+
+        ExitCode::SUCCESS
+      }
+      Ok(Err(why)) => {
+        eprintln!("job-close: refused — {why}");
+        ExitCode::FAILURE
+      }
+      Err(why) => {
+        eprintln!("job-close: the close did not end — {why}");
+        ExitCode::FAILURE
+      }
+    },
+    () = told_to_stop() => {
+      if let Some((client, item)) = &item
+        && let Err(why) = job_close::write_standing(client, *item, &Standing::Off).await
+      {
+        eprintln!("job-close: {why}");
+      }
+
+      eprintln!("job-close: told to stop");
+      ExitCode::from(130)
+    }
+  }
 }
 
 // The verb asked: a new question or a talk, and how its wait ended as the job reads it.
@@ -313,26 +371,14 @@ async fn main() -> ExitCode {
       JobVerb::Close {
         then_reason,
         skip_suite,
+        todo,
       } => {
-        let root = std::env::current_dir().unwrap_or_default();
         let args = JobCloseArgs {
           then_reason,
           skip_suite,
         };
 
-        match job_close::close(&root, &data_root(), &args, Path::new("bmo-testbed")) {
-          Ok(lines) => {
-            for line in lines {
-              println!("{line}");
-            }
-
-            ExitCode::SUCCESS
-          }
-          Err(why) => {
-            eprintln!("job-close: refused — {why}");
-            ExitCode::FAILURE
-          }
-        }
+        job_close(args, todo).await
       }
       JobVerb::Ask {
         todo,

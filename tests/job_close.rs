@@ -3,12 +3,13 @@
 //! under the root its declaration names, the range that record narrows to the job's own commits, and the
 //! line the deployment reads.
 
+use std::cell::RefCell;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use bmo_job::job_close::{JobCloseArgs, close, commits_refusal, deployed_commit_of};
+use bmo_job::job_close::{JobCloseArgs, Standing, close, commits_refusal, deployed_commit_of};
 
 // A record as the testbed's deployment writes it, under the deploy root it names.
 const RECORD: &str = r#"{
@@ -91,7 +92,19 @@ fn run_close(
   skip_suite: Option<&str>,
   testbed: &Path,
 ) -> Result<Vec<String>, String> {
-  close(
+  told_close(root, data_root, then_reason, skip_suite, testbed).0
+}
+
+// A close, with every standing it told in order.
+fn told_close(
+  root: &Path,
+  data_root: &Path,
+  then_reason: &str,
+  skip_suite: Option<&str>,
+  testbed: &Path,
+) -> (Result<Vec<String>, String>, Vec<Standing>) {
+  let told = RefCell::new(Vec::new());
+  let closed = close(
     root,
     data_root,
     &JobCloseArgs {
@@ -99,7 +112,21 @@ fn run_close(
       skip_suite: skip_suite.map(str::to_owned),
     },
     testbed,
-  )
+    &|standing| told.borrow_mut().push(standing),
+  );
+
+  (closed, told.into_inner())
+}
+
+// A testbed stand-in whose every verb fails.
+fn failing_testbed_at(dir: &Path) -> PathBuf {
+  let path = dir.join("bmo-testbed-failing");
+  fs::write(&path, "#!/bin/sh\nexit 1\n").expect("the testbed stand-in");
+  let mut permissions = fs::metadata(&path).expect("the stand-in").permissions();
+  permissions.set_mode(0o755);
+  fs::set_permissions(&path, permissions).expect("the stand-in is executable");
+
+  path
 }
 
 #[test]
@@ -221,6 +248,70 @@ fn an_archive_that_keeps_no_pending_list_still_hands_the_commit_over() {
   assert!(said.contains("check"), "{said}");
   assert!(said.contains("suite"), "{said}");
   assert!(!said.contains("pending"), "{said}");
+}
+
+#[test]
+fn a_close_tells_testing_and_then_the_commit_that_waits_to_go_live() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let deploy_root = tempfile::tempdir().expect("a deploy root");
+
+  init(repo.path());
+  let base = commit(repo.path(), "one.md", "Add the first page");
+  let head = commit(repo.path(), "two.md", "Add the second page");
+  git(repo.path(), &["update-ref", "refs/remotes/origin/main", &head]);
+  declare_deploy_root(repo.path(), deploy_root.path());
+  record_at(deploy_root.path(), &base);
+
+  let (testbed, _) = testbed_at(data.path());
+  let (closed, told) = told_close(repo.path(), data.path(), "Land the second page", None, &testbed);
+
+  closed.expect("handed over");
+  assert_eq!(told, vec![Standing::Testing, Standing::WaitingLive(head)]);
+}
+
+#[test]
+fn a_close_whose_check_fails_tells_testing_and_then_takes_it_off() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let deploy_root = tempfile::tempdir().expect("a deploy root");
+
+  init(repo.path());
+  let base = commit(repo.path(), "one.md", "Add the first page");
+  let head = commit(repo.path(), "two.md", "Add the second page");
+  git(repo.path(), &["update-ref", "refs/remotes/origin/main", &head]);
+  declare_deploy_root(repo.path(), deploy_root.path());
+  record_at(deploy_root.path(), &base);
+
+  let testbed = failing_testbed_at(data.path());
+  let (closed, told) = told_close(repo.path(), data.path(), "Land the second page", None, &testbed);
+
+  assert_eq!(closed.expect_err("the check fails"), "the static check did not pass");
+  assert_eq!(told, vec![Standing::Testing, Standing::Off]);
+}
+
+#[test]
+fn a_close_on_the_live_commit_and_a_refused_one_take_the_standing_off() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let deploy_root = tempfile::tempdir().expect("a deploy root");
+
+  init(repo.path());
+  let base = commit(repo.path(), "one.md", "Add the first page");
+  declare_deploy_root(repo.path(), deploy_root.path());
+  record_at(deploy_root.path(), &base);
+
+  let (testbed, _) = testbed_at(data.path());
+  let (closed, told) = told_close(repo.path(), data.path(), "Land the first page", None, &testbed);
+
+  closed.expect("clean");
+  assert_eq!(told, vec![Standing::Off]);
+
+  commit(repo.path(), "two.md", "Add the second page");
+  let (closed, told) = told_close(repo.path(), data.path(), "Land the second page", None, &testbed);
+
+  closed.expect_err("unpushed");
+  assert_eq!(told, vec![Standing::Off]);
 }
 
 #[test]

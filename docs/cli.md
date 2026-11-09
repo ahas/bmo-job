@@ -15,13 +15,14 @@ The binary `bmo-job` carries these commands.
 
 ## `bmo-job job close`
 
-`bmo job close --then '<why this goes live, in English>' [--skip-suite '<why, in English>']` runs this, through
+`bmo job close --then '<why this goes live, in English>' [--todo <item>] [--skip-suite '<why, in English>']` runs this, through
 the unit command the deployment links into `~/.local/bin` (docs/deploy.md, "The unit command").
 
 | Option | What it does |
 |---|---|
 | `--then <why>` | Why this goes live, in English; required. A reason holding Hangul is refused |
 | `--skip-suite <why>` | Why the change reaches nothing the suite runs, in English; the static check still runs |
+| `--todo <item>` | The item the job works on; the close writes where it stands onto that item (below) |
 
 The close reads the live commit from the deployment record (docs/deploy.md, "A job closes"), narrows the job's
 own commits to those past it, refuses a commit whose message holds Hangul or one that is not on the remote,
@@ -30,6 +31,17 @@ commit the record already names as live runs nothing and ends clean. Where the r
 repository or is no ancestor of `HEAD`, the range is taken from the job's own base commit instead, and the
 close says in one line which range it used. It reads no archive and no pending list; the deployment that
 records what goes live writes the commit down.
+
+- **Where the close stands is written on the item `--todo` names,** as two of its labels, the rest of its labels
+  kept: `close-phase` is `testing` from the moment the check starts and `waiting-live` once the check and the
+  suite have passed, and `close-commit` is the commit handed over, written with `waiting-live`. A reader of
+  the queue tells from them an item whose work is being tested from one whose commit waits for its deployment.
+- **Both labels are taken off** where the check or the suite does not pass, where the close is told to stop
+  while they run, and where the commit is already what is deployed, so an item carries them only while its
+  close is under way or its commit waits.
+- **The item is reached as `bmo-job todo` reaches it** (「`bmo-job todo`」). An item that cannot be read or
+  written stops no close: the close says so in one line and goes on.
+- **A close with no `--todo` writes on no item.**
 
 ## `bmo-job job ask`
 
@@ -78,7 +90,7 @@ The worker's run already names the job service in `BMO_JOB_URL` and its token in
 
 | Form | What it does |
 |---|---|
-| `--done <item> [--report <text>] [--unfinished <text>]` | Closes the item: `--report` kept as a `final` report and `--unfinished` as a `held` one through `POST /items/{itemId}/reports`, then `PATCH /items/{itemId}` sets its state to `done`. A move the service refuses, a held item's among them, leaves the item as it stood |
+| `--done <item> [--report <text>] [--unfinished <text>]` | Closes the item: `--report` kept as a `final` report and `--unfinished` as a `held` one through `POST /items/{itemId}/reports`, then `PATCH /items/{itemId}` sets its state to `done`. An item whose commit waits for its deployment, its label `close-phase` reading `waiting-live` (「`bmo-job job close`」), keeps the reports and its state: it is done once that commit is live, by whoever puts it live, and the verb prints one line saying which commit it waits on. A move the service refuses, a held item's among them, leaves the item as it stood |
 | `--stop-here <item> --report <text> [--why <reason> [--after <item> \| --after-deploy <item or commit>]]` | Leaves the run's account on the item as a `held` report, and holds it. An item already held takes only the account; one not yet held needs `--why`, kept with its condition in the labels `hold-why`, `hold-after` and `hold-after-deploy`. A condition releases nothing, and no form takes a hold off |
 | `--add --title <words> --judgement <words> --raised-by <item> [--from-todo <id>:<strand>[,<id>:<strand>]]` | Raises a draft in the queue and scope of the item it was raised from, the judgement as its brief and `--from-todo` as its label `from-todo`, and prints it |
 

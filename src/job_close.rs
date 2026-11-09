@@ -1,11 +1,70 @@
 //! `bmo-job job close` from a shell (docs/cli.md, docs/deploy.md): the job's commit handed over to its
 //! repository's deployment, with the range narrowed to the commit that deployment last wrote down as live,
-//! or to the job's own base where that commit is not in the repository the close runs in.
+//! or to the job's own base where that commit is not in the repository the close runs in. Where the close
+//! stands is written on the item it was told, as two of the item's labels.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use bmo_job_client::{Item, ItemChange, JobClient};
 use serde::Deserialize;
+
+/// The label saying where an item's close stands, and the one naming the commit it handed over.
+pub const PHASE_LABEL: &str = "close-phase";
+pub const COMMIT_LABEL: &str = "close-commit";
+
+const TESTING: &str = "testing";
+const WAITING_LIVE: &str = "waiting-live";
+
+/// Where a close stands, as its item says it: its check and suite under way, its commit waiting to go live,
+/// or neither.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Standing {
+  Testing,
+  WaitingLive(String),
+  Off,
+}
+
+/// The commit an item waits on to go live: the one its close handed over, where its labels say it waits.
+pub fn waiting_commit(item: &Item) -> Option<&str> {
+  (item.labels.get(PHASE_LABEL).map(String::as_str) == Some(WAITING_LIVE))
+    .then(|| item.labels.get(COMMIT_LABEL).map_or("", String::as_str))
+}
+
+/// Where the close stands written on its item, the item's other labels kept; nothing is written where the
+/// item already says it.
+pub async fn write_standing(client: &JobClient, item: i64, standing: &Standing) -> Result<(), String> {
+  let read = client.item(item).await.map_err(|why| format!("item {item} could not be read: {why}"))?;
+  let mut labels = read.labels.clone();
+
+  labels.remove(PHASE_LABEL);
+  labels.remove(COMMIT_LABEL);
+  match standing {
+    Standing::Testing => {
+      labels.insert(PHASE_LABEL.to_owned(), TESTING.to_owned());
+    }
+    Standing::WaitingLive(commit) => {
+      labels.insert(PHASE_LABEL.to_owned(), WAITING_LIVE.to_owned());
+      labels.insert(COMMIT_LABEL.to_owned(), commit.clone());
+    }
+    Standing::Off => {}
+  }
+
+  if labels == read.labels {
+    return Ok(());
+  }
+
+  let change = ItemChange {
+    labels: Some(labels),
+    ..ItemChange::default()
+  };
+
+  client
+    .change_item(item, &change)
+    .await
+    .map(|_| ())
+    .map_err(|why| format!("item {item} was not written on: {why}"))
+}
 
 /// What a close is asked: why the commit goes live, and why the suite is skipped where it is.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -24,17 +83,45 @@ struct OwnCommit {
 
 /// Closes a job's commit: reads the live commit from the deployment record, reads the job's own commits past
 /// it, refuses an unpushed commit or one the remote does not know, runs the check and the suite, and hands
-/// the commit over to the deployment that records what goes live.
+/// the commit over to the deployment that records what goes live. `tell` is handed where the close stands as
+/// it moves: testing once the check starts, waiting once it is handed over, and off where it ends any other
+/// way.
 pub fn close(
   root: &Path,
   data_root: &Path,
   args: &JobCloseArgs,
   testbed: &Path,
+  tell: &dyn Fn(Standing),
 ) -> Result<Vec<String>, String> {
   if let Some(refusal) = reasons_refusal(args) {
     return Err(refusal);
   }
 
+  let closed = handed_over(root, data_root, args, testbed, tell);
+
+  match &closed {
+    Ok(Handed::Waiting(_, commit)) => tell(Standing::WaitingLive(commit.clone())),
+    Ok(Handed::Live(_)) | Err(_) => tell(Standing::Off),
+  }
+
+  closed.map(|handed| match handed {
+    Handed::Waiting(lines, _) | Handed::Live(lines) => lines,
+  })
+}
+
+// How a close ended where it was not refused: its commit already live, or handed over to wait.
+enum Handed {
+  Live(Vec<String>),
+  Waiting(Vec<String>, String),
+}
+
+fn handed_over(
+  root: &Path,
+  data_root: &Path,
+  args: &JobCloseArgs,
+  testbed: &Path,
+  tell: &dyn Fn(Standing),
+) -> Result<Handed, String> {
   let head =
     git(root, &["rev-parse", "HEAD"]).map_err(|why| format!("the checkout is on no commit: {why}"))?;
   let short = short_of(&head);
@@ -44,7 +131,7 @@ pub fn close(
   // A commit its deployment already records as live runs nothing and ends clean.
   if deployed.as_deref() == Some(head.as_str()) {
     lines.push("this commit is already what is deployed".to_owned());
-    return Ok(lines);
+    return Ok(Handed::Live(lines));
   }
 
   let remote = remote_branch(root);
@@ -81,13 +168,14 @@ pub fn close(
     return Err(format!("{short} is not on {remote}; an unpushed commit is not deployable"));
   }
 
+  tell(Standing::Testing);
   run(root, testbed, "check", "the static check")?;
   if args.skip_suite.is_none() {
     run(root, testbed, "suite", "the suite")?;
   }
 
   lines.push(format!("waiting to go live: {short} stands pushed for its deployment"));
-  Ok(lines)
+  Ok(Handed::Waiting(lines, head))
 }
 
 /// The commit the checkout's own deployment last put live (docs/deploy.md, "A job closes"): the record under
@@ -121,7 +209,7 @@ pub fn commits_refusal(root: &Path, base: &str, main: &str) -> Result<Option<Str
 fn reasons_refusal(args: &JobCloseArgs) -> Option<String> {
   if args.then_reason.trim().is_empty() {
     return Some(
-      "usage: bmo job close --then '<why this goes live, in English>' [--skip-suite '<why, in English>']"
+      "usage: bmo job close --then '<why this goes live, in English>' [--todo <item>] [--skip-suite '<why, in English>']"
         .to_owned(),
     );
   }
