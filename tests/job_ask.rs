@@ -216,7 +216,7 @@ async fn a_receiver_that_cannot_be_reached_opens_no_question() {
   let service = Service::start().await;
   let client = service.client();
   let item = item(&client).await;
-  let (code, out, _) = ended(asked(&service, "http://127.0.0.1:9", item)).await;
+  let (code, out, _) = ended(asked(&service, "http://[::1]:9", item)).await;
 
   assert_eq!(code, 1);
   assert_eq!(out, "");

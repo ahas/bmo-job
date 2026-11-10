@@ -45,10 +45,10 @@ fn a_record_ignores_the_fields_this_crate_does_not_read() {
 fn an_env_file_is_read_by_its_key_value_lines() {
   let dir = tempfile::tempdir().unwrap();
   let path = dir.path().join("service.env");
-  std::fs::write(&path, "# a note\nADDRESS=http://127.0.0.1:1\nTOKEN=abc\n").unwrap();
+  std::fs::write(&path, "# a note\nADDRESS=http://[::1]:1\nTOKEN=abc\n").unwrap();
   let file = tool_call::env_file(&path);
 
-  assert_eq!(variable("ADDRESS", &file).as_deref(), Some("http://127.0.0.1:1"));
+  assert_eq!(variable("ADDRESS", &file).as_deref(), Some("http://[::1]:1"));
   assert_eq!(variable("TOKEN", &file).as_deref(), Some("abc"));
   assert_eq!(variable("NOTHING", &file), None);
 }
