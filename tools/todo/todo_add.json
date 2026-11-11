@@ -24,10 +24,6 @@
       "format": "int64",
       "description": "The room, by chat id, where it is not this turn's own."
     },
-    "cowork": {
-      "type": "boolean",
-      "description": "Run it as a co-work."
-    },
     "requester": {
       "type": ["string", "null"],
       "description": "Who asked, where the archive names nobody."

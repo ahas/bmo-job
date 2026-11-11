@@ -209,9 +209,6 @@
             "format": "int64",
             "type": "integer"
           },
-          "cowork": {
-            "type": "boolean"
-          },
           "createdAt": {
             "description": "Epoch milliseconds.",
             "format": "int64",
@@ -308,7 +305,6 @@
           "labels",
           "approvals",
           "rejections",
-          "cowork",
           "mergedInto",
           "raisedBy",
           "leaseId",
@@ -341,12 +337,6 @@
           "brief": {
             "type": [
               "string",
-              "null"
-            ]
-          },
-          "cowork": {
-            "type": [
-              "boolean",
               "null"
             ]
           },
@@ -621,9 +611,6 @@
           },
           "brief": {
             "type": "string"
-          },
-          "cowork": {
-            "type": "boolean"
           },
           "labels": {
             "additionalProperties": {
@@ -4349,9 +4336,6 @@
           "brief": {
             "type": "string"
           },
-          "cowork": {
-            "type": "boolean"
-          },
           "labels": {
             "additionalProperties": {
               "type": "string"
@@ -4451,12 +4435,6 @@
           "brief": {
             "type": [
               "string",
-              "null"
-            ]
-          },
-          "cowork": {
-            "type": [
-              "boolean",
               "null"
             ]
           },

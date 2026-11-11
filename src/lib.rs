@@ -15,7 +15,6 @@ pub mod server;
 pub mod settings;
 pub mod store;
 pub mod todo_cli;
-pub mod work_order_cli;
 
 use std::time::Duration;
 

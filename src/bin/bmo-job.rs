@@ -8,7 +8,6 @@ use bmo_job::Settings;
 use bmo_job::job_ask::{self, Ending, NewAsk, Receiver, TALK_EXIT, TalkAsk};
 use bmo_job::job_close::{self, JobCloseArgs, Standing};
 use bmo_job::todo_cli::{self, AddArgs, StopHereArgs, TodoArgs};
-use bmo_job::work_order_cli;
 use bmo_job_plugin::Start;
 use clap::{Parser, Subcommand};
 
@@ -51,12 +50,13 @@ enum Verb {
     #[arg(long, value_name = "tools", env = "BMO_JOB_MCP_WITHOUT", value_delimiter = ',')]
     without: Vec<String>,
   },
-  /// An item closed, held with the run's account on it, or raised, each through the service's own routes.
+  /// The run's account left on an item it finished or stopped short on, or a row raised, each through the
+  /// service's own routes; a run moves no item's state.
   Todo {
-    /// The item to close, by its number, with or without a leading `#`.
+    /// The item the run finished, by its number, with or without a leading `#`.
     #[arg(long, value_name = "item", conflicts_with_all = ["stop_here", "add"])]
     done: Option<String>,
-    /// The item the run stops short on: its account left on it, and the item held where it is not yet.
+    /// The item the run stops short on: its account left on it.
     #[arg(long = "stop-here", value_name = "item", conflicts_with = "add")]
     stop_here: Option<String>,
     /// Raises a new row out of the run's own work.
@@ -68,15 +68,6 @@ enum Verb {
     /// What the job's hands could not reach, kept as a held report.
     #[arg(long, value_name = "text", allow_hyphen_values = true)]
     unfinished: Option<String>,
-    /// Why the run holds the item, in English.
-    #[arg(long, value_name = "reason", allow_hyphen_values = true)]
-    why: Option<String>,
-    /// The item whose finishing makes this one ready.
-    #[arg(long, value_name = "item")]
-    after: Option<String>,
-    /// The item, or the commit, whose going live makes this one ready.
-    #[arg(long = "after-deploy", value_name = "item or commit")]
-    after_deploy: Option<String>,
     /// The new row's title.
     #[arg(long, value_name = "words", allow_hyphen_values = true)]
     title: Option<String>,
@@ -92,19 +83,6 @@ enum Verb {
     /// Who writes it; the run's agent where left out.
     #[arg(long, value_name = "name")]
     by: Option<String>,
-  },
-  /// A step added to an item's work order.
-  #[command(name = "work-order")]
-  WorkOrder {
-    /// The item whose work order it is.
-    #[arg(long, value_name = "item")]
-    todo: String,
-    /// The step's title.
-    #[arg(long, value_name = "title", allow_hyphen_values = true)]
-    add: String,
-    /// What the step is to do.
-    #[arg(long, value_name = "words", allow_hyphen_values = true)]
-    instruction: Option<String>,
   },
   /// Prints the OpenAPI document.
   Openapi,
@@ -363,7 +341,6 @@ async fn main() -> ExitCode {
       println!("job");
       println!("job ask\thome");
       println!("todo");
-      println!("work-order");
 
       ExitCode::SUCCESS
     }
@@ -396,9 +373,6 @@ async fn main() -> ExitCode {
       add,
       report,
       unfinished,
-      why,
-      after,
-      after_deploy,
       title,
       judgement,
       from_todo,
@@ -427,14 +401,7 @@ async fn main() -> ExitCode {
         } else if let Some(said) = stop_here {
           let item =
             numbered(&said).ok_or_else(|| format!("--stop-here {said:?} is not an item number"))?;
-          let args = StopHereArgs {
-            item,
-            report,
-            why,
-            after,
-            after_deploy,
-            by,
-          };
+          let args = StopHereArgs { item, report, by };
 
           todo_cli::stop_here(&client, &args).await?
         } else if let Some(said) = done {
@@ -454,22 +421,6 @@ async fn main() -> ExitCode {
         for line in lines {
           println!("{line}");
         }
-
-        Ok::<(), String>(())
-      }
-      .await,
-    ),
-    Verb::WorkOrder {
-      todo,
-      add,
-      instruction,
-    } => ended(
-      async {
-        let item = numbered(&todo).ok_or_else(|| format!("--todo {todo:?} is not an item number"))?;
-        let client = todo_cli::client()?;
-        let line = work_order_cli::add_step(&client, item, &add, instruction.as_deref()).await?;
-
-        println!("{line}");
 
         Ok::<(), String>(())
       }

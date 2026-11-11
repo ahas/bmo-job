@@ -37,7 +37,7 @@ bmo-testbed's. This document states what the declaration says of this service.
 
 - **The deployment links the release's binary into `~/.local/bin/bmo-job`,** by the `[[deploy.step]]` named
   `link-command`, so the platform `bmo` finds the unit command and reads the nouns it declares.
-- **`bmo` hands it `job`, `todo` and `work-order`:** `bmo job close` runs `bmo-job job close`, and `bmo todo --done`
+- **`bmo` hands it `job` and `todo`:** `bmo job close` runs `bmo-job job close`, and `bmo todo --done`
   runs `bmo-job todo --done` (docs/cli.md).
 
 ## A job closes
@@ -61,8 +61,8 @@ bmo-testbed's. This document states what the declaration says of this service.
   not know, is refused with that reason. The service keeps no backlog and reads none: the deployment that
   records what goes live writes the commit down.
 - **The item waits with its commit.** A close told its item writes on it that the work is being tested, and then
-  that its commit waits to go live (docs/cli.md, 「`bmo-job job close`」). `bmo todo --done` leaves such an item
-  leased with its final report on it; it is moved to `done` once the commit is live, and a deployment that fails
+  that its commit waits to go live (docs/cli.md, 「`bmo-job job close`」). `bmo todo --done` leaves its final report on
+  such an item and moves no state; it is moved to `done` once the commit is live, and a deployment that fails
   leaves it leased for the same work to go on.
 
 ## What gates a deployment

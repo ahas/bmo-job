@@ -34,15 +34,16 @@ pub use subscriptions::{Delivery, Kept};
 pub(crate) type Tx = Transaction<'static, Sqlite>;
 
 /// The schema's version, kept in the database's own user version.
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 /// The steps that bring a store of an older version up to this one, each from the version it reads; a store
 /// with no tables takes the whole schema instead.
-const MIGRATIONS: [(i64, &str); 4] = [
+const MIGRATIONS: [(i64, &str); 5] = [
   (1, include_str!("migrate_v1.sql")),
   (2, include_str!("migrate_v2.sql")),
   (3, include_str!("migrate_v3.sql")),
   (4, include_str!("migrate_v4.sql")),
+  (5, include_str!("migrate_v5.sql")),
 ];
 
 /// The name the service writes its own changes under: the notes it writes and the changes its sweep makes.

@@ -256,7 +256,6 @@ pub fn item(todo: &Value, approved: &[Value], merged_into: Option<i64>) -> Vec<(
     ),
     ("labels", Cell::Text(item_labels(todo))),
     ("approvals", Cell::Text(approvals(approved))),
-    ("cowork", Cell::Int(if bool_int(todo.get("cowork")) == 1 { 1 } else { 0 })),
     (
       "merged_into",
       match merged {

@@ -29,8 +29,6 @@ pub struct TaskArgs {
   pub todo: Option<i64>,
   #[serde(default)]
   pub why: Option<String>,
-  #[serde(default)]
-  pub cowork: bool,
 }
 
 /// A research sent out.
@@ -140,9 +138,6 @@ async fn task(handed: &Handed) -> Answer {
   }
   if let Some(why) = args.why.as_deref().filter(|why| !why.is_empty()) {
     labels.insert("why".to_owned(), json!(why));
-  }
-  if args.cowork {
-    labels.insert("cowork".to_owned(), json!("1"));
   }
   let body = json!({
     "agentName": agent,

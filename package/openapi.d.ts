@@ -512,7 +512,6 @@ export interface components {
              * @description Epoch milliseconds.
              */
             changedAt: number;
-            cowork: boolean;
             /**
              * Format: int64
              * @description Epoch milliseconds.
@@ -559,7 +558,6 @@ export interface components {
             approval?: components["schemas"]["ApprovalGiven"] | null;
             assigneeName?: string | null;
             brief?: string | null;
-            cowork?: boolean | null;
             /** @description The caller's own metadata, replaced whole. */
             labels?: {
                 [key: string]: string;
@@ -656,7 +654,6 @@ export interface components {
         NewItem: {
             assigneeName?: string | null;
             brief: string;
-            cowork?: boolean;
             /** @description The caller's own metadata. */
             labels?: {
                 [key: string]: string;

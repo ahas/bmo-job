@@ -28,10 +28,6 @@
     "why": {
       "type": ["string", "null"],
       "description": "For a job with no item: one line naming what it is for."
-    },
-    "cowork": {
-      "type": "boolean",
-      "description": "Run it as a co-work."
     }
   }
 }

@@ -1,13 +1,11 @@
-//! `bmo-job todo` from a shell (docs/cli.md): the closing a worker runs when it ends its item, the hold it leaves
-//! its account on where it stops short, and the row it raises for what it found, all through the job service's
-//! own routes.
+//! `bmo-job todo` from a shell (docs/cli.md): the account a worker leaves on its item when it ends it or stops
+//! short, and the row it raises for what it found, all through the job service's own routes. A run moves no
+//! item's state: whoever ordered the work does.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use bmo_job_client::{
-  ItemChange, ItemState, JobClient, NewItem, NewReport, Report, ReportKind, ReviewKind, ReviewQuery,
-};
+use bmo_job_client::{JobClient, NewItem, NewReport, Report, ReportKind, ReviewKind, ReviewQuery};
 
 use crate::Settings;
 use crate::job_close::waiting_commit;
@@ -104,8 +102,9 @@ async fn review_open(client: &JobClient, item: i64) -> Result<bool, String> {
   }
 }
 
-/// The item closed: its unfinished note kept as a held report, its account as a final report, and its state
-/// set to done, each through the route that holds it; an item whose commit waits to go live keeps its state.
+/// The run's account of the finished work left on the item: its unfinished note kept as a held report and its
+/// account as a final report. The item's state stays as it stands: it is done once whoever ordered the work takes
+/// it — its review, or whoever puts a waiting commit live —, and the last line says which it waits on.
 /// Each answer is printed as its JSON on a line.
 pub async fn close(client: &JobClient, args: &TodoArgs) -> Result<Vec<String>, String> {
   if args.done <= 0 {
@@ -140,40 +139,23 @@ pub async fn close(client: &JobClient, args: &TodoArgs) -> Result<Vec<String>, S
     lines.push(serde_json::to_string(&kept).unwrap_or_default());
   }
 
-  // An item whose commit waits for its deployment keeps its state: it is done once that commit is live.
   let stands = client
     .item(args.done)
     .await
     .map_err(|why| format!("item {} could not be read: {why}", args.done))?;
 
-  if let Some(commit) = waiting_commit(&stands) {
-    lines.push(
-      serde_json::json!({ "itemId": args.done, "state": stands.state, "waitsOn": "live", "commit": commit })
-        .to_string(),
-    );
-
-    return Ok(lines);
-  }
-
-  // An item whose review stands open keeps its state: it is done once its review takes the work.
-  if review_open(client, args.done).await? {
-    lines.push(
-      serde_json::json!({ "itemId": args.done, "state": stands.state, "waitsOn": "review" }).to_string(),
-    );
-
-    return Ok(lines);
-  }
-
-  let change = ItemChange {
-    state: Some(ItemState::Done),
-    ..ItemChange::default()
-  };
-  let item = client
-    .change_item(args.done, &change)
-    .await
-    .map_err(|why| format!("item {} was not closed: {why}", args.done))?;
-
-  lines.push(serde_json::to_string(&item).unwrap_or_default());
+  lines.push(
+    match waiting_commit(&stands) {
+      Some(commit) => {
+        serde_json::json!({ "itemId": args.done, "state": stands.state, "waitsOn": "live", "commit": commit })
+      }
+      None if review_open(client, args.done).await? => {
+        serde_json::json!({ "itemId": args.done, "state": stands.state, "waitsOn": "review" })
+      }
+      None => serde_json::json!({ "itemId": args.done, "state": stands.state, "waitsOn": "orderer" }),
+    }
+    .to_string(),
+  );
 
   Ok(lines)
 }
@@ -209,20 +191,17 @@ async fn report_line(
   report(client, item, kind, body, by).await
 }
 
-/// What a job leaves on an item it stops short on: its account, and, for an item not yet held, why it holds it and
-/// the condition that makes it ready.
+/// What a job leaves on an item it stops short on: its account of what is finished and where the next run picks
+/// up.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StopHereArgs {
   pub item: i64,
   pub report: Option<String>,
-  pub why: Option<String>,
-  pub after: Option<String>,
-  pub after_deploy: Option<String>,
   pub by: String,
 }
 
-/// The run's account left on the item as a held report, and the item held where it is not yet. A condition names
-/// what makes it ready and releases nothing.
+/// The run's account left on the item as a held report. The item's state stays as it stands: holding it is its
+/// orderer's.
 pub async fn stop_here(client: &JobClient, args: &StopHereArgs) -> Result<Vec<String>, String> {
   let by = args.by.trim();
   if by.is_empty() {
@@ -235,58 +214,13 @@ pub async fn stop_here(client: &JobClient, args: &StopHereArgs) -> Result<Vec<St
     );
   };
 
-  if args.after.is_some() && args.after_deploy.is_some() {
-    return Err("--after and --after-deploy name one condition between them".to_owned());
-  }
-
   if let Some(refusal) = outside_refusal(&[account]) {
     return Err(refusal);
   }
 
-  let why = args.why.as_deref().map(str::trim).filter(|why| !why.is_empty());
-  let item = client
-    .item(args.item)
-    .await
-    .map_err(|why| format!("item {} could not be read: {why}", args.item))?;
-  let holds = item.state != ItemState::Held;
-
-  if holds && why.is_none() {
-    return Err(format!(
-      "item {} is not held: --stop-here {} --why '<reason>' holds it",
-      args.item, args.item
-    ));
-  }
-
   let kept = report(client, args.item, ReportKind::Held, account, by).await?;
-  let mut lines = vec![serde_json::to_string(&kept).unwrap_or_default()];
 
-  if holds {
-    let mut labels = item.labels.clone();
-
-    for (label, value) in [
-      ("hold-why", why),
-      ("hold-after", args.after.as_deref()),
-      ("hold-after-deploy", args.after_deploy.as_deref()),
-    ] {
-      if let Some(value) = value {
-        labels.insert(label.to_owned(), value.trim().to_owned());
-      }
-    }
-
-    let change = ItemChange {
-      state: Some(ItemState::Held),
-      labels: Some(labels),
-      ..ItemChange::default()
-    };
-    let held = client
-      .change_item(args.item, &change)
-      .await
-      .map_err(|why| format!("item {} was not held: {why}", args.item))?;
-
-    lines.push(serde_json::to_string(&held).unwrap_or_default());
-  }
-
-  Ok(lines)
+  Ok(vec![serde_json::to_string(&kept).unwrap_or_default()])
 }
 
 /// A row a job raises out of its own work.

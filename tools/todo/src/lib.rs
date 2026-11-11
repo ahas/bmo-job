@@ -59,8 +59,6 @@ pub struct AddArgs {
   #[serde(default)]
   pub chat: Option<i64>,
   #[serde(default)]
-  pub cowork: bool,
-  #[serde(default)]
   pub requester: Option<String>,
   #[serde(default)]
   pub model: Option<String>,
@@ -293,7 +291,6 @@ async fn add(service: &Service, arguments: &Value, handed: &Handed) -> Answer {
     "requesterName": requester,
     "scope": scope,
     "labels": labels,
-    "cowork": args.cowork,
   });
 
   match tool_call::post(service, "/items", &body).await {

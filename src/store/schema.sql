@@ -14,7 +14,6 @@ CREATE TABLE items (
   scope TEXT,
   labels TEXT NOT NULL,
   approvals TEXT NOT NULL,
-  cowork INTEGER NOT NULL,
   merged_into INTEGER,
   raised_by INTEGER,
   lease_id INTEGER,

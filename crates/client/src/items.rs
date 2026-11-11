@@ -96,7 +96,6 @@ pub struct Item {
   /// How many times its work was sent back: the `rejection` entries of its review, read and never written.
   #[serde(default)]
   pub rejections: i64,
-  pub cowork: bool,
   pub merged_into: Option<i64>,
   /// The item this one was raised from, fixed when it is raised; null where there is none.
   pub raised_by: Option<i64>,
@@ -127,8 +126,6 @@ pub struct NewItem {
   /// The caller's own metadata.
   #[serde(default, skip_serializing_if = "Labels::is_empty")]
   pub labels: Labels,
-  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-  pub cowork: bool,
   /// The standing item this one is raised from. Left out, it is the item of the one lease the caller the token
   /// names holds, where that caller holds exactly one, and none otherwise.
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -178,8 +175,6 @@ pub struct ItemChange {
   /// The caller's own metadata, replaced whole.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub labels: Option<Labels>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub cowork: Option<bool>,
 }
 
 /// The filters of the item list.

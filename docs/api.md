@@ -64,7 +64,6 @@ and who is to take it, the caller's scope and labels, its approvals and its stat
 | `scope`, `labels` | The caller's opaque scope, or null, and its metadata |
 | `approvals` | Each approval given, `kind`, `callerName` and `at`, oldest first (below) |
 | `rejections` | How many times its work was sent back: the `rejection` entries of its review (Reviews), read and never written |
-| `cowork` | The caller's flag for work done by several at once |
 | `mergedInto` | The item a merged item was folded into, or null |
 | `raisedBy` | The item it was raised from, or null (below) |
 | `leaseId` | The lease standing on it, or null |
@@ -143,9 +142,9 @@ to an item past `draft` is recorded beside the others and moves nothing.
 | Method and path | Does |
 |---|---|
 | `GET /items` | Items in queue order, filtered by `state`, `queueName`, `assigneeName`, `scope`, `label` (a key, or `key=value`), `ids`, `raisedBy` (the items raised from that item) and `q` (words found in the title or the brief, in any case) |
-| `POST /items` | Raises an item as a `draft`, or `open` where it carries an unattended label (above): `title`, `brief` and `queueName` required, `priority`, `assigneeName`, `requesterName`, `scope`, `labels`, `cowork` and `raisedBy` optional, `raisedBy` taken from the caller's one standing lease where it is left out (above). A `raisedBy` naming no item is answered 422 `unknown-item`. Answers 201 and the item |
+| `POST /items` | Raises an item as a `draft`, or `open` where it carries an unattended label (above): `title`, `brief` and `queueName` required, `priority`, `assigneeName`, `requesterName`, `scope`, `labels` and `raisedBy` optional, `raisedBy` taken from the caller's one standing lease where it is left out (above). A `raisedBy` naming no item is answered 422 `unknown-item`. Answers 201 and the item |
 | `GET /items/{itemId}` | One item |
-| `PATCH /items/{itemId}` | Changes an item as a merge patch: `state`, `approval` (`at`, which is the time of the change where left out; the caller is the token's), `mergedInto`, `title`, `brief`, `queueName`, `priority`, `position`, `assigneeName`, `requesterName`, `scope`, `labels`, `cowork`. A nullable field set to null is cleared |
+| `PATCH /items/{itemId}` | Changes an item as a merge patch: `state`, `approval` (`at`, which is the time of the change where left out; the caller is the token's), `mergedInto`, `title`, `brief`, `queueName`, `priority`, `position`, `assigneeName`, `requesterName`, `scope`, `labels`. A nullable field set to null is cleared |
 
 A queue comes to stand with the first item raised or moved into it. A queue name is 1 to 64 letters, digits,
 dots, underscores and hyphens.
@@ -217,6 +216,9 @@ An item has at most one work order: `itemId`, `purpose`, `directive`, `steps` (l
   so a list written twice makes its tasks once. A task whose title stands among the new steps keeps its key,
   state and assignee and takes the new step's stage; a step with no such task makes a new `waiting` one; a
   task whose title is gone is removed.
+- **The steps stand fixed while the item is leased.** The steps are the plan its job runs in, so a `PUT` or a
+  `PATCH` that would change them while the item is `leased` is answered 409 `conflict`, nothing written; the
+  same steps written again change nothing and are taken, as is every other field.
 - **The stage under way** is the lowest stage holding a task that is `waiting` or `current`.
 - **A work order's moves:** `draft` to `saved` and back, `saved` to `running` and back, `running` to `done`,
   and `done` to `running` when it is reopened. Any other is answered 409 `conflict`. A task's move is any

@@ -15,7 +15,7 @@ use crate::access::Caller;
 use crate::refusal::Refusal;
 
 const ITEM_COLUMNS: &str = "id, title, brief, state, queue_name, position, priority, assignee_name, requester_name, \
-  scope, labels, approvals, cowork, merged_into, raised_by, lease_id, created_at, changed_at, ended_at, \
+  scope, labels, approvals, merged_into, raised_by, lease_id, created_at, changed_at, ended_at, \
   (SELECT COUNT(*) FROM reviews WHERE reviews.item_id = items.id AND reviews.kind = 'rejection') AS rejections";
 
 /// An approval as the store holds it. One held with no kind, such as one imported, reads as an approval of no
@@ -63,7 +63,6 @@ fn item_from(row: &SqliteRow) -> Result<Item, Refusal> {
     labels: from_json(row.try_get::<&str, _>("labels")?)?,
     approvals: approvals_from(row.try_get::<&str, _>("approvals")?)?,
     rejections: row.try_get("rejections")?,
-    cowork: row.try_get::<i64, _>("cowork")? != 0,
     merged_into: row.try_get("merged_into")?,
     raised_by: row.try_get("raised_by")?,
     lease_id: row.try_get("lease_id")?,
@@ -93,8 +92,8 @@ pub(crate) async fn item_at(tx: &mut Tx, id: i64) -> Result<Item, Refusal> {
 pub(crate) async fn save_item(tx: &mut Tx, item: &Item) -> Result<(), Refusal> {
   sqlx::query(
     "UPDATE items SET title = $1, brief = $2, state = $3, queue_name = $4, position = $5, priority = $6, \
-     assignee_name = $7, requester_name = $8, scope = $9, labels = $10, approvals = $11, cowork = $12, \
-     merged_into = $13, lease_id = $14, changed_at = $15, ended_at = $16 WHERE id = $17",
+     assignee_name = $7, requester_name = $8, scope = $9, labels = $10, approvals = $11, \
+     merged_into = $12, lease_id = $13, changed_at = $14, ended_at = $15 WHERE id = $16",
   )
   .bind(&item.title)
   .bind(&item.brief)
@@ -107,7 +106,6 @@ pub(crate) async fn save_item(tx: &mut Tx, item: &Item) -> Result<(), Refusal> {
   .bind(&item.scope)
   .bind(to_json(&item.labels))
   .bind(to_json(&item.approvals))
-  .bind(i64::from(item.cowork))
   .bind(item.merged_into)
   .bind(item.lease_id)
   .bind(item.changed_at)
@@ -195,8 +193,8 @@ impl Store {
         .await?;
     let id: i64 = sqlx::query_scalar(
       "INSERT INTO items (title, brief, state, queue_name, position, priority, assignee_name, requester_name, scope, \
-       labels, approvals, cowork, raised_by, created_at, changed_at) \
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '[]', $11, $12, $13, $13) RETURNING id",
+       labels, approvals, raised_by, created_at, changed_at) \
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '[]', $11, $12, $12) RETURNING id",
     )
     .bind(&new.title)
     .bind(&new.brief)
@@ -208,7 +206,6 @@ impl Store {
     .bind(&new.requester_name)
     .bind(&new.scope)
     .bind(to_json(&new.labels))
-    .bind(i64::from(new.cowork))
     .bind(raised_by)
     .bind(now)
     .fetch_one(&mut *tx)
@@ -391,9 +388,6 @@ impl Store {
     }
     if let Some(labels) = change.labels {
       item.labels = labels;
-    }
-    if let Some(cowork) = change.cowork {
-      item.cowork = cowork;
     }
 
     let approved = change.approval.is_some() && caller.approves;

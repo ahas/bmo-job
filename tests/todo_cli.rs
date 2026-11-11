@@ -1,5 +1,5 @@
-//! `bmo-job todo --done` from a shell (docs/cli.md): the closing goes through the service's own report and
-//! item routes, keeping the run's account and what it could not reach on the item, and closing it.
+//! `bmo-job todo` from a shell (docs/cli.md): a run leaves its account and what it could not reach on its item
+//! through the service's own report routes, and moves none of its item's state.
 
 use crate::support;
 
@@ -7,7 +7,6 @@ use std::collections::BTreeMap;
 
 use bmo_job::job_close::{COMMIT_LABEL, PHASE_LABEL, Standing, waiting_commit, write_standing};
 use bmo_job::todo_cli::{AddArgs, StopHereArgs, TodoArgs, add, close, stop_here};
-use bmo_job::work_order_cli::add_step;
 use bmo_job_client::{
   ItemState, LeaseAsk, LeaseWait, NewItem, NewReview, PageQuery, ReportKind, ReviewKind, WorkOrderBody,
 };
@@ -15,7 +14,7 @@ use bmo_job_client::{
 use support::Service;
 
 #[tokio::test]
-async fn a_closing_reports_and_closes_through_the_service_routes() {
+async fn a_closing_leaves_its_reports_and_moves_no_state() {
   let service = Service::start_unattended(&["lane=todo"]).await;
   let client = service.client();
   let item = client
@@ -60,11 +59,12 @@ async fn a_closing_reports_and_closes_through_the_service_routes() {
   .await
   .unwrap();
 
-  assert_eq!(lines.len(), 3, "two reports and the item");
+  assert_eq!(lines.len(), 3, "two reports and the line naming what it waits on");
+  assert!(lines[2].contains("\"waitsOn\":\"orderer\""), "{}", lines[2]);
 
   let kept = client.item(item.id).await.unwrap();
 
-  assert_eq!(kept.state, ItemState::Done);
+  assert_eq!(kept.state, ItemState::Leased, "its orderer moves it");
 
   let reports = client.reports(item.id, &PageQuery::default()).await.unwrap();
 
@@ -78,7 +78,7 @@ async fn a_closing_reports_and_closes_through_the_service_routes() {
 }
 
 #[tokio::test]
-async fn a_close_s_standing_is_written_on_the_item_and_a_waiting_item_is_not_closed() {
+async fn a_close_s_standing_is_written_on_the_item_and_a_closing_names_the_commit_it_waits_on() {
   let service = Service::start_unattended(&["lane=todo"]).await;
   let client = service.client();
   let item = client
@@ -168,7 +168,7 @@ async fn a_close_s_standing_is_written_on_the_item_and_a_waiting_item_is_not_clo
   .await
   .unwrap();
 
-  assert_eq!(client.item(item.id).await.unwrap().state, ItemState::Done);
+  assert_eq!(client.item(item.id).await.unwrap().state, ItemState::Leased);
 }
 
 #[test]
@@ -176,11 +176,11 @@ fn the_unit_declares_the_todo_and_job_nouns_bmo_finds_them_by() {
   let output = std::process::Command::new(env!("CARGO_BIN_EXE_bmo-job")).arg("nouns").output().unwrap();
 
   assert!(output.status.success());
-  assert_eq!(String::from_utf8_lossy(&output.stdout), "job\njob ask\thome\ntodo\nwork-order\n");
+  assert_eq!(String::from_utf8_lossy(&output.stdout), "job\njob ask\thome\ntodo\n");
 }
 
 #[tokio::test]
-async fn the_command_closes_the_item_with_the_address_and_token_the_run_names() {
+async fn the_command_leaves_the_account_with_the_address_and_token_the_run_names() {
   let service = Service::start_unattended(&["lane=todo"]).await;
   let client = service.client();
   let item = client
@@ -228,7 +228,7 @@ async fn the_command_closes_the_item_with_the_address_and_token_the_run_names() 
     .unwrap();
 
   assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-  assert_eq!(client.item(item.id).await.unwrap().state, ItemState::Done);
+  assert_eq!(client.item(item.id).await.unwrap().state, ItemState::Leased);
 
   let reports = client.reports(item.id, &PageQuery::default()).await.unwrap();
 
@@ -270,67 +270,45 @@ async fn leased(service: &Service, title: &str) -> i64 {
 }
 
 #[tokio::test]
-async fn a_stop_here_holds_the_item_with_its_reason_and_leaves_the_account_on_it() {
+async fn a_stop_here_leaves_the_account_on_the_item_and_moves_no_state() {
   let service = Service::start_unattended(&["lane=todo"]).await;
   let client = service.client();
   let item = leased(&service, "stopped short").await;
   let args = StopHereArgs {
     item,
     report: Some("The parser is done; the next run starts at the lexer.".to_owned()),
-    why: None,
-    after_deploy: Some("4242".to_owned()),
     by: "helper".to_owned(),
-    ..StopHereArgs::default()
   };
-
-  stop_here(&client, &args).await.expect_err("an item not yet held needs its reason");
 
   stop_here(
     &client,
     &StopHereArgs {
-      why: Some("waits on the deployment".to_owned()),
+      report: None,
       ..args.clone()
     },
   )
   .await
-  .expect("held");
-
-  let held = client.item(item).await.unwrap();
-
-  assert_eq!(held.state, ItemState::Held);
-  assert_eq!(held.labels["hold-why"], "waits on the deployment");
-  assert_eq!(held.labels["hold-after-deploy"], "4242");
-
-  // An item already held takes the account alone.
+  .expect_err("an account names what is finished");
+  stop_here(&client, &args).await.expect("kept");
   stop_here(
     &client,
     &StopHereArgs {
-      item,
       report: Some("And the lexer's first half.".to_owned()),
-      by: "helper".to_owned(),
-      ..StopHereArgs::default()
+      ..args.clone()
     },
   )
   .await
   .expect("kept");
 
+  let stands = client.item(item).await.unwrap();
+
+  assert_eq!(stands.state, ItemState::Leased, "holding it is its orderer's");
+  assert!(!stands.labels.contains_key("hold-why"));
+
   let reports = client.reports(item, &PageQuery::default()).await.unwrap();
 
   assert_eq!(reports.items.len(), 2);
   assert!(reports.items.iter().all(|report| report.kind == ReportKind::Held));
-
-  // A held item is not finished.
-  close(
-    &client,
-    &TodoArgs {
-      done: item,
-      report: Some("done".to_owned()),
-      unfinished: None,
-      by: "helper".to_owned(),
-    },
-  )
-  .await
-  .expect_err("a held item is never closed");
 }
 
 #[tokio::test]
@@ -387,33 +365,60 @@ async fn a_row_raised_by_a_job_stands_a_draft_in_its_items_queue_and_scope() {
 }
 
 #[tokio::test]
-async fn a_step_is_added_to_the_end_of_a_work_order() {
+async fn a_leased_item_s_steps_stand_fixed() {
   let service = Service::start_unattended(&["lane=todo"]).await;
   let client = service.client();
-  let item = leased(&service, "ordered work").await;
-
-  add_step(&client, item, "lexer", None).await.expect_err("no work order stands yet");
-
-  client
-    .put_work_order(
-      item,
-      &WorkOrderBody {
-        purpose: "the parser".to_owned(),
-        directive: "build it".to_owned(),
-        steps: vec!["grammar".to_owned()],
-        state: None,
-      },
-    )
+  let item = client
+    .create_item(&NewItem {
+      title: "ordered work".to_owned(),
+      brief: "build the parser".to_owned(),
+      queue_name: "todo".to_owned(),
+      labels: BTreeMap::from([("lane".to_owned(), "todo".to_owned())]),
+      ..NewItem::default()
+    })
     .await
     .unwrap();
+  let order = |steps: &[&str]| WorkOrderBody {
+    purpose: "the parser".to_owned(),
+    directive: "build it".to_owned(),
+    steps: steps.iter().map(|step| (*step).to_owned()).collect(),
+    state: None,
+  };
 
-  add_step(&client, item, "lexer", Some("hand-written")).await.expect("added");
+  client.put_work_order(item.id, &order(&["investigate"])).await.unwrap();
+  client
+    .put_work_order(item.id, &order(&["investigate", "implement"]))
+    .await
+    .expect("open, its steps move");
+  client
+    .take_lease(
+      &LeaseAsk {
+        queue_name: "todo".to_owned(),
+        holder_name: "worker".to_owned(),
+        ttl_ms: 60_000,
+        assignee_name: None,
+        item_id: Some(item.id),
+      },
+      &LeaseWait { wait_ms: None },
+    )
+    .await
+    .unwrap()
+    .expect("the item is leased");
 
-  assert_eq!(client.work_order(item).await.unwrap().steps, ["grammar", "lexer: hand-written"]);
+  client
+    .put_work_order(item.id, &order(&["investigate", "implement", "lexer"]))
+    .await
+    .expect_err("a job's plan stands fixed while it holds the item");
+  client
+    .put_work_order(item.id, &order(&["investigate", "implement"]))
+    .await
+    .expect("the same steps again");
+
+  assert_eq!(client.work_order(item.id).await.unwrap().steps, ["investigate", "implement"]);
 }
 
 #[tokio::test]
-async fn a_closing_keeps_an_item_whose_review_stands_open_and_closes_it_once_the_review_took_it() {
+async fn a_closing_names_an_open_review_and_leaves_the_item_to_its_orderer() {
   let service = Service::start_unattended(&["lane=todo"]).await;
   let client = service.client();
   let item = leased(&service, "a reviewed item").await;
@@ -440,7 +445,8 @@ async fn a_closing_keeps_an_item_whose_review_stands_open_and_closes_it_once_the
   assert_eq!(client.item(item).await.unwrap().state, ItemState::Leased);
 
   client.add_review(item, &entry(ReviewKind::Accepted)).await.unwrap();
-  close(&client, &closing).await.unwrap();
+  let lines = close(&client, &closing).await.unwrap();
 
-  assert_eq!(client.item(item).await.unwrap().state, ItemState::Done);
+  assert!(lines.last().is_some_and(|line| line.contains("\"waitsOn\":\"orderer\"")), "{lines:?}");
+  assert_eq!(client.item(item).await.unwrap().state, ItemState::Leased, "its orderer closes it");
 }

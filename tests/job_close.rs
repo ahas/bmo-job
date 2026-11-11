@@ -477,7 +477,7 @@ fn an_unpushed_commit_is_refused_while_the_record_is_foreign() {
 }
 
 #[test]
-fn the_command_carries_the_job_todo_and_work_order_nouns() {
+fn the_command_carries_the_job_and_todo_nouns() {
   let output = Command::new(env!("CARGO_BIN_EXE_bmo-job"))
     .arg("nouns")
     .output()
@@ -485,5 +485,5 @@ fn the_command_carries_the_job_todo_and_work_order_nouns() {
 
   assert!(output.status.success());
   let nouns: Vec<&str> = std::str::from_utf8(&output.stdout).expect("utf8").lines().collect();
-  assert_eq!(nouns, ["job", "job ask\thome", "todo", "work-order"]);
+  assert_eq!(nouns, ["job", "job ask\thome", "todo"]);
 }

@@ -4,13 +4,12 @@ The binary `bmo-job` carries these commands.
 
 | Command | Does |
 |---|---|
-| `bmo-job nouns` | Every noun this unit carries (`job`, `job ask`, `todo` and `work-order`), one a line, `job ask` marked `home` after a tab, which `bmo` reads to find the commands it hands this unit |
+| `bmo-job nouns` | Every noun this unit carries (`job`, `job ask` and `todo`), one a line, `job ask` marked `home` after a tab, which `bmo` reads to find the commands it hands this unit |
 | `bmo-job serve` | Serves the API by the settings file (docs/settings.md) until it is told to stop by an interrupt or a termination signal; every open event stream ends then, so the stop is not held |
 | `bmo-job mcp --service <url>` | Serves the harness plugin's MCP server on standard input and output, reaching the service at the address (docs/api.md, "The harness plugin") |
 | `bmo-job job close` | Hands the job's commit over to its repository's deployment, with the range narrowed to the commit the deployment recorded as live (「`bmo-job job close`」) |
 | `bmo-job job ask` | Puts a choice to the owner in the middle of a job and waits for a person to settle it (「`bmo-job job ask`」) |
 | `bmo-job todo` | Closes an item, holds it with the run's account on it, or raises a new one, each through the service's own routes (「`bmo-job todo`」) |
-| `bmo-job work-order` | Adds a step to an item's work order (「`bmo-job work-order`」) |
 | `bmo-job openapi` | Prints the OpenAPI document, the one committed as `docs/openapi.json` |
 
 ## `bmo-job job close`
@@ -90,19 +89,15 @@ The worker's run already names the job service in `BMO_JOB_URL` and its token in
 
 | Form | What it does |
 |---|---|
-| `--done <item> [--report <text>] [--unfinished <text>]` | Closes the item: `--report` kept as a `final` report and `--unfinished` as a `held` one through `POST /items/{itemId}/reports`, then `PATCH /items/{itemId}` sets its state to `done`. An item whose commit waits for its deployment, its label `close-phase` reading `waiting-live` (「`bmo-job job close`」), keeps the reports and its state: it is done once that commit is live, by whoever puts it live, and the verb prints one line saying which commit it waits on. An item whose review stands open (docs/api.md, 「Reviews」) keeps the reports and its state the same way: it is done once its review takes the work, by whoever examines it, and the verb prints one line saying it waits on its review. A move the service refuses, a held item's among them, leaves the item as it stood |
-| `--stop-here <item> --report <text> [--why <reason> [--after <item> \| --after-deploy <item or commit>]]` | Leaves the run's account on the item as a `held` report, and holds it. An item already held takes only the account; one not yet held needs `--why`, kept with its condition in the labels `hold-why`, `hold-after` and `hold-after-deploy`. A condition releases nothing, and no form takes a hold off |
+| `--done <item> [--report <text>] [--unfinished <text>]` | Leaves the run's account of the finished work on the item: `--report` kept as a `final` report and `--unfinished` as a `held` one through `POST /items/{itemId}/reports`. It moves no state: the item is done once whoever ordered the work takes it — its review, or, for an item whose commit waits for its deployment (its label `close-phase` reading `waiting-live`, 「`bmo-job job close`」), whoever puts that commit live. The verb prints one line saying what the item waits on: its commit going live, its review, or its orderer |
+| `--stop-here <item> --report <text>` | Leaves the run's account on the item as a `held` report, for the run that picks the work up: what is finished and where the next run goes on. It moves no state; holding the item is its orderer's |
 | `--add --title <words> --judgement <words> --raised-by <item> [--from-todo <id>:<strand>[,<id>:<strand>]]` | Raises a draft in the queue and scope of the item it was raised from, the judgement as its brief and `--from-todo` as its label `from-todo`, and prints it |
 
 - **`--by <name>`** names who writes it: the run's `BMO_TURN_AGENT` where left out, then `USER`.
 - **Pages hosted elsewhere are refused** in a `--report` and an `--unfinished`, as in a question.
 - **Each answer is printed as JSON,** one a line. The verb reads no database of its own.
-
-## `bmo-job work-order`
-
-`bmo work-order --todo <item> --add <title> [--instruction <words>]` appends a step to the item's work order
-through `PATCH /items/{itemId}/work-order` and prints the work order. A step is one line of the plan: the title,
-then the instruction after a colon where one is given. An item with no work order is refused.
+- **A run never moves its own item's state.** Whether the item is done, held or open again is decided by whoever
+  ordered the work, through the service's routes; the verb leaves the run's words on the item and nothing else.
 
 ## `bmo-job mcp`
 

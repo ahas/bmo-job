@@ -3,8 +3,8 @@
 use std::collections::HashSet;
 
 use bmo_job_client::{
-  EventKind, Item, Page, Task, TaskChange, TaskQuery, TaskState, WorkOrder, WorkOrderBody, WorkOrderChange,
-  WorkOrderState,
+  EventKind, Item, ItemState, Page, Task, TaskChange, TaskQuery, TaskState, WorkOrder, WorkOrderBody,
+  WorkOrderChange, WorkOrderState,
 };
 use sqlx::Row;
 use sqlx::sqlite::SqliteRow;
@@ -94,6 +94,21 @@ fn steps_read(steps: Vec<String>) -> Result<Vec<String>, Refusal> {
 /// Makes the tasks match the steps: a task whose title stands among them keeps its key, state and assignee
 /// and takes the step's stage, a new step makes a waiting task, and a task whose title is gone goes.
 async fn rebuild_tasks(tx: &mut Tx, item: &Item, steps: &[String], now: i64) -> Result<(), Refusal> {
+  // The steps are the plan its job runs in, so they stand fixed while a job holds the item (docs/api.md, "Work
+  // orders and tasks"): the same steps written again change nothing.
+  if item.state == ItemState::Leased {
+    let standing: Vec<String> = tasks_of(tx, item.id).await?.into_iter().map(|task| task.title).collect();
+
+    if standing != steps {
+      return Err(Refusal::conflict(format!(
+        "Item {}'s steps stand fixed while it is leased: they are the plan its job runs in.",
+        item.id
+      )));
+    }
+
+    return Ok(());
+  }
+
   let keys = item_keys(item);
   let standing = tasks_of(tx, item.id).await?;
   for (place, title) in steps.iter().enumerate() {
