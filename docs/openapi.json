@@ -269,6 +269,12 @@
               "null"
             ]
           },
+          "rejections": {
+            "default": 0,
+            "description": "How many times its work was sent back: the `rejection` entries of its review, read and never written.",
+            "format": "int64",
+            "type": "integer"
+          },
           "requesterName": {
             "type": [
               "string",
@@ -301,6 +307,7 @@
           "scope",
           "labels",
           "approvals",
+          "rejections",
           "cowork",
           "mergedInto",
           "raisedBy",
@@ -800,6 +807,57 @@
             },
             "description": "The caller's own metadata.",
             "type": "object"
+          }
+        },
+        "required": [
+          "kind",
+          "body",
+          "actorName"
+        ],
+        "type": "object"
+      },
+      "NewReview": {
+        "additionalProperties": false,
+        "description": "An entry appended to an item's review.",
+        "properties": {
+          "actorName": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ReviewKind"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The caller's own metadata.",
+            "type": "object"
+          },
+          "ref": {
+            "description": "The caller's reference of the run whose work is examined.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "round": {
+            "description": "The turn of the examination, from 1; 1 where left out.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stage": {
+            "description": "The stage of the item's work order, from 1; left out for the work whole.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
           }
         },
         "required": [
@@ -1379,6 +1437,107 @@
         ],
         "type": "object"
       },
+      "Review": {
+        "description": "One entry of an item's review.",
+        "properties": {
+          "actorName": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "Epoch milliseconds.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "itemId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ReviewKind"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The caller's own metadata.",
+            "type": "object"
+          },
+          "ref": {
+            "description": "The caller's reference of the run whose work is examined, or null.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "round": {
+            "description": "The turn of the examination the entry belongs to, from 1.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "stage": {
+            "description": "The stage of the item's work order the entry is about, from 1, or null for the work whole.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "itemId",
+          "ref",
+          "stage",
+          "round",
+          "kind",
+          "body",
+          "actorName",
+          "labels",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "ReviewKind": {
+        "description": "What one entry of a review is.",
+        "enum": [
+          "opened",
+          "report",
+          "question",
+          "answer",
+          "rejection",
+          "pass",
+          "escalation",
+          "ruling",
+          "accepted"
+        ],
+        "type": "string"
+      },
+      "ReviewPage": {
+        "description": "One page of a list, and whether anything stands past its last member.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Review"
+            },
+            "type": "array"
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "more"
+        ],
+        "type": "object"
+      },
       "ScopeCounts": {
         "description": "The members held under a scope, by resource.",
         "properties": {
@@ -1406,6 +1565,11 @@
             "format": "int64",
             "type": "integer"
           },
+          "reviews": {
+            "default": 0,
+            "format": "int64",
+            "type": "integer"
+          },
           "subscriptions": {
             "format": "int64",
             "type": "integer"
@@ -1423,6 +1587,7 @@
           "items",
           "notes",
           "reports",
+          "reviews",
           "workOrders",
           "tasks",
           "leases",
@@ -2541,6 +2706,123 @@
           }
         },
         "summary": "Append a report to an item: progress, final, or why it is held.",
+        "tags": [
+          "items"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "bad-request",
+          "not-found"
+        ]
+      }
+    },
+    "/items/{itemId}/reviews": {
+      "get": {
+        "operationId": "listItemsReviewsByItemId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The key of the last entry read; the page continues past it.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many entries at most, 50 where left out and at most 500.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "One run's entries alone.",
+            "in": "query",
+            "name": "ref",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewPage"
+                }
+              }
+            },
+            "description": "A page of review entries."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "An item's review, oldest first.",
+        "tags": [
+          "items"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "bad-request",
+          "not-found"
+        ]
+      },
+      "post": {
+        "operationId": "createItemsReviewsByItemId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewReview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Review"
+                }
+              }
+            },
+            "description": "The entry appended."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Append an entry to an item's review: a report, a question, an answer, a rejection, a pass, an escalation, a ruling, or the work accepted.",
         "tags": [
           "items"
         ],
@@ -3944,6 +4226,7 @@
     "note.created",
     "note.deleted",
     "report.created",
+    "review.created",
     "work-order.changed",
     "task.changed",
     "queue.changed",
@@ -4378,6 +4661,50 @@
         "$ref": "#/components/schemas/Report"
       },
       "route": "POST /items/{itemId}/reports"
+    },
+    {
+      "description": "An item's review, oldest first: each report, question, answer, rejection, pass, escalation, ruling and acceptance of the work, in order.",
+      "input": {
+        "description": "A route's path key and the rest of its input together, as one tool's input.",
+        "properties": {
+          "after": {
+            "description": "The key of the last entry read; the page continues past it.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "itemId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "limit": {
+            "description": "How many entries at most, 50 where left out and at most 500.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "ref": {
+            "description": "One run's entries alone.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "itemId"
+        ],
+        "type": "object"
+      },
+      "name": "job_reviews",
+      "output": {
+        "$ref": "#/components/schemas/ReviewPage"
+      },
+      "route": "GET /items/{itemId}/reviews"
     },
     {
       "description": "An item's work order.",

@@ -77,7 +77,7 @@ async fn migrated(directory: &tempfile::TempDir, schema: &str, version: i64) -> 
 
   let pool = sqlx::SqlitePool::connect(&url).await.expect("the store");
   let version: i64 = sqlx::query_scalar("PRAGMA user_version").fetch_one(&pool).await.expect("the version");
-  assert_eq!(version, 4);
+  assert_eq!(version, 5);
   pool
 }
 

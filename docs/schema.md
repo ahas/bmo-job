@@ -25,6 +25,7 @@ another standing item, and leaves it null otherwise; a lease standing then is he
 | `items` | An item: its words, state, queue and place there, the names and scope the caller gave, its labels, approvals, merge, the item it was raised from, and standing lease |
 | `notes` | A note on an item |
 | `reports` | A report on an item |
+| `reviews` | An entry of an item's review: the run it examines, its stage and round, its kind, words and labels |
 | `work_orders` | An item's work order, keyed by the item |
 | `tasks` | A task of a work order: its stage, title, state and assignee |
 | `queues` | A queue by its name: its state and holds |

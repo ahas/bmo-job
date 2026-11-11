@@ -20,6 +20,8 @@ pub struct ScopeCounts {
   pub items: i64,
   pub notes: i64,
   pub reports: i64,
+  #[serde(default)]
+  pub reviews: i64,
   pub work_orders: i64,
   pub tasks: i64,
   pub leases: i64,

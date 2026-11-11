@@ -11,9 +11,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use bmo_job_client::{
   Health, ItemChange, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait, NewEvent, NewItem, NewNote,
-  NewQuestion, NewReply, NewReport, NewSubscription, Page, PageQuery, QuestionChange, QuestionQuery,
-  QueueChange, QueueQuery, ScopeDeletion, SubscriptionChange, SubscriptionQuery, TaskChange, TaskQuery,
-  WaitQuery, WorkOrderBody, WorkOrderChange,
+  NewQuestion, NewReply, NewReport, NewReview, NewSubscription, Page, PageQuery, QuestionChange,
+  QuestionQuery, QueueChange, QueueQuery, ReviewQuery, ScopeDeletion, SubscriptionChange,
+  SubscriptionQuery, TaskChange, TaskQuery, WaitQuery, WorkOrderBody, WorkOrderChange,
 };
 use serde::Serialize;
 use tokio::time::Instant;
@@ -54,6 +54,7 @@ pub(super) fn routes() -> Router<App> {
     .route("/items/{itemId}/notes", get(notes).post(add_note))
     .route("/items/{itemId}/notes/{noteId}", delete(delete_note))
     .route("/items/{itemId}/reports", get(reports).post(add_report))
+    .route("/items/{itemId}/reviews", get(reviews).post(add_review))
     .route(
       "/items/{itemId}/work-order",
       get(work_order).put(put_work_order).patch(change_work_order),
@@ -173,6 +174,22 @@ async fn add_report(
   InBody(report): InBody<NewReport>,
 ) -> Answer {
   created(app.store.add_report(item_id, report).await?)
+}
+
+async fn reviews(
+  State(app): State<App>,
+  InPath(item_id): InPath<i64>,
+  InQuery(query): InQuery<ReviewQuery>,
+) -> Answer {
+  ok(app.store.reviews(item_id, &query).await?)
+}
+
+async fn add_review(
+  State(app): State<App>,
+  InPath(item_id): InPath<i64>,
+  InBody(review): InBody<NewReview>,
+) -> Answer {
+  created(app.store.add_review(item_id, review).await?)
 }
 
 async fn work_order(State(app): State<App>, InPath(item_id): InPath<i64>) -> Answer {

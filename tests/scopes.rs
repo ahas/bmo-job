@@ -88,6 +88,7 @@ async fn a_scope_is_counted_previewed_and_let_go() {
     items: 1,
     notes: 1,
     reports: 0,
+    reviews: 0,
     work_orders: 1,
     tasks: 1,
     leases: 1,

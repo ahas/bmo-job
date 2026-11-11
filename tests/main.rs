@@ -21,6 +21,7 @@ mod personal;
 mod plugin;
 mod port;
 mod questions;
+mod reviews;
 mod scopes;
 mod serve;
 mod subscriptions;

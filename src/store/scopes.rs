@@ -26,6 +26,8 @@ async fn counts(tx: &mut Tx, scope: &str) -> Result<ScopeCounts, Refusal> {
       .await?,
     reports: count(tx, &format!("SELECT COUNT(*) FROM reports WHERE item_id IN ({SCOPE_ITEMS})"), scope)
       .await?,
+    reviews: count(tx, &format!("SELECT COUNT(*) FROM reviews WHERE item_id IN ({SCOPE_ITEMS})"), scope)
+      .await?,
     work_orders: count(
       tx,
       &format!("SELECT COUNT(*) FROM work_orders WHERE item_id IN ({SCOPE_ITEMS})"),
@@ -100,7 +102,7 @@ impl Store {
     for id in items {
       let mut item = item_at(&mut tx, id).await?;
       end_standing_lease(&mut tx, &mut item, now).await?;
-      for table in ["notes", "reports", "work_orders", "tasks", "leases"] {
+      for table in ["notes", "reports", "reviews", "work_orders", "tasks", "leases"] {
         sqlx::query(&format!("DELETE FROM {table} WHERE item_id = $1"))
           .bind(id)
           .execute(&mut *tx)

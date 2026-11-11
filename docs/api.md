@@ -5,8 +5,8 @@ the service's contract; the version they carry is the repository's (README.md, "
 and the error table are the bmo conventions bmo-chat keeps; this document states what the service holds and
 serves on them, and repeats none of it.
 
-The service is a todo kept as middleware, in the way Redis is one: it stores items, their notes, reports and
-work orders, the queues the items wait in, leases on items, questions and their replies, and subscriptions,
+The service is a todo kept as middleware, in the way Redis is one: it stores items, their notes, reports,
+reviews and work orders, the queues the items wait in, leases on items, questions and their replies, and subscriptions,
 and serves them through this API and nothing else. It never executes: it launches no process or run, calls no
 other unit and registers nothing anywhere. The one call it makes is a delivery to the address a subscriber
 registered. Who a member belongs to is opaque to it: `scope`, `assigneeName`, `requesterName`, `holderName`,
@@ -63,6 +63,7 @@ and who is to take it, the caller's scope and labels, its approvals and its stat
 | `requesterName` | Who asked for it, or null |
 | `scope`, `labels` | The caller's opaque scope, or null, and its metadata |
 | `approvals` | Each approval given, `kind`, `callerName` and `at`, oldest first (below) |
+| `rejections` | How many times its work was sent back: the `rejection` entries of its review (Reviews), read and never written |
 | `cowork` | The caller's flag for work done by several at once |
 | `mergedInto` | The item a merged item was folded into, or null |
 | `raisedBy` | The item it was raised from, or null (below) |
@@ -172,6 +173,38 @@ the requester's language stands as the worker wrote it, and a screen shows it as
 |---|---|
 | `GET /items/{itemId}/reports` | The item's reports, oldest first |
 | `POST /items/{itemId}/reports` | Appends a report: `kind`, `body` and `actorName` required, `labels` optional. Answers 201 |
+
+## Reviews
+
+A review is the record of how the work done on an item was examined before it was taken, one entry for each move
+of it, in the order they were made. An entry is `id`, `itemId`, `ref` (the caller's reference of the run whose
+work is examined, or null), `stage` (the stage of the item's work order the entry is about, or null for the work
+whole), `round` (1 upward: the turn of the examination it belongs to), `kind`, `body`, `actorName`, `labels` and
+`createdAt`.
+
+| Kind | The entry is |
+|---|---|
+| `report` | What the one doing the work tells of it |
+| `question` | A question the one examining it puts to the one doing it |
+| `answer` | The answer the one doing the work gives to a question |
+| `rejection` | The work sent back: why, and what is to be done |
+| `pass` | A part of the examination passed, the part its `labels` name |
+| `escalation` | The work put to a person, and why |
+| `ruling` | The person's word on it |
+| `accepted` | The work taken whole: the review stands closed |
+
+- **An entry moves nothing,** as a report moves nothing: whoever examines the work moves the item itself. Its
+  `body` is kept and answered whole, exactly as written.
+- **A review stands open** from an item's first entry until its last entry is `accepted`; an entry written after
+  an `accepted` one opens it again, as a rerun of the item's work does.
+- **The item answers how often its work was sent back,** `rejections`, counted over every entry of its review.
+- **`stage` is 1 upward and `round` is 1 upward;** either out of that range is answered 400 `bad-request`, and a
+  `round` left out is 1.
+
+| Method and path | Does |
+|---|---|
+| `GET /items/{itemId}/reviews` | The item's review, oldest first, past `after`; `ref` narrows it to one run's |
+| `POST /items/{itemId}/reviews` | Appends an entry: `kind`, `body` and `actorName` required, `ref`, `stage`, `round` and `labels` optional. Answers 201 |
 
 ## Work orders and tasks
 
@@ -313,6 +346,7 @@ with the events still to come; a page asked with none starts at the oldest the w
 | `item.created`, `item.changed`, `item.deleted` | An item raised, changed in any field or state, or let go with its scope; the first two carry `previousState` and `changedBy` (above) |
 | `note.created`, `note.deleted` | A note appended or taken back |
 | `report.created` | A report appended |
+| `review.created` | An entry appended to an item's review |
 | `work-order.changed` | A work order saved or changed |
 | `task.changed` | A task moved, made or removed by a save (a removed task is told with its key alone) |
 | `queue.changed` | A queue paused, opened or its holds changed, by a change or by a hold running out |
@@ -322,7 +356,7 @@ with the events still to come; a page asked with none starts at the oldest the w
 | `subscription.created`, `subscription.changed`, `subscription.deleted` | A subscription made, changed, moved to `failing`, or deleted or run out |
 
 - **Narrowing:** `kinds` (comma-separated), `scope`, and `subscriptionId` for the events a subscription
-  matches. An event of an item, its notes, reports, work order, tasks and leases carries the item's queue and
+  matches. An event of an item, its notes, reports, review, work order, tasks and leases carries the item's queue and
   scope; a question's carries its scope and item.
 - **The window** is seven days: events older are dropped, and a resume from before the window is answered 410
   `gone`.
@@ -374,12 +408,12 @@ A subscription is how a caller is told of changes: `id`, `holderName`, `kinds`, 
 
 ## Scopes
 
-What the service holds under a caller's scope is the items raised under it with their notes, reports, work
-orders, tasks and standing leases, the questions under it with their replies, and the subscriptions under it.
+What the service holds under a caller's scope is the items raised under it with their notes, reports, reviews,
+work orders, tasks and standing leases, the questions under it with their replies, and the subscriptions under it.
 
 | Method and path | Does |
 |---|---|
-| `GET /scopes/{scope}` | `scope`, `counts` (`items`, `notes`, `reports`, `workOrders`, `tasks`, `leases`, `questions`, `replies`, `subscriptions`) and `state` null. Nothing held is answered 404 `not-found` |
+| `GET /scopes/{scope}` | `scope`, `counts` (`items`, `notes`, `reports`, `reviews`, `workOrders`, `tasks`, `leases`, `questions`, `replies`, `subscriptions`) and `state` null. Nothing held is answered 404 `not-found` |
 | `DELETE /scopes/{scope}` | Lets all of it go, each member told as its `deleted` event, and answers the counts with `state` `deleted`; with `dryRun=true` it lets nothing go and answers them with `state` `preview` |
 
 ## The bmo-receiver port
@@ -463,6 +497,7 @@ sentence. The OpenAPI document states each under `x-tools`.
 | `job_notes` | `GET /items/{itemId}/notes` |
 | `job_note_add` | `POST /items/{itemId}/notes` |
 | `job_report` | `POST /items/{itemId}/reports` |
+| `job_reviews` | `GET /items/{itemId}/reviews` |
 | `job_work_order` | `GET /items/{itemId}/work-order` |
 | `job_tasks` | `GET /items/{itemId}/work-order/tasks` |
 | `job_queues` | `GET /queues` |

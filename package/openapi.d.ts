@@ -128,6 +128,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/items/{itemId}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** An item's review, oldest first. */
+        get: operations["listItemsReviewsByItemId"];
+        put?: never;
+        /** Append an entry to an item's review: a report, a question, an answer, a rejection, a pass, an escalation, a ruling, or the work accepted. */
+        post: operations["createItemsReviewsByItemId"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/items/{itemId}/work-order": {
         parameters: {
             query?: never;
@@ -525,6 +543,12 @@ export interface components {
              * @description The item this one was raised from, fixed when it is raised; null where there is none.
              */
             raisedBy: number | null;
+            /**
+             * Format: int64
+             * @description How many times its work was sent back: the `rejection` entries of its review, read and never written.
+             * @default 0
+             */
+            rejections: number;
             requesterName: string | null;
             scope: string | null;
             state: components["schemas"]["ItemState"];
@@ -700,6 +724,28 @@ export interface components {
             labels?: {
                 [key: string]: string;
             };
+        };
+        /** @description An entry appended to an item's review. */
+        NewReview: {
+            actorName: string;
+            body: string;
+            kind: components["schemas"]["ReviewKind"];
+            /** @description The caller's own metadata. */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description The caller's reference of the run whose work is examined. */
+            ref?: string | null;
+            /**
+             * Format: int64
+             * @description The turn of the examination, from 1; 1 where left out.
+             */
+            round?: number | null;
+            /**
+             * Format: int64
+             * @description The stage of the item's work order, from 1; left out for the work whole.
+             */
+            stage?: number | null;
         };
         /** @description A subscription made. */
         NewSubscription: {
@@ -908,6 +954,47 @@ export interface components {
             items: components["schemas"]["Report"][];
             more: boolean;
         };
+        /** @description One entry of an item's review. */
+        Review: {
+            actorName: string;
+            body: string;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            createdAt: number;
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            itemId: number;
+            kind: components["schemas"]["ReviewKind"];
+            /** @description The caller's own metadata. */
+            labels: {
+                [key: string]: string;
+            };
+            /** @description The caller's reference of the run whose work is examined, or null. */
+            ref: string | null;
+            /**
+             * Format: int64
+             * @description The turn of the examination the entry belongs to, from 1.
+             */
+            round: number;
+            /**
+             * Format: int64
+             * @description The stage of the item's work order the entry is about, from 1, or null for the work whole.
+             */
+            stage: number | null;
+        };
+        /**
+         * @description What one entry of a review is.
+         * @enum {string}
+         */
+        ReviewKind: "opened" | "report" | "question" | "answer" | "rejection" | "pass" | "escalation" | "ruling" | "accepted";
+        /** @description One page of a list, and whether anything stands past its last member. */
+        ReviewPage: {
+            items: components["schemas"]["Review"][];
+            more: boolean;
+        };
         /** @description The members held under a scope, by resource. */
         ScopeCounts: {
             /** Format: int64 */
@@ -922,6 +1009,11 @@ export interface components {
             replies: number;
             /** Format: int64 */
             reports: number;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            reviews: number;
             /** Format: int64 */
             subscriptions: number;
             /** Format: int64 */
@@ -1405,6 +1497,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Report"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listItemsReviewsByItemId: {
+        parameters: {
+            query?: {
+                /** @description The key of the last entry read; the page continues past it. */
+                after?: number;
+                /** @description How many entries at most, 50 where left out and at most 500. */
+                limit?: number;
+                /** @description One run's entries alone. */
+                ref?: string;
+            };
+            header?: never;
+            path: {
+                itemId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of review entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createItemsReviewsByItemId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                itemId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewReview"];
+            };
+        };
+        responses: {
+            /** @description The entry appended. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Review"];
                 };
             };
             default: components["responses"]["Error"];

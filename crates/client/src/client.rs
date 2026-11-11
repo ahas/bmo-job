@@ -19,6 +19,7 @@ use crate::page::{Page, PageQuery};
 use crate::questions::{NewQuestion, NewReply, Question, QuestionChange, QuestionQuery, Reply};
 use crate::queues::{Queue, QueueChange, QueueQuery};
 use crate::reports::{NewReport, Report};
+use crate::reviews::{NewReview, Review, ReviewQuery};
 use crate::scopes::{ScopeDeletion, ScopeHolding};
 use crate::subscriptions::{NewSubscription, Subscription, SubscriptionChange, SubscriptionQuery};
 use crate::work_orders::{Task, TaskChange, TaskQuery, WorkOrder, WorkOrderBody, WorkOrderChange};
@@ -219,6 +220,16 @@ impl JobClient {
   /// Appends a report to an item.
   pub async fn add_report(&self, item_id: i64, report: &NewReport) -> Result<Report, ClientFailure> {
     answer(self.post(&["items", &item_id.to_string(), "reports"]).json(report)).await
+  }
+
+  /// An item's review, oldest first.
+  pub async fn reviews(&self, item_id: i64, query: &ReviewQuery) -> Result<Page<Review>, ClientFailure> {
+    answer(self.get(&["items", &item_id.to_string(), "reviews"]).query(query)).await
+  }
+
+  /// Appends an entry to an item's review.
+  pub async fn add_review(&self, item_id: i64, review: &NewReview) -> Result<Review, ClientFailure> {
+    answer(self.post(&["items", &item_id.to_string(), "reviews"]).json(review)).await
   }
 
   /// An item's work order.

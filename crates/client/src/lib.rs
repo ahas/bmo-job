@@ -58,6 +58,7 @@ mod page;
 mod questions;
 mod queues;
 mod reports;
+mod reviews;
 mod routes;
 mod scopes;
 mod signature;
@@ -81,6 +82,7 @@ pub use questions::{
 };
 pub use queues::{Hold, Queue, QueueChange, QueueQuery, QueueState};
 pub use reports::{NewReport, Report, ReportKind};
+pub use reviews::{NewReview, Review, ReviewKind, ReviewQuery};
 pub use routes::{Method, Route, routes};
 pub use scopes::{ScopeCounts, ScopeDeletion, ScopeHolding};
 pub use signature::{SIGNATURE_HEADER, SUBSCRIPTION_HEADER, signature, signed_by};

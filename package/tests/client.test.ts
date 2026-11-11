@@ -17,6 +17,7 @@ const item: Item = {
   scope: null,
   labels: {},
   approvals: [{ kind: "approval", callerName: "qa-admin", at: 1 }],
+  rejections: 0,
   cowork: false,
   mergedInto: null,
   raisedBy: null,

@@ -15,7 +15,8 @@ use crate::access::Caller;
 use crate::refusal::Refusal;
 
 const ITEM_COLUMNS: &str = "id, title, brief, state, queue_name, position, priority, assignee_name, requester_name, \
-  scope, labels, approvals, cowork, merged_into, raised_by, lease_id, created_at, changed_at, ended_at";
+  scope, labels, approvals, cowork, merged_into, raised_by, lease_id, created_at, changed_at, ended_at, \
+  (SELECT COUNT(*) FROM reviews WHERE reviews.item_id = items.id AND reviews.kind = 'rejection') AS rejections";
 
 /// An approval as the store holds it. One held with no kind, such as one imported, reads as an approval of no
 /// caller (docs/api.md, "Approvals").
@@ -61,6 +62,7 @@ fn item_from(row: &SqliteRow) -> Result<Item, Refusal> {
     scope: row.try_get("scope")?,
     labels: from_json(row.try_get::<&str, _>("labels")?)?,
     approvals: approvals_from(row.try_get::<&str, _>("approvals")?)?,
+    rejections: row.try_get("rejections")?,
     cowork: row.try_get::<i64, _>("cowork")? != 0,
     merged_into: row.try_get("merged_into")?,
     raised_by: row.try_get("raised_by")?,

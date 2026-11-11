@@ -15,6 +15,7 @@ use crate::page::{Page, PageQuery};
 use crate::questions::{NewQuestion, NewReply, Question, QuestionChange, QuestionQuery, Reply};
 use crate::queues::{Queue, QueueChange, QueueQuery};
 use crate::reports::{NewReport, Report};
+use crate::reviews::{NewReview, Review, ReviewQuery};
 use crate::scopes::{ScopeDeletion, ScopeHolding};
 use crate::subscriptions::{NewSubscription, Subscription, SubscriptionChange, SubscriptionQuery};
 use crate::work_orders::{Task, TaskChange, TaskQuery, WorkOrder, WorkOrderBody, WorkOrderChange};
@@ -270,6 +271,21 @@ pub fn routes() -> Vec<Route> {
       "Append a report to an item: progress, final, or why it is held.",
     )
     .with(None, Some(referred::<NewReport>), vec![json::<Report>(201, "The report appended.")], &[BadRequest, NotFound]),
+    route(Get, "/items/{itemId}/reviews", "listItemsReviewsByItemId", "items", "An item's review, oldest first.")
+      .with(
+        Some(object::<ReviewQuery>),
+        None,
+        vec![json::<Page<Review>>(200, "A page of review entries.")],
+        &[BadRequest, NotFound],
+      ),
+    route(
+      Post,
+      "/items/{itemId}/reviews",
+      "createItemsReviewsByItemId",
+      "items",
+      "Append an entry to an item's review: a report, a question, an answer, a rejection, a pass, an escalation, a ruling, or the work accepted.",
+    )
+    .with(None, Some(referred::<NewReview>), vec![json::<Review>(201, "The entry appended.")], &[BadRequest, NotFound]),
     route(Get, "/items/{itemId}/work-order", "listItemsWorkOrderByItemId", "items", "An item's work order.").with(
       None,
       None,

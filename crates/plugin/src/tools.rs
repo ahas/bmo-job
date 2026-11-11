@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use bmo_job_client::{
   ClientFailure, Item, ItemChange, ItemQuery, Lease, LeaseAsk, LeaseRenewal, LeaseWait, NewItem, NewNote,
-  NewQuestion, NewReport, NewSubscription, Note, Page, Question, Queue, QueueQuery, Reply, Report,
-  Subscription, Task, TaskQuery, WaitQuery, WorkOrder,
+  NewQuestion, NewReport, NewSubscription, Note, Page, Question, Queue, QueueQuery, Reply, Report, Review,
+  ReviewQuery, Subscription, Task, TaskQuery, WaitQuery, WorkOrder,
 };
 use schemars::generate::SchemaGenerator;
 use schemars::{JsonSchema, Schema};
@@ -218,6 +218,12 @@ pub fn tools() -> Vec<JobTool> {
       "Append a report to an item: progress, final, or why it is held.",
       "POST /items/{itemId}/reports",
       |harness, input| async move { harness.client.add_report(input.key.item_id, &input.rest).await },
+    ),
+    tool::<Keyed<ItemKey, ReviewQuery>, Page<Review>, _, _>(
+      "job_reviews",
+      "An item's review, oldest first: each report, question, answer, rejection, pass, escalation, ruling and acceptance of the work, in order.",
+      "GET /items/{itemId}/reviews",
+      |harness, input| async move { harness.client.reviews(input.key.item_id, &input.rest).await },
     ),
     tool::<ItemKey, WorkOrder, _, _>(
       "job_work_order",

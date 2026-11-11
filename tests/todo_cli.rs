@@ -8,7 +8,9 @@ use std::collections::BTreeMap;
 use bmo_job::job_close::{COMMIT_LABEL, PHASE_LABEL, Standing, waiting_commit, write_standing};
 use bmo_job::todo_cli::{AddArgs, StopHereArgs, TodoArgs, add, close, stop_here};
 use bmo_job::work_order_cli::add_step;
-use bmo_job_client::{ItemState, LeaseAsk, LeaseWait, NewItem, PageQuery, ReportKind, WorkOrderBody};
+use bmo_job_client::{
+  ItemState, LeaseAsk, LeaseWait, NewItem, NewReview, PageQuery, ReportKind, ReviewKind, WorkOrderBody,
+};
 
 use support::Service;
 
@@ -408,4 +410,37 @@ async fn a_step_is_added_to_the_end_of_a_work_order() {
   add_step(&client, item, "lexer", Some("hand-written")).await.expect("added");
 
   assert_eq!(client.work_order(item).await.unwrap().steps, ["grammar", "lexer: hand-written"]);
+}
+
+#[tokio::test]
+async fn a_closing_keeps_an_item_whose_review_stands_open_and_closes_it_once_the_review_took_it() {
+  let service = Service::start_unattended(&["lane=todo"]).await;
+  let client = service.client();
+  let item = leased(&service, "a reviewed item").await;
+  let entry = |kind: ReviewKind| NewReview {
+    kind,
+    body: kind.as_str().to_owned(),
+    actor_name: "examiner".to_owned(),
+    r#ref: Some("job:1".to_owned()),
+    stage: None,
+    round: None,
+    labels: Default::default(),
+  };
+  let closing = TodoArgs {
+    done: item,
+    report: Some("The work is done.".to_owned()),
+    unfinished: None,
+    by: "helper".to_owned(),
+  };
+
+  client.add_review(item, &entry(ReviewKind::Opened)).await.unwrap();
+  let lines = close(&client, &closing).await.unwrap();
+
+  assert!(lines.last().is_some_and(|line| line.contains("\"waitsOn\":\"review\"")), "{lines:?}");
+  assert_eq!(client.item(item).await.unwrap().state, ItemState::Leased);
+
+  client.add_review(item, &entry(ReviewKind::Accepted)).await.unwrap();
+  close(&client, &closing).await.unwrap();
+
+  assert_eq!(client.item(item).await.unwrap().state, ItemState::Done);
 }

@@ -5,7 +5,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use bmo_job_client::{ItemChange, ItemState, JobClient, NewItem, NewReport, Report, ReportKind};
+use bmo_job_client::{
+  ItemChange, ItemState, JobClient, NewItem, NewReport, Report, ReportKind, ReviewKind, ReviewQuery,
+};
 
 use crate::Settings;
 use crate::job_close::waiting_commit;
@@ -74,6 +76,34 @@ fn nonempty(name: &str) -> Option<String> {
     .filter(|value| !value.is_empty())
 }
 
+/// Whether the item's review stands open (docs/api.md, "Reviews"): it holds an entry, and its last is not
+/// `accepted`.
+async fn review_open(client: &JobClient, item: i64) -> Result<bool, String> {
+  let mut after = None;
+  let mut last = None;
+
+  loop {
+    let query = ReviewQuery {
+      after,
+      limit: Some(500),
+      ..ReviewQuery::default()
+    };
+    let page = client
+      .reviews(item, &query)
+      .await
+      .map_err(|why| format!("item {item}'s review could not be read: {why}"))?;
+
+    if let Some(entry) = page.items.last() {
+      after = Some(entry.id);
+      last = Some(entry.kind);
+    }
+
+    if !page.more {
+      return Ok(last.is_some_and(|kind| kind != ReviewKind::Accepted));
+    }
+  }
+}
+
 /// The item closed: its unfinished note kept as a held report, its account as a final report, and its state
 /// set to done, each through the route that holds it; an item whose commit waits to go live keeps its state.
 /// Each answer is printed as its JSON on a line.
@@ -120,6 +150,15 @@ pub async fn close(client: &JobClient, args: &TodoArgs) -> Result<Vec<String>, S
     lines.push(
       serde_json::json!({ "itemId": args.done, "state": stands.state, "waitsOn": "live", "commit": commit })
         .to_string(),
+    );
+
+    return Ok(lines);
+  }
+
+  // An item whose review stands open keeps its state: it is done once its review takes the work.
+  if review_open(client, args.done).await? {
+    lines.push(
+      serde_json::json!({ "itemId": args.done, "state": stands.state, "waitsOn": "review" }).to_string(),
     );
 
     return Ok(lines);

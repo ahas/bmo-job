@@ -93,6 +93,9 @@ pub struct Item {
   /// The caller's own metadata.
   pub labels: Labels,
   pub approvals: Vec<Approval>,
+  /// How many times its work was sent back: the `rejection` entries of its review, read and never written.
+  #[serde(default)]
+  pub rejections: i64,
   pub cowork: bool,
   pub merged_into: Option<i64>,
   /// The item this one was raised from, fixed when it is raised; null where there is none.

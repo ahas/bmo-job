@@ -13,6 +13,7 @@ wire_enum! {
     NoteCreated = "note.created",
     NoteDeleted = "note.deleted",
     ReportCreated = "report.created",
+    ReviewCreated = "review.created",
     WorkOrderChanged = "work-order.changed",
     TaskChanged = "task.changed",
     QueueChanged = "queue.changed",
