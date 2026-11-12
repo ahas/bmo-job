@@ -103,7 +103,8 @@ no clock is among it.
 - **At least once.** A call cut after its peer took it is made again, so an order or the job's words in a talk
   can reach the room twice. A question is opened once: where opening it was cut, the room's open questions
   are read first, and one of the same asker, item, words and options is taken as the one opened.
-- **The due time.** The question is asked with a due time of one hour, which paces the one notice
+- **The due time.** The question is asked with the service's own due time, a minute where the service names no
+  other, which paces the one notice
   `question.due` tells and settles nothing.
 - **Pages hosted elsewhere are refused:** an address of a claude.ai artifact, a published Claude page, a gist or a
   paste in the question, an option, the reason or the words of a talk.

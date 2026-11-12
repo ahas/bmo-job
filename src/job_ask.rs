@@ -24,9 +24,6 @@ pub const TALK_EXIT: u8 = 3;
 pub const USAGE: &str = "usage: bmo job ask --todo <id> --question '<what is to be settled>' --option '<one>' --option '<another>' --recommend <n> --why '<why you ask, in one line>'
        bmo job ask --talk <question> --say '<your answer>' [--option '<one>' --option '<another>' --recommend <n> [--question '<words>'] [--why '<words>']]";
 
-// How far ahead a question's due time stands. It paces the one notice of a question left unanswered and settles
-// nothing.
-const DUE_MS: i64 = 3_600_000;
 // How long one read of the replies is held open; the wait goes on past it.
 const HELD_OPEN_MS: i64 = 60_000;
 
@@ -454,7 +451,9 @@ pub async fn ask(
     text: asked.question.clone(),
     choices: asked.options.clone(),
     recommendation: recommendation(&asked.options, recommend, &asked.why),
-    wait_ms: Some(DUE_MS),
+    // The service's own due time stands (docs/api.md, 「Questions and replies」): it paces the one notice of a
+    // question left unanswered and settles nothing.
+    wait_ms: None,
     told_by_asker: true,
   };
   let question = opened_once(client, &opening, stop.as_mut()).await.map_err(|halt| match halt {
