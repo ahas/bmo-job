@@ -499,6 +499,27 @@ fn the_command_carries_the_job_and_todo_nouns() {
   assert_eq!(nouns, ["job", "job ask\thome", "todo"]);
 }
 
+// A repository whose declaration names no deployment, a base library, is never put live: the close ends at once.
+#[test]
+fn a_close_in_a_repository_that_deploys_nothing_ends_live_at_once() {
+  let repo = tempfile::tempdir().expect("a checkout");
+  let data = tempfile::tempdir().expect("a data root");
+
+  init(repo.path());
+
+  let handed = commit(repo.path(), "a.txt", "First");
+
+  fs::write(repo.path().join("testbed.toml"), "testbed = 0\nname = \"the-library\"\n")
+    .expect("the declaration");
+
+  match wait_deployed(repo.path(), data.path(), &handed, 1_000, QUICK) {
+    Deployed::Live(lines) => {
+      assert!(lines.join("\n").contains("this repository deploys nothing"), "{lines:?}")
+    }
+    other => panic!("{other:?}"),
+  }
+}
+
 // A close waits on its commit's deployment and ends with what it came to: live where the deployment carrying the
 // commit ended live, and not live, with the deployment's own words, where it failed or rolled back.
 #[test]

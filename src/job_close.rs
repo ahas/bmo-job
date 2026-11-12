@@ -150,6 +150,14 @@ pub enum Deployed {
 /// whose process or unit is gone is a deployment cut off, read once more before it is taken as one. The
 /// records are read again every `every`, `LOOK_AGAIN` for a close.
 pub fn wait_deployed(root: &Path, data_root: &Path, commit: &str, since: i64, every: Duration) -> Deployed {
+  // A repository whose declaration reads and names no deployment is never put live: its commit on main is the end.
+  if deploys_nothing(root) {
+    return Deployed::Live(vec![format!(
+      "live: {} stands on main, and this repository deploys nothing",
+      short_of(commit)
+    )]);
+  }
+
   let deploy_root = declared_deploy_root(root).unwrap_or_else(|| data_root.to_path_buf());
   let short = short_of(commit);
 
@@ -374,6 +382,14 @@ fn reasons_refusal(args: &JobCloseArgs) -> Option<String> {
   }
 
   None
+}
+
+// Whether the checkout's declaration reads and declares no deployment at all.
+fn deploys_nothing(root: &Path) -> bool {
+  std::fs::read_to_string(root.join("testbed.toml"))
+    .ok()
+    .and_then(|text| toml::from_str::<Declaration>(&text).ok())
+    .is_some_and(|declaration| declaration.deploy.is_none())
 }
 
 // The deploy root the checkout's declaration names, a bare `~` or `~/` standing for the home and a relative

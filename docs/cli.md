@@ -46,6 +46,9 @@ records what goes live writes the commit down.
   are written or the run is told to stop. An item the service refuses, one it does not hold or a change it
   will not take, stops no close: the close says so in one line and goes on.
 - **A close with no `--todo` writes on no item.**
+- **A repository that deploys nothing ends its close on main.** Where the checkout's `testbed.toml` reads and
+  declares no `[deploy]` (a base library, which is released and never put live), there is no deployment to wait
+  for: the close says `live: <commit> stands on main, and this repository deploys nothing` and ends clean.
 - **What ends the wait.** The close reads the deployment's progress record and its record of what went live
   under the checkout's deploy root (bmo-testbed's `docs/deploy.md`, 「What a deployment says of itself as it
   runs」), again every few seconds. A record with no ending yet is a deployment still running only while the
