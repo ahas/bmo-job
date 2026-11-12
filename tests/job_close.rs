@@ -9,7 +9,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use bmo_job::job_close::{JobCloseArgs, Standing, close, commits_refusal, deployed_commit_of};
+use bmo_job::job_close::{
+  Deployed, JobCloseArgs, Standing, close, commits_refusal, deployed_commit_of, wait_deployed,
+};
 
 // A record as the testbed's deployment writes it, under the deploy root it names.
 const RECORD: &str = r#"{
@@ -113,7 +115,8 @@ fn told_close(
     },
     testbed,
     &|standing| told.borrow_mut().push(standing),
-  );
+  )
+  .map(|(lines, _)| lines);
 
   (closed, told.into_inner())
 }
@@ -486,4 +489,60 @@ fn the_command_carries_the_job_and_todo_nouns() {
   assert!(output.status.success());
   let nouns: Vec<&str> = std::str::from_utf8(&output.stdout).expect("utf8").lines().collect();
   assert_eq!(nouns, ["job", "job ask\thome", "todo"]);
+}
+
+// A close waits on its commit's deployment and ends with what it came to: live where the deployment carrying the
+// commit ended live, and not live, with the deployment's own words, where it failed or rolled back.
+#[test]
+fn a_waiting_close_ends_with_how_the_deployment_carrying_its_commit_ended() {
+  let repo = tempfile::tempdir().expect("a checkout");
+  let deploy = tempfile::tempdir().expect("a deploy root");
+  let data = tempfile::tempdir().expect("a data root");
+
+  init(repo.path());
+  commit(repo.path(), "a.txt", "First");
+
+  let handed = commit(repo.path(), "b.txt", "Second");
+  let later = commit(repo.path(), "c.txt", "Third");
+
+  declare_deploy_root(repo.path(), deploy.path());
+
+  let progress = |commit: &str, started: i64, ending: &str| {
+    fs::write(
+      deploy.path().join("deploy-progress.json"),
+      format!(r#"{{"unit":"bmo-deploy-1","commit":"{commit}","startedAt":{started},"ending":{ending}}}"#),
+    )
+    .expect("the progress record");
+  };
+
+  progress(&later, 2_000, r#"{"outcome":"live","at":3000,"why":null}"#);
+  assert!(
+    matches!(wait_deployed(repo.path(), data.path(), &handed, 1_000), Deployed::Live(_)),
+    "a later commit carrying it went live"
+  );
+
+  progress(
+    &handed,
+    2_000,
+    r#"{"outcome":"rolled-back","at":3000,"why":"the step register-tool after the health failed"}"#,
+  );
+
+  match wait_deployed(repo.path(), data.path(), &handed, 1_000) {
+    Deployed::NotLive(lines) => {
+      let said = lines.join("\n");
+
+      assert!(
+        said.contains("ended rolled-back: the step register-tool after the health failed"),
+        "{said}"
+      );
+      assert!(said.contains("journalctl --user -u bmo-deploy-1"), "{said}");
+    }
+    other => panic!("not live expected: {other:?}"),
+  }
+
+  // A deployment that began before the close handed its commit over says nothing of it; the record of what is
+  // live does, once no deployment is under way.
+  progress(&later, 500, r#"{"outcome":"failed","at":900,"why":"an older run"}"#);
+  record_at(deploy.path(), &handed);
+  assert!(matches!(wait_deployed(repo.path(), data.path(), &handed, 1_000), Deployed::Live(_)));
 }

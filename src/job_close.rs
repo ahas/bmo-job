@@ -92,7 +92,7 @@ pub fn close(
   args: &JobCloseArgs,
   testbed: &Path,
   tell: &dyn Fn(Standing),
-) -> Result<Vec<String>, String> {
+) -> Result<(Vec<String>, Option<String>), String> {
   if let Some(refusal) = reasons_refusal(args) {
     return Err(refusal);
   }
@@ -105,8 +105,91 @@ pub fn close(
   }
 
   closed.map(|handed| match handed {
-    Handed::Waiting(lines, _) | Handed::Live(lines) => lines,
+    Handed::Waiting(lines, commit) => (lines, Some(commit)),
+    Handed::Live(lines) => (lines, None),
   })
+}
+
+/// How often the deployment's records are read again while a close waits on its commit going live.
+const LOOK_AGAIN: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// How the deployment that took a close's commit ended, as the close reads it (docs/cli.md, 「`bmo-job job
+/// close`」): live, or not, with what the deployment said of why.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Deployed {
+  Live(Vec<String>),
+  NotLive(Vec<String>),
+}
+
+/// Waits, with no clock, for a deployment begun at `since` or after that carries `commit` to end, reading the
+/// deployment's progress record under the checkout's deploy root (bmo-testbed's docs/deploy.md, 「What a
+/// deployment says of itself as it runs」) and its record of what went live.
+pub fn wait_deployed(root: &Path, data_root: &Path, commit: &str, since: i64) -> Deployed {
+  let deploy_root = declared_deploy_root(root).unwrap_or_else(|| data_root.to_path_buf());
+  let short = short_of(commit);
+
+  loop {
+    let progress = read_progress(&deploy_root);
+    let carries = |of: &str| of == commit || is_ancestor(root, commit, of);
+
+    if let Some(progress) = progress.as_ref().filter(|one| one.started_at >= since && carries(&one.commit))
+    {
+      if let Some(ending) = &progress.ending {
+        let ran = short_of(&progress.commit);
+
+        return if ending.outcome == "live" {
+          Deployed::Live(vec![format!("live: {short} is live, deployed as {ran}")])
+        } else {
+          let mut lines = vec![format!(
+            "not live: the deployment of {ran}, carrying {short}, ended {}{}",
+            ending.outcome,
+            ending.why.as_deref().map(|why| format!(": {why}")).unwrap_or_default()
+          )];
+
+          if let Some(unit) = &progress.unit {
+            lines.push(format!("its whole account: journalctl --user -u {unit} --no-pager"));
+          }
+
+          lines.push(
+            "the commit is not live: find the cause, mend it, commit, push and close again".to_owned(),
+          );
+          Deployed::NotLive(lines)
+        };
+      }
+    } else if progress.as_ref().is_none_or(|one| one.ending.is_some())
+      && deployed_commit_under(&deploy_root).is_some_and(|live| carries(&live))
+    {
+      return Deployed::Live(vec![format!("live: {short} is live")]);
+    }
+
+    std::thread::sleep(LOOK_AGAIN);
+  }
+}
+
+/// The deployment's progress record as a waiting close reads it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Progress {
+  #[serde(default)]
+  commit: String,
+  #[serde(default)]
+  started_at: i64,
+  #[serde(default)]
+  unit: Option<String>,
+  #[serde(default)]
+  ending: Option<Ending>,
+}
+
+#[derive(Deserialize)]
+struct Ending {
+  #[serde(default)]
+  outcome: String,
+  #[serde(default)]
+  why: Option<String>,
+}
+
+fn read_progress(deploy_root: &Path) -> Option<Progress> {
+  serde_json::from_str(&std::fs::read_to_string(deploy_root.join("deploy-progress.json")).ok()?).ok()
 }
 
 // How a close ended where it was not refused: its commit already live, or handed over to wait.

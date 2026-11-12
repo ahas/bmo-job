@@ -184,6 +184,10 @@ async fn job_close(args: JobCloseArgs, todo: Option<i64>) -> ExitCode {
   });
   let runtime = tokio::runtime::Handle::current();
   let written = item.clone();
+  let (root_again, data_root_again) = (root.clone(), data_root.clone());
+  let since = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .map_or(0, |elapsed| elapsed.as_millis() as i64);
   let close = tokio::task::spawn_blocking(move || {
     job_close::close(&root, &data_root, &args, Path::new("bmo-testbed"), &|standing| {
       if let Some((client, item)) = &written
@@ -196,12 +200,15 @@ async fn job_close(args: JobCloseArgs, todo: Option<i64>) -> ExitCode {
 
   tokio::select! {
     closed = close => match closed {
-      Ok(Ok(lines)) => {
+      Ok(Ok((lines, waiting))) => {
         for line in lines {
           println!("{line}");
         }
 
-        ExitCode::SUCCESS
+        match waiting {
+          None => ExitCode::SUCCESS,
+          Some(commit) => waited(&root_again, &data_root_again, &commit, since, item.as_ref()).await,
+        }
       }
       Ok(Err(why)) => {
         eprintln!("job-close: refused — {why}");
@@ -220,6 +227,61 @@ async fn job_close(args: JobCloseArgs, todo: Option<i64>) -> ExitCode {
       }
 
       eprintln!("job-close: told to stop");
+      ExitCode::from(130)
+    }
+  }
+}
+
+// The close waiting on its commit's deployment, with no clock, and ending with what it came to: live ends it clean
+// and takes the item's standing off; anything else ends it failed, with what the deployment said, for the job to
+// mend and close again (docs/cli.md, 「`bmo-job job close`」). Told to stop while it waits, it ends as a stopped run.
+async fn waited(
+  root: &Path,
+  data_root: &Path,
+  commit: &str,
+  since: i64,
+  item: Option<&(bmo_job_client::JobClient, i64)>,
+) -> ExitCode {
+  println!("waiting for the deployment of {} to end", &commit[..commit.len().min(12)]);
+
+  let (root, data_root, asked) = (root.to_path_buf(), data_root.to_path_buf(), commit.to_owned());
+  let wait =
+    tokio::task::spawn_blocking(move || job_close::wait_deployed(&root, &data_root, &asked, since));
+  let take_off = || async {
+    if let Some((client, item)) = item
+      && let Err(why) = job_close::write_standing(client, *item, &Standing::Off).await
+    {
+      eprintln!("job-close: {why}");
+    }
+  };
+
+  tokio::select! {
+    ended = wait => match ended {
+      Ok(job_close::Deployed::Live(lines)) => {
+        take_off().await;
+
+        for line in lines {
+          println!("{line}");
+        }
+
+        ExitCode::SUCCESS
+      }
+      Ok(job_close::Deployed::NotLive(lines)) => {
+        take_off().await;
+
+        for line in lines {
+          eprintln!("job-close: {line}");
+        }
+
+        ExitCode::FAILURE
+      }
+      Err(why) => {
+        eprintln!("job-close: the wait did not end — {why}");
+        ExitCode::FAILURE
+      }
+    },
+    () = told_to_stop() => {
+      eprintln!("job-close: told to stop while waiting for the deployment");
       ExitCode::from(130)
     }
   }

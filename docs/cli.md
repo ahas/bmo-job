@@ -25,8 +25,10 @@ the unit command the deployment links into `~/.local/bin` (docs/deploy.md, "The 
 
 The close reads the live commit from the deployment record (docs/deploy.md, "A job closes"), narrows the job's
 own commits to those past it, refuses a commit whose message holds Hangul or one that is not on the remote,
-runs the check and the suite, and ends `waiting to go live: <commit> stands pushed for its deployment`. A
-commit the record already names as live runs nothing and ends clean. Where the record's commit is not in the
+runs the check and the suite, says `waiting to go live: <commit> stands pushed for its deployment`, and then
+waits for that commit's deployment, with no clock, as `bmo job ask` waits for a person: the job that closed is
+the one that hears how its deployment ended. A commit the record already names as live runs nothing and ends
+clean. Where the record's commit is not in the
 repository or is no ancestor of `HEAD`, the range is taken from the job's own base commit instead, and the
 close says in one line which range it used. It reads no archive and no pending list; the deployment that
 records what goes live writes the commit down.
@@ -41,6 +43,18 @@ records what goes live writes the commit down.
 - **The item is reached as `bmo-job todo` reaches it** (「`bmo-job todo`」). An item that cannot be read or
   written stops no close: the close says so in one line and goes on.
 - **A close with no `--todo` writes on no item.**
+- **What ends the wait.** The close reads the deployment's progress record and its record of what went live
+  under the checkout's deploy root (bmo-testbed's `docs/deploy.md`, 「What a deployment says of itself as it
+  runs」), again every few seconds:
+
+  | What happened | Standard output | Standard error | Exit |
+  |---|---|---|---|
+  | A deployment begun after the handover, carrying the commit, ended `live`; or, none under way, the record of what went live carries it | `live: <commit> is live` | | 0 |
+  | Such a deployment ended `rolled-back`, `failed` or `stopped` | | `not live:` with the outcome and the deployment's reason, the journal of its unit, and that the commit is to be mended and closed again | 1 |
+  | The run was told to stop | | one line saying so | 130 |
+
+  Either ending takes the item's labels off. A commit that did not go live is the same job's to mend: it finds
+  the cause, commits, pushes and closes again, and its item is never closed while its commit is not live.
 
 ## `bmo-job job ask`
 
