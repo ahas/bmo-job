@@ -229,11 +229,14 @@ pub struct AddArgs {
   pub title: String,
   pub judgement: String,
   pub raised_by: Option<i64>,
+  /// The repository the row's work is in; the raising item's where none is named.
+  pub repository: Option<String>,
   pub from_todo: Option<String>,
   pub by: String,
 }
 
-/// The row raised in the queue and scope of the item it was raised from, a draft until an approver takes it.
+/// The row raised in the queue and scope of the item it was raised from, a draft until an approver takes it,
+/// assigned to the repository named, else to the raising item's own.
 pub async fn add(client: &JobClient, args: &AddArgs) -> Result<String, String> {
   if args.title.trim().is_empty() {
     return Err("--add takes --title '<title>'".to_owned());
@@ -259,11 +262,19 @@ pub async fn add(client: &JobClient, args: &AddArgs) -> Result<String, String> {
   }
 
   let by = args.by.trim();
+  let assignee = args
+    .repository
+    .as_deref()
+    .map(str::trim)
+    .filter(|repository| !repository.is_empty())
+    .map(str::to_owned)
+    .or(from.assignee_name);
   let raised = client
     .create_item(&NewItem {
       title: args.title.trim().to_owned(),
       brief: args.judgement.trim().to_owned(),
       queue_name: from.queue_name,
+      assignee_name: assignee,
       requester_name: (!by.is_empty()).then(|| by.to_owned()),
       scope: from.scope,
       labels,

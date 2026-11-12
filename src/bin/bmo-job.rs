@@ -80,6 +80,9 @@ enum Verb {
     /// The item the new row was raised from.
     #[arg(long = "raised-by", value_name = "item")]
     raised_by: Option<String>,
+    /// The repository the new row's work is in; the raising item's where left out.
+    #[arg(long, value_name = "name")]
+    repository: Option<String>,
     /// Who writes it; the run's agent where left out.
     #[arg(long, value_name = "name")]
     by: Option<String>,
@@ -468,6 +471,7 @@ async fn main() -> ExitCode {
       judgement,
       from_todo,
       raised_by,
+      repository,
       by,
     } => ended(
       async {
@@ -484,6 +488,7 @@ async fn main() -> ExitCode {
             title: title.unwrap_or_default(),
             judgement: judgement.unwrap_or_default(),
             raised_by,
+            repository,
             from_todo,
             by,
           };

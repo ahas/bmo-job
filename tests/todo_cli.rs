@@ -8,7 +8,8 @@ use std::collections::BTreeMap;
 use bmo_job::job_close::{COMMIT_LABEL, PHASE_LABEL, Standing, waiting_commit, write_standing};
 use bmo_job::todo_cli::{AddArgs, StopHereArgs, TodoArgs, add, close, stop_here};
 use bmo_job_client::{
-  ItemState, LeaseAsk, LeaseWait, NewItem, NewReview, PageQuery, ReportKind, ReviewKind, WorkOrderBody,
+  ItemChange, ItemState, LeaseAsk, LeaseWait, NewItem, NewReview, PageQuery, ReportKind, ReviewKind,
+  WorkOrderBody,
 };
 
 use support::Service;
@@ -337,12 +338,25 @@ async fn a_row_raised_by_a_job_stands_a_draft_in_its_items_queue_and_scope() {
   let service = Service::start_unattended(&["lane=todo"]).await;
   let client = service.client();
   let item = leased(&service, "the source").await;
+
+  client
+    .change_item(
+      item,
+      &ItemChange {
+        assignee_name: Some(Some("the-repository".to_owned())),
+        ..ItemChange::default()
+      },
+    )
+    .await
+    .unwrap();
+
   let raised = add(
     &client,
     &AddArgs {
       title: "what is left".to_owned(),
       judgement: "It was left because the source closed first.".to_owned(),
       raised_by: Some(item),
+      repository: None,
       from_todo: Some("12:2".to_owned()),
       by: "helper".to_owned(),
     },
@@ -358,6 +372,26 @@ async fn a_row_raised_by_a_job_stands_a_draft_in_its_items_queue_and_scope() {
   assert_eq!(row.raised_by, Some(item));
   assert_eq!(row.labels["from-todo"], "12:2");
   assert_eq!(row.requester_name.as_deref(), Some("helper"));
+  // A row names the repository its work is in: the one given, else the raising item's own.
+  assert_eq!(row.assignee_name.as_deref(), Some("the-repository"));
+
+  let elsewhere = add(
+    &client,
+    &AddArgs {
+      title: "work in another repository".to_owned(),
+      judgement: "The source's run found it in a repository of its own.".to_owned(),
+      raised_by: Some(item),
+      repository: Some("another-repository".to_owned()),
+      by: "helper".to_owned(),
+      ..AddArgs::default()
+    },
+  )
+  .await
+  .expect("raised");
+  let elsewhere: serde_json::Value = serde_json::from_str(&elsewhere).unwrap();
+  let elsewhere = client.item(elsewhere["id"].as_i64().unwrap()).await.unwrap();
+
+  assert_eq!(elsewhere.assignee_name.as_deref(), Some("another-repository"));
 
   add(&client, &AddArgs::default())
     .await
