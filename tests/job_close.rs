@@ -12,14 +12,30 @@ use std::time::Duration;
 
 use crate::support;
 
+use bmo_job::close_watch::{Running, StepEnd, output_within, run_step};
 use bmo_job::job_close::{
-  Deployed, JobCloseArgs, Standing, close, commits_refusal, deployed_commit_of, wait_deployed,
+  Clocks, Deployed, JobCloseArgs, Standing, Steps, close, commits_refusal, deployed_commit_of,
+  keep_standing, wait_deployed,
 };
 
 use bmo_job_client::{EventQuery, NewItem};
 
-// How often a test's wait reads the deployment's records again.
-const QUICK: Duration = Duration::from_millis(10);
+// The clocks a test's close keeps to: its deployment's records read again at once, and a step's silence, the
+// grace after a TERM and the lines saying where it stands each a fraction of a second.
+fn quick() -> Clocks {
+  Clocks {
+    silence: Duration::from_millis(300),
+    grace: Duration::from_millis(200),
+    look: Duration::from_millis(10),
+    standing_every: Duration::from_millis(100),
+    look_again: Duration::from_millis(10),
+  }
+}
+
+// A close's wait for its commit's deployment, from a second past the epoch, by the test's clocks.
+fn waited(root: &Path, data_root: &Path, handed: &str) -> Deployed {
+  wait_deployed(root, data_root, handed, 1_000, &quick(), &|_| {})
+}
 
 // A record as the testbed's deployment writes it, under the deploy root it names.
 const RECORD: &str = r#"{
@@ -113,7 +129,27 @@ fn told_close(
   skip_suite: Option<&str>,
   testbed: &Path,
 ) -> (Result<Vec<String>, String>, Vec<Standing>) {
+  let (closed, told, _) = said_close(root, data_root, then_reason, skip_suite, testbed);
+
+  (closed, told)
+}
+
+// A close by the test's clocks, with every standing it told and every line it said of where it stands.
+fn said_close(
+  root: &Path,
+  data_root: &Path,
+  then_reason: &str,
+  skip_suite: Option<&str>,
+  testbed: &Path,
+) -> (Result<Vec<String>, String>, Vec<Standing>, Vec<String>) {
   let told = RefCell::new(Vec::new());
+  let said = RefCell::new(Vec::new());
+  let steps = Steps {
+    testbed,
+    clocks: quick(),
+    running: Running::default(),
+    say: &|line| said.borrow_mut().push(line.to_owned()),
+  };
   let closed = close(
     root,
     data_root,
@@ -121,12 +157,12 @@ fn told_close(
       then_reason: then_reason.to_owned(),
       skip_suite: skip_suite.map(str::to_owned),
     },
-    testbed,
+    &steps,
     &|standing| told.borrow_mut().push(standing),
   )
   .map(|(lines, _)| lines);
 
-  (closed, told.into_inner())
+  (closed, told.into_inner(), said.into_inner())
 }
 
 // A testbed stand-in whose every verb fails.
@@ -512,7 +548,7 @@ fn a_close_in_a_repository_that_deploys_nothing_ends_live_at_once() {
   fs::write(repo.path().join("testbed.toml"), "testbed = 0\nname = \"the-library\"\n")
     .expect("the declaration");
 
-  match wait_deployed(repo.path(), data.path(), &handed, 1_000, QUICK) {
+  match waited(repo.path(), data.path(), &handed) {
     Deployed::Live(lines) => {
       assert!(lines.join("\n").contains("this repository deploys nothing"), "{lines:?}")
     }
@@ -546,7 +582,7 @@ fn a_waiting_close_ends_with_how_the_deployment_carrying_its_commit_ended() {
 
   progress(&later, 2_000, r#"{"outcome":"live","at":3000,"why":null}"#);
   assert!(
-    matches!(wait_deployed(repo.path(), data.path(), &handed, 1_000, QUICK), Deployed::Live(_)),
+    matches!(waited(repo.path(), data.path(), &handed), Deployed::Live(_)),
     "a later commit carrying it went live"
   );
 
@@ -556,7 +592,7 @@ fn a_waiting_close_ends_with_how_the_deployment_carrying_its_commit_ended() {
     r#"{"outcome":"rolled-back","at":3000,"why":"the step register-tool after the health failed"}"#,
   );
 
-  match wait_deployed(repo.path(), data.path(), &handed, 1_000, QUICK) {
+  match waited(repo.path(), data.path(), &handed) {
     Deployed::NotLive(lines) => {
       let said = lines.join("\n");
 
@@ -573,10 +609,7 @@ fn a_waiting_close_ends_with_how_the_deployment_carrying_its_commit_ended() {
   // live does, once no deployment is under way.
   progress(&later, 500, r#"{"outcome":"failed","at":900,"why":"an older run"}"#);
   record_at(deploy.path(), &handed);
-  assert!(matches!(
-    wait_deployed(repo.path(), data.path(), &handed, 1_000, QUICK),
-    Deployed::Live(_)
-  ));
+  assert!(matches!(waited(repo.path(), data.path(), &handed), Deployed::Live(_)));
 }
 
 #[test]
@@ -603,7 +636,7 @@ fn a_deployment_whose_run_is_gone_with_no_ending_is_cut_off_and_not_live() {
   )
   .expect("the progress record");
 
-  match wait_deployed(repo.path(), data.path(), &handed, 1_000, QUICK) {
+  match waited(repo.path(), data.path(), &handed) {
     Deployed::NotLive(lines) => {
       let said = lines.join("\n");
 
@@ -654,7 +687,7 @@ fn waiting_on(
   let data = deploy.path().to_path_buf();
 
   std::thread::spawn(move || {
-    let _ = send.send(wait_deployed(&root, &data, &handed, 1_000, QUICK));
+    let _ = send.send(waited(&root, &data, &handed));
   });
 
   (repo, deploy, ended)
@@ -787,6 +820,10 @@ async fn the_close_writes_its_standing_through_a_job_service_restart_and_hears_i
   let said = String::from_utf8_lossy(&output.stderr);
 
   assert_eq!(output.status.code(), Some(1), "{said}");
+  assert!(
+    String::from_utf8_lossy(&output.stdout).trim_end().ends_with("job-close: ended, exit 1"),
+    "the close's last line says it ended"
+  );
   assert!(said.contains("asking again"), "{said}");
   assert!(said.contains("was cut off"), "{said}");
   assert_eq!(fs::read_to_string(&calls).expect("the testbed's calls"), "check\nsuite\n");
@@ -818,4 +855,247 @@ async fn the_close_writes_its_standing_through_a_job_service_restart_and_hears_i
       .and_then(|commit| commit.as_str())
       == Some(head.as_str())
   }));
+}
+
+// A testbed stand-in whose check passes and whose suite is `suite`, a shell body run with the file the test
+// keeps the stand-in's processes in as `$1`.
+fn suite_at(dir: &Path, suite: &str) -> (PathBuf, Started) {
+  let path = dir.join("bmo-testbed-suite");
+  let pids = dir.join("stand-in-pids");
+
+  fs::write(
+    &path,
+    format!(
+      "#!/bin/sh\n[ \"$1\" = suite ] || exit 0\nset -- \"{}\"\necho $$ >> \"$1\"\n{suite}\n",
+      pids.display()
+    ),
+  )
+  .expect("the testbed stand-in");
+  let mut permissions = fs::metadata(&path).expect("the stand-in").permissions();
+  permissions.set_mode(0o755);
+  fs::set_permissions(&path, permissions).expect("the stand-in is executable");
+
+  (path, Started(pids))
+}
+
+// The processes a stand-in started, each written to a file of its own: killed when the test ends, whatever it
+// came to.
+struct Started(PathBuf);
+
+impl Started {
+  fn pids(&self) -> Vec<i32> {
+    fs::read_to_string(&self.0)
+      .unwrap_or_default()
+      .split_whitespace()
+      .filter_map(|pid| pid.parse().ok())
+      .collect()
+  }
+
+  // Whether every one of them is gone: no longer listed, or ended and waiting only to be reaped.
+  fn all_gone(&self) -> bool {
+    self.pids().iter().all(|pid| {
+      fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| {
+        stat.rsplit(')').next().and_then(|rest| rest.split_whitespace().next()) == Some("Z")
+      })
+    })
+  }
+}
+
+impl Drop for Started {
+  fn drop(&mut self) {
+    for pid in self.pids() {
+      // SAFETY: a KILL to a process this test's stand-in started.
+      unsafe { libc::kill(pid, libc::SIGKILL) };
+    }
+  }
+}
+
+// Waits for `condition` a few seconds at most, looking every few milliseconds.
+fn soon(condition: impl Fn() -> bool) -> bool {
+  (0..500).any(|_| {
+    let met = condition();
+    if !met {
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    met
+  })
+}
+
+// A checkout whose second commit is pushed and waits to be closed, its deploy root naming the first as live.
+fn closable() -> (tempfile::TempDir, tempfile::TempDir, tempfile::TempDir, String) {
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let deploy_root = tempfile::tempdir().expect("a deploy root");
+
+  init(repo.path());
+  let base = commit(repo.path(), "one.md", "Add the first page");
+  let head = commit(repo.path(), "two.md", "Add the second page");
+  git(repo.path(), &["update-ref", "refs/remotes/origin/main", &head]);
+  declare_deploy_root(repo.path(), deploy_root.path());
+  record_at(deploy_root.path(), &base);
+
+  (repo, data, deploy_root, head)
+}
+
+#[test]
+fn a_suite_that_falls_silent_ends_the_close_with_its_last_line_what_ran_and_the_checkout_as_found() {
+  let (repo, data, _deploy_root, _) = closable();
+  let (testbed, started) = suite_at(
+    data.path(),
+    "echo 'unit agency-checks started'\nsetsid sleep 600 &\necho $! >> \"$1\"\nsleep 600 &\necho $! >> \"$1\"\nwait",
+  );
+  let (closed, told, _) = said_close(repo.path(), data.path(), "Land the second page", None, &testbed);
+  let why = closed.expect_err("a silent suite refuses the close");
+
+  assert!(why.starts_with("the suite wrote nothing for 300ms and was ended"), "{why}");
+  assert!(why.contains("its last line: unit agency-checks started"), "{why}");
+  assert!(why.contains("still running: ") && why.contains("sleep 600"), "{why}");
+  assert!(why.ends_with("the checkout stands as the close found it"), "{why}");
+  assert_eq!(told, vec![Standing::Testing, Standing::Off]);
+  assert_eq!(
+    started.pids().len(),
+    3,
+    "the stand-in, its own process and the one in a session of its own"
+  );
+  assert!(soon(|| started.all_gone()), "nothing the suite started is left running");
+}
+
+#[test]
+fn a_suite_whose_output_is_held_back_but_heard_runs_past_the_silence_and_says_where_it_stands() {
+  let (repo, data, _deploy_root, head) = closable();
+  let (testbed, _started) = suite_at(
+    data.path(),
+    "for i in 1 2 3 4 5 6; do touch \"$BMO_TESTBED_HEARD\"; sleep 0.1; done\necho 'suite: ok'",
+  );
+  let (closed, told, said) = said_close(repo.path(), data.path(), "Land the second page", None, &testbed);
+
+  closed.expect("a suite that is heard is not ended");
+  assert_eq!(told, vec![Standing::Testing, Standing::WaitingLive(head)]);
+  assert!(
+    said.iter().any(|line| line.starts_with("job-close: the suite has run ")
+      && line.contains("its output last moved")
+      && line.ends_with(": nothing written")),
+    "{said:?}"
+  );
+}
+
+#[test]
+fn a_stop_ends_the_step_running_with_everything_under_it() {
+  let dir = tempfile::tempdir().expect("a directory");
+  let (testbed, started) = suite_at(
+    dir.path(),
+    "setsid sleep 600 &\necho $! >> \"$1\"\nsleep 600 &\necho $! >> \"$1\"\nwait",
+  );
+  let running = Running::default();
+  let held = running.clone();
+  let mut command = Command::new(&testbed);
+  command.arg("suite");
+
+  let step = std::thread::spawn(move || {
+    let clocks = Clocks {
+      silence: Duration::from_secs(3_600),
+      ..quick()
+    };
+
+    run_step(command, "the suite", &clocks, &held, &|_| {})
+  });
+
+  assert!(soon(|| started.pids().len() == 3), "the stand-in started what it starts");
+
+  let ended = running.take_down(&quick());
+
+  assert!(ended.iter().any(|named| named.contains("sleep 600")), "{ended:?}");
+  assert_eq!(
+    step.join().expect("the step ends"),
+    Err(StepEnd::Failed("the suite did not pass".to_owned()))
+  );
+  assert!(soon(|| started.all_gone()), "nothing the step started is left running");
+}
+
+#[test]
+fn a_short_command_past_its_clock_is_ended_and_read_as_failed() {
+  let mut command = Command::new("sleep");
+  command.arg("600");
+
+  let failed = output_within(&mut command, Duration::from_millis(100)).expect_err("it runs past its clock");
+
+  assert_eq!(failed.kind(), std::io::ErrorKind::TimedOut);
+  assert_eq!(failed.to_string(), "it ran past 100ms and was ended");
+}
+
+#[test]
+fn a_close_waiting_for_its_deployment_says_how_it_stands_until_it_goes_live() {
+  let repo = tempfile::tempdir().expect("a checkout");
+  let deploy = tempfile::tempdir().expect("a deploy root");
+
+  init(repo.path());
+  let handed = commit(repo.path(), "a.txt", "First");
+  let short: String = handed.chars().take(12).collect();
+
+  declare_deploy_root(repo.path(), deploy.path());
+
+  let said = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+  let (root, data, asked, heard) =
+    (repo.path().to_path_buf(), deploy.path().to_path_buf(), handed.clone(), said.clone());
+  let wait = std::thread::spawn(move || {
+    wait_deployed(&root, &data, &asked, 1_000, &quick(), &|line| {
+      heard.lock().expect("the lines").push(line.to_owned())
+    })
+  });
+
+  assert!(
+    soon(|| !said.lock().expect("the lines").is_empty()),
+    "a waiting close says how it stands"
+  );
+  fs::write(
+    deploy.path().join("deploy-progress.json"),
+    format!(r#"{{"pid":{},"commit":"{handed}","startedAt":2000,"ending":null}}"#, std::process::id()),
+  )
+  .expect("the progress record");
+  assert!(
+    soon(|| said
+      .lock()
+      .expect("the lines")
+      .iter()
+      .any(|line| line.ends_with("carrying it is under way"))),
+    "a deployment under way is named"
+  );
+  fs::write(
+    deploy.path().join("deploy-progress.json"),
+    format!(
+      r#"{{"pid":{},"commit":"{handed}","startedAt":2000,"ending":{{"outcome":"live"}}}}"#,
+      std::process::id()
+    ),
+  )
+  .expect("the progress record");
+
+  assert!(matches!(wait.join().expect("the wait ends"), Deployed::Live(_)));
+  assert!(
+    said.lock().expect("the lines")[0]
+      .starts_with(&format!("job-close: waiting for the deployment of {short} for ")),
+    "{said:?}"
+  );
+  assert!(said.lock().expect("the lines")[0].ends_with(": no deployment carrying it has begun"));
+}
+
+#[tokio::test]
+async fn a_standing_the_service_never_answers_is_given_up_once_its_clock_has_passed() {
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("a listener");
+  let address = listener.local_addr().expect("its address");
+  let silent = tokio::spawn(async move {
+    let mut held = Vec::new();
+    while let Ok((socket, _)) = listener.accept().await {
+      held.push(socket);
+    }
+  });
+  let client = bmo_job_client::JobClient::new(&format!("http://{address}"), "token").expect("a client");
+
+  let written =
+    keep_standing(&client, 7, &Standing::Testing, Duration::from_millis(300), std::future::pending()).await;
+
+  silent.abort();
+  assert_eq!(
+    written,
+    Err("item 7 was not written on: the job service gave no answer within 300ms".to_owned())
+  );
 }

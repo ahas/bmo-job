@@ -6,12 +6,61 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bmo_job_client::{ClientFailure, Item, ItemChange, JobClient};
 use serde::Deserialize;
 
 use crate::again::{Halt, until_answered};
+use crate::close_watch::{Running, StepEnd, output_within, run_step, spoken};
+
+/// How long a step may write nothing and touch nothing before it is hung: deliberately longer than
+/// bmo-testbed's own ten-minute bound on a silent unit, so the testbed ends a hung unit first and names it.
+pub const SILENCE: Duration = Duration::from_secs(15 * 60);
+/// How long a process sent a TERM is given before a KILL.
+pub const GRACE: Duration = Duration::from_secs(10);
+/// How often a running step is looked at.
+pub const LOOK: Duration = Duration::from_secs(1);
+/// How often a running close says where it stands.
+pub const STANDING_EVERY: Duration = Duration::from_secs(60);
+/// How long a `git` or service-manager call may run before it is ended and read as failed.
+pub const COMMAND_WITHIN: Duration = Duration::from_secs(60);
+/// How long one request writing an item's labels is waited for before it is taken as no answer.
+pub const ANSWER_WITHIN: Duration = Duration::from_secs(10);
+/// How long the labels are written again while the service gives no answer, before the close goes on.
+pub const STANDING_WITHIN: Duration = Duration::from_secs(2 * 60);
+
+/// The clocks a close keeps to (docs/cli.md, 「`bmo-job job close`」), each the constant of its name where a
+/// close runs for a job.
+#[derive(Clone, Debug)]
+pub struct Clocks {
+  pub silence: Duration,
+  pub grace: Duration,
+  pub look: Duration,
+  pub standing_every: Duration,
+  pub look_again: Duration,
+}
+
+impl Default for Clocks {
+  fn default() -> Self {
+    Self {
+      silence: SILENCE,
+      grace: GRACE,
+      look: LOOK,
+      standing_every: STANDING_EVERY,
+      look_again: LOOK_AGAIN,
+    }
+  }
+}
+
+/// What a close runs its check and suite with: the testbed's command, the clocks it keeps to, the step it is
+/// running for a stop to end, and where its lines saying where it stands go.
+pub struct Steps<'a> {
+  pub testbed: &'a Path,
+  pub clocks: Clocks,
+  pub running: Running,
+  pub say: &'a dyn Fn(&str),
+}
 
 /// The label saying where an item's close stands, and the one naming the commit it handed over.
 pub const PHASE_LABEL: &str = "close-phase";
@@ -71,22 +120,35 @@ pub async fn write_standing(
 }
 
 /// Where the close stands written on its item, written again while the service gives no answer, since a
-/// restart is no answer (docs/cli.md, 「`bmo-job job close`」), until it lands or `stop` ends. A refusal and a
-/// stop come back as the one line the close says before it goes on.
+/// restart is no answer (docs/cli.md, 「`bmo-job job close`」), until it lands, `within` has passed or `stop`
+/// ends. A request unanswered for `ANSWER_WITHIN` is no answer. A refusal, the clock and a stop come back as the
+/// one line the close says before it goes on.
 pub async fn keep_standing(
   client: &JobClient,
   item: i64,
   standing: &Standing,
+  within: Duration,
   stop: impl Future<Output = ()>,
 ) -> Result<(), String> {
   let stop = std::pin::pin!(stop);
+  let write = || async {
+    tokio::time::timeout(ANSWER_WITHIN, write_standing(client, item, standing))
+      .await
+      .unwrap_or_else(|_| {
+        Err(ClientFailure::Unreachable(format!("no answer within {}", spoken(ANSWER_WITHIN))))
+      })
+  };
 
-  until_answered("job-close", stop, || write_standing(client, item, standing))
-    .await
-    .map_err(|halt| match halt {
+  match tokio::time::timeout(within, until_answered("job-close", stop, write)).await {
+    Ok(written) => written.map_err(|halt| match halt {
       Halt::Answered(why) => format!("item {item} was not written on: {why}"),
       Halt::Stopped => format!("item {item} was not written on: the run was told to stop"),
-    })
+    }),
+    Err(_) => Err(format!(
+      "item {item} was not written on: the job service gave no answer within {}",
+      spoken(within)
+    )),
+  }
 }
 
 /// What a close is asked: why the commit goes live, and why the suite is skipped where it is.
@@ -106,21 +168,21 @@ struct OwnCommit {
 
 /// Closes a job's commit: reads the live commit from the deployment record, reads the job's own commits past
 /// it, refuses an unpushed commit or one the remote does not know, runs the check and the suite, and hands
-/// the commit over to the deployment that records what goes live. `tell` is handed where the close stands as
-/// it moves: testing once the check starts, waiting once it is handed over, and off where it ends any other
-/// way.
+/// the commit over to the deployment that records what goes live. The check and the suite run as `steps` says,
+/// watched. `tell` is handed where the close stands as it moves: testing once the check starts, waiting once it
+/// is handed over, and off where it ends any other way.
 pub fn close(
   root: &Path,
   data_root: &Path,
   args: &JobCloseArgs,
-  testbed: &Path,
+  steps: &Steps,
   tell: &dyn Fn(Standing),
 ) -> Result<(Vec<String>, Option<String>), String> {
   if let Some(refusal) = reasons_refusal(args) {
     return Err(refusal);
   }
 
-  let closed = handed_over(root, data_root, args, testbed, tell);
+  let closed = handed_over(root, data_root, args, steps, tell);
 
   match &closed {
     Ok(Handed::Waiting(_, commit)) => tell(Standing::WaitingLive(commit.clone())),
@@ -148,8 +210,16 @@ pub enum Deployed {
 /// deployment's progress record under the checkout's deploy root (bmo-testbed's docs/deploy.md, 「What a
 /// deployment says of itself as it runs」) and its record of what went live. A record left unended by a run
 /// whose process or unit is gone is a deployment cut off, read once more before it is taken as one. The
-/// records are read again every `every`, `LOOK_AGAIN` for a close.
-pub fn wait_deployed(root: &Path, data_root: &Path, commit: &str, since: i64, every: Duration) -> Deployed {
+/// records are read again every `look_again`, and every `standing_every` `say` is handed one line saying how
+/// long the close has waited and whether a deployment carrying its commit has begun.
+pub fn wait_deployed(
+  root: &Path,
+  data_root: &Path,
+  commit: &str,
+  since: i64,
+  clocks: &Clocks,
+  say: &dyn Fn(&str),
+) -> Deployed {
   // A repository whose declaration reads and names no deployment is never put live: its commit on main is the end.
   if deploys_nothing(root) {
     return Deployed::Live(vec![format!(
@@ -160,6 +230,8 @@ pub fn wait_deployed(root: &Path, data_root: &Path, commit: &str, since: i64, ev
 
   let deploy_root = declared_deploy_root(root).unwrap_or_else(|| data_root.to_path_buf());
   let short = short_of(commit);
+  let began = Instant::now();
+  let mut said = began;
 
   loop {
     let progress = read_progress(&deploy_root);
@@ -197,7 +269,23 @@ pub fn wait_deployed(root: &Path, data_root: &Path, commit: &str, since: i64, ev
       return Deployed::Live(vec![format!("live: {short} is live")]);
     }
 
-    std::thread::sleep(every);
+    if said.elapsed() >= clocks.standing_every {
+      let under_way = progress
+        .as_ref()
+        .filter(|one| one.started_at >= since && one.ending.is_none() && carries(&one.commit))
+        .map_or_else(
+          || "no deployment carrying it has begun".to_owned(),
+          |one| format!("the deployment of {} carrying it is under way", short_of(&one.commit)),
+        );
+
+      say(&format!(
+        "job-close: waiting for the deployment of {short} for {}: {under_way}",
+        spoken(began.elapsed())
+      ));
+      said = Instant::now();
+    }
+
+    std::thread::sleep(clocks.look_again);
   }
 }
 
@@ -248,9 +336,7 @@ impl Progress {
 }
 
 fn unit_gone(unit: &str) -> bool {
-  Command::new("systemctl")
-    .args(["--user", "is-active", unit])
-    .output()
+  output_within(Command::new("systemctl").args(["--user", "is-active", unit]), COMMAND_WITHIN)
     .is_ok_and(|output| matches!(String::from_utf8_lossy(&output.stdout).trim(), "inactive" | "failed"))
 }
 
@@ -276,7 +362,7 @@ fn handed_over(
   root: &Path,
   data_root: &Path,
   args: &JobCloseArgs,
-  testbed: &Path,
+  steps: &Steps,
   tell: &dyn Fn(Standing),
 ) -> Result<Handed, String> {
   let head =
@@ -325,10 +411,12 @@ fn handed_over(
     return Err(format!("{short} is not on {remote}; an unpushed commit is not deployable"));
   }
 
+  let found = checkout_state(root);
+
   tell(Standing::Testing);
-  run(root, testbed, "check", "the static check")?;
+  step(root, steps, "check", "the static check", found.as_deref())?;
   if args.skip_suite.is_none() {
-    run(root, testbed, "suite", "the suite")?;
+    step(root, steps, "suite", "the suite", found.as_deref())?;
   }
 
   lines.push(format!("waiting to go live: {short} stands pushed for its deployment"));
@@ -458,13 +546,14 @@ fn remote_branch(root: &Path) -> String {
 }
 
 fn is_ancestor(root: &Path, ancestor: &str, descendant: &str) -> bool {
-  Command::new("git")
-    .arg("-C")
-    .arg(root)
-    .args(["merge-base", "--is-ancestor", ancestor, descendant])
-    .output()
-    .map(|output| output.status.success())
-    .unwrap_or(false)
+  output_within(
+    Command::new("git")
+      .arg("-C")
+      .arg(root)
+      .args(["merge-base", "--is-ancestor", ancestor, descendant]),
+    COMMAND_WITHIN,
+  )
+  .is_ok_and(|output| output.status.success())
 }
 
 // The job's own base commit: the last commit HEAD shares with the branch the checkout was made from, so the
@@ -535,27 +624,51 @@ fn short_of(commit: &str) -> String {
   commit.chars().take(12).collect()
 }
 
-fn run(root: &Path, testbed: &Path, verb: &str, what: &str) -> Result<(), String> {
-  let status = Command::new(testbed)
-    .arg(verb)
-    .current_dir(root)
-    .status()
-    .map_err(|why| format!("{what} could not be started: {why}"))?;
+// One step of the testbed's, `verb`, run in the checkout and watched. A step the close ended for falling silent
+// says, besides its last line and what was running, how the checkout stands against `found`.
+fn step(root: &Path, steps: &Steps, verb: &str, what: &str, found: Option<&str>) -> Result<(), String> {
+  let mut command = Command::new(steps.testbed);
+  command.arg(verb).current_dir(root);
 
-  if !status.success() {
-    return Err(format!("{what} did not pass"));
+  run_step(command, what, &steps.clocks, &steps.running, steps.say).map_err(|end| match end {
+    StepEnd::Failed(why) => why,
+    StepEnd::Hung(why) => format!("{why}; {}", checkout_against(root, found)),
+  })
+}
+
+// What the checkout holds as git reads it: its HEAD and every entry of its status, untracked files each named.
+fn checkout_state(root: &Path) -> Option<String> {
+  let head = git(root, &["rev-parse", "HEAD"]).ok()?;
+  let status = git(root, &["status", "--porcelain=v1", "--untracked-files=all"]).ok()?;
+
+  Some(format!("HEAD {head}\n{status}"))
+}
+
+// How the checkout stands against what the close read before its check: as found, or the entries that differ.
+fn checkout_against(root: &Path, found: Option<&str>) -> String {
+  let (Some(found), Some(now)) = (found, checkout_state(root)) else {
+    return "the checkout's state could not be read".to_owned();
+  };
+  // Each entry is read trimmed, since the first line of what git answers reaches here trimmed already.
+  let entries = |state: &str| state.lines().map(|entry| entry.trim().to_owned()).collect::<Vec<_>>();
+  let (before, after) = (entries(found), entries(&now));
+  let differ: Vec<String> = after
+    .iter()
+    .filter(|entry| !before.contains(entry))
+    .map(|entry| format!("now {entry}"))
+    .chain(before.iter().filter(|entry| !after.contains(entry)).map(|entry| format!("was {entry}")))
+    .collect();
+
+  if differ.is_empty() {
+    "the checkout stands as the close found it".to_owned()
+  } else {
+    format!("the checkout differs from how the close found it: {}", differ.join("; "))
   }
-
-  Ok(())
 }
 
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
-  let output = Command::new("git")
-    .arg("-C")
-    .arg(root)
-    .args(args)
-    .output()
-    .map_err(|why| format!("git could not be started: {why}"))?;
+  let output = output_within(Command::new("git").arg("-C").arg(root).args(args), COMMAND_WITHIN)
+    .map_err(|why| format!("git {} could not be run: {why}", args.first().copied().unwrap_or_default()))?;
 
   if !output.status.success() {
     return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());

@@ -57,7 +57,9 @@ bmo-testbed's. This document states what the declaration says of this service.
   and the repository.
 - **The handover.** A commit on the remote whose messages, and whose close reasons, are English runs the check
   and the suite (the suite skipped where `--skip-suite` gives the reason) and ends
-  `waiting to go live: <commit> stands pushed for its deployment`. An unpushed commit, or one the remote does
+  `waiting to go live: <commit> stands pushed for its deployment`. The check and the suite are watched as they
+  run, and one that falls silent is ended with everything under it and refuses the close with its last line
+  and what was still running (docs/cli.md, 「`bmo-job job close`」). An unpushed commit, or one the remote does
   not know, is refused with that reason. The service keeps no backlog and reads none: the deployment that
   records what goes live writes the commit down.
 - **The item waits with its commit, and so does the job.** A close told its item writes on it that the work is

@@ -41,11 +41,37 @@ records what goes live writes the commit down.
   while they run, and where the commit is already what is deployed, so an item carries them only while its
   close is under way or its commit waits.
 - **The item is reached as `bmo-job todo` reaches it** (「`bmo-job todo`」), and a restart is no answer. While
-  the service does not answer, nothing at its address, a connection cut or a 5xx, its labels are written again,
-  after a quarter of a second at first and every five seconds at most, and the close goes on only once they
-  are written or the run is told to stop. An item the service refuses, one it does not hold or a change it
-  will not take, stops no close: the close says so in one line and goes on.
+  the service does not answer, nothing at its address, a connection cut, a 5xx or a request left unanswered for
+  ten seconds, its labels are written again, after a quarter of a second at first and every five seconds at
+  most. The close goes on once they are written, once two minutes have passed with no answer, or once the run
+  is told to stop; the last two are said in one line. An item the service refuses, one it does not hold or a
+  change it will not take, stops no close: the close says so in one line and goes on.
 - **A close with no `--todo` writes on no item.**
+- **The check and the suite are watched.** Each is started as `bmo-testbed check` and `bmo-testbed suite` in
+  the checkout, in a process group of its own, its standard output and error read through pipes and written
+  on as they come. It is handed `BMO_TESTBED_HEARD`, naming a file of the close's own, which the testbed
+  touches while a command it watches writes but holds its output back; a touch counts as output.
+- **A step that falls silent ends the close.** A step that writes nothing and touches nothing for the close's
+  silence limit, fifteen minutes, is hung. The limit is deliberately longer than bmo-testbed's own ten-minute
+  bound on a silent unit, so the testbed ends a hung unit first and names it, and the close's limit catches
+  what the testbed does not watch. The close names every process still running under the step, in its process
+  group or below it, sends each a TERM, and a KILL to whatever stands ten seconds later. It then reads the
+  checkout's `git status` against what it read before the check, and fails with the step's last line, what was
+  still running, and whether the checkout stands as it found it or which paths differ. The close itself writes
+  nothing in the checkout.
+- **A running close says where it stands.** Every minute while a step runs, one line on standard output names
+  the step, how long it has run, how long ago its output last moved and its last line, so a reader tells a
+  slow step, whose output moves, from a wedged one, whose does not. Every minute while it waits for its
+  deployment, one line names how long it has waited and whether a deployment carrying its commit has begun.
+  Whatever ends the close, its last line on standard output is `job-close: ended, exit <code>`, so a caller
+  reading its log needs no process listing to know it has ended.
+- **Every wait inside a close has a clock the code names.** Each request writing the item's labels waits ten
+  seconds and the writing as a whole two minutes; each `git` or service-manager call one minute, after which
+  it is ended and read as failed; a step's silence fifteen minutes, and the pause before the KILL ten seconds;
+  a running step is looked at every second, and the deployment's records every five seconds. The wait for the
+  deployment itself has no clock, as said above.
+- **Told to stop, a close ends the step it runs first,** every process under it as for a hung step, so nothing
+  it started goes on after it.
 - **A repository that deploys nothing ends its close on main.** Where the checkout's `testbed.toml` reads and
   declares no `[deploy]` (a base library, which is released and never put live), there is no deployment to wait
   for: the close says `live: <commit> stands on main, and this repository deploys nothing` and ends clean.
@@ -60,6 +86,10 @@ records what goes live writes the commit down.
   | A deployment begun after the handover, carrying the commit, ended `live`; or, none under way, the record of what went live carries it | `live: <commit> is live` | | 0 |
   | Such a deployment ended `rolled-back`, `failed` or `stopped`, or was cut off, its record unended with its process or unit gone | | `not live:` with the outcome, `cut off` for one cut off, and the deployment's reason, the journal of its unit, and that the commit is to be mended and closed again | 1 |
   | The run was told to stop | | one line saying so | 130 |
+
+  Before the handover, a check or a suite that does not pass refuses the close with exit 1, and so does a step
+  ended for falling silent: `job-close: refused — the suite wrote nothing for 900s and was ended`, then its
+  last line, what was still running and how the checkout stands.
 
   Either ending takes the item's labels off. A commit that did not go live is the same job's to mend: it finds
   the cause, commits, pushes and closes again, and its item is never closed while its commit is not live.
