@@ -64,8 +64,9 @@ pub fn document(generator: &mut SchemaGenerator) -> Map<String, Value> {
           "summary": "The service tells a subscriber of one event it subscribed to, at least once and in event order.",
           "description": "Posted to the url the subscriber registered, with the subscription's key in the \
             Job-Subscription header and, where a secret was given, sha256= and the lowercase hex HMAC-SHA256 of the \
-            body under it in Job-Signature. A 2xx acknowledges it; anything else is tried again with backoff, and \
-            ten failures in a row move the subscription to failing. The subscriber drops an event it has seen by \
+            body under it in Job-Signature. A 2xx acknowledges it within a minute; anything else is tried again \
+            with backoff, ten failures in a row move the subscription to failing, and a failing one is tried every \
+            five minutes until a post is taken. The subscriber drops an event it has seen by \
             its id.",
           "requestBody": { "required": true, "content": { "application/json": { "schema": event } } },
           "responses": { "204": { "description": "acknowledged" } },

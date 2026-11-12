@@ -1609,7 +1609,7 @@
         "type": "object"
       },
       "Subscription": {
-        "description": "What a subscriber is told of: events of the kinds listed, narrowed to the queues, scope and items named, an empty list or a null scope matching all. With a url each event is posted there as the subscription-event webhook; without one it is read on GET /events with subscriptionId. A subscription with ttlMs runs out at expiresAt unless a change renews it. A webhook that keeps failing moves it to failing; setting state back to active delivers again from the event after deliveredEventId.",
+        "description": "What a subscriber is told of: events of the kinds listed, narrowed to the queues, scope and items named, an empty list or a null scope matching all. With a url each event is posted there as the subscription-event webhook; without one it is read on GET /events with subscriptionId. A subscription with ttlMs runs out at expiresAt unless a change renews it. A webhook that keeps failing moves it to failing, where it is still tried every five minutes and moved back to active by the first post taken; setting state back to active delivers again at once from the event after deliveredEventId.",
         "properties": {
           "changedAt": {
             "description": "Epoch milliseconds.",
@@ -4185,7 +4185,7 @@
   "webhooks": {
     "subscription-event": {
       "post": {
-        "description": "Posted to the url the subscriber registered, with the subscription's key in the Job-Subscription header and, where a secret was given, sha256= and the lowercase hex HMAC-SHA256 of the body under it in Job-Signature. A 2xx acknowledges it; anything else is tried again with backoff, and ten failures in a row move the subscription to failing. The subscriber drops an event it has seen by its id.",
+        "description": "Posted to the url the subscriber registered, with the subscription's key in the Job-Subscription header and, where a secret was given, sha256= and the lowercase hex HMAC-SHA256 of the body under it in Job-Signature. A 2xx acknowledges it within a minute; anything else is tried again with backoff, ten failures in a row move the subscription to failing, and a failing one is tried every five minutes until a post is taken. The subscriber drops an event it has seen by its id.",
         "requestBody": {
           "content": {
             "application/json": {

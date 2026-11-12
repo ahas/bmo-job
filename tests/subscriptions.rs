@@ -203,6 +203,80 @@ async fn a_failing_webhook_stops_and_resumes_from_where_it_stood() {
 }
 
 #[tokio::test]
+async fn a_failing_webhook_is_still_tried_and_the_first_post_taken_makes_it_active() {
+  let service = Service::start_with(bmo_job::DeliveryPolicy {
+    failing_retry: Duration::from_millis(20),
+    ..support::quick_delivery()
+  })
+  .await;
+  let client = service.client();
+  let mut hook = receiver(StatusCode::SERVICE_UNAVAILABLE).await;
+  let subscription = client
+    .subscribe(&NewSubscription {
+      url: Some(hook.url.clone()),
+      ..to_build("harness")
+    })
+    .await
+    .expect("subscribed");
+  let item = service.open_item("build", "refused while down").await;
+  for _ in 0..3 {
+    assert_eq!(hook.next().await.1.item_id(), Some(item.id));
+  }
+  until_state(&service, subscription.id, SubscriptionState::Failing).await;
+  assert_eq!(hook.next().await.1.item_id(), Some(item.id), "a failing subscription is tried again");
+
+  *hook.answer.lock().expect("the answer is writable") = StatusCode::OK;
+  let active = until_state(&service, subscription.id, SubscriptionState::Active).await;
+  assert_eq!((active.failure_count, active.delivered_event_id.is_some()), (0, true));
+  let told = EventQuery {
+    kinds: Some("subscription.changed".to_owned()),
+    ..EventQuery::default()
+  };
+  let changes = client.events_page(&told).await.expect("read").items;
+  assert_eq!(changes.len(), 2, "told as failing, and as active again");
+}
+
+#[tokio::test]
+async fn a_post_left_unanswered_counts_as_a_failure() {
+  let service = Service::start_with(bmo_job::DeliveryPolicy {
+    answer_within: Duration::from_millis(50),
+    ..support::quick_delivery()
+  })
+  .await;
+  let client = service.client();
+  let (sent, mut posts) = mpsc::unbounded_channel();
+  let app = Router::new().route(
+    "/hook",
+    post(move || {
+      let sent = sent.clone();
+      async move {
+        let _ = sent.send(());
+        std::future::pending::<StatusCode>().await
+      }
+    }),
+  );
+  let listener = TcpListener::bind("127.0.0.1:0").await.expect("a loopback port");
+  let url = format!("http://{}/hook", listener.local_addr().expect("an address"));
+  let task = tokio::spawn(async move {
+    let _ = axum::serve(listener, app).await;
+  });
+  let subscription = client
+    .subscribe(&NewSubscription {
+      url: Some(url),
+      ..to_build("harness")
+    })
+    .await
+    .expect("subscribed");
+  service.open_item("build", "never answered").await;
+  for _ in 0..3 {
+    tokio::time::timeout(Duration::from_secs(10), posts.recv()).await.expect("a post comes");
+  }
+  let failing = until_state(&service, subscription.id, SubscriptionState::Failing).await;
+  assert_eq!(failing.failure_count, 3);
+  task.abort();
+}
+
+#[tokio::test]
 async fn a_subscription_runs_out_unless_renewed() {
   let service = Service::start().await;
   let client = service.client();

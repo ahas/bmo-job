@@ -546,3 +546,38 @@ fn a_waiting_close_ends_with_how_the_deployment_carrying_its_commit_ended() {
   record_at(deploy.path(), &handed);
   assert!(matches!(wait_deployed(repo.path(), data.path(), &handed, 1_000), Deployed::Live(_)));
 }
+
+#[test]
+fn a_deployment_whose_run_is_gone_with_no_ending_is_cut_off_and_not_live() {
+  let repo = tempfile::tempdir().expect("a checkout");
+  let deploy = tempfile::tempdir().expect("a deploy root");
+  let data = tempfile::tempdir().expect("a data root");
+
+  init(repo.path());
+  commit(repo.path(), "a.txt", "First");
+
+  let handed = commit(repo.path(), "b.txt", "Second");
+
+  declare_deploy_root(repo.path(), deploy.path());
+
+  // A process that has ended stands for a deploy run that died before it wrote an ending.
+  let mut ended = Command::new("true").spawn().expect("a process");
+  let gone = ended.id();
+
+  ended.wait().expect("it ends");
+  fs::write(
+    deploy.path().join("deploy-progress.json"),
+    format!(r#"{{"pid":{gone},"commit":"{handed}","startedAt":2000,"ending":null}}"#),
+  )
+  .expect("the progress record");
+
+  match wait_deployed(repo.path(), data.path(), &handed, 1_000) {
+    Deployed::NotLive(lines) => {
+      let said = lines.join("\n");
+
+      assert!(said.contains("was cut off"), "{said}");
+      assert!(said.contains("close again"), "{said}");
+    }
+    other => panic!("not live expected: {other:?}"),
+  }
+}

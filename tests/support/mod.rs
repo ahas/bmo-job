@@ -73,12 +73,15 @@ pub fn shown(path: &Path) -> String {
   path.strip_prefix(ROOT).unwrap_or(path).display().to_string()
 }
 
-/// Delivery that retries at once and gives up after three failures, so no test waits on its backoff.
+/// Delivery that retries at once and moves to failing after three failures, so no test waits on its backoff; a
+/// failing subscription rests an hour, so only a test that sets its pace sees it tried again.
 pub fn quick_delivery() -> DeliveryPolicy {
   DeliveryPolicy {
     first_retry: Duration::from_millis(1),
     longest_retry: Duration::from_millis(4),
     failures_to_failing: 3,
+    answer_within: Duration::from_secs(10),
+    failing_retry: Duration::from_secs(3_600),
   }
 }
 

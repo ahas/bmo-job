@@ -30,7 +30,7 @@ const KEEP_ALIVE: Duration = Duration::from_secs(30);
 /// What a call came to short of the route's answer.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum ClientFailure {
-  /// Nothing answered at the service's address.
+  /// Nothing answered at the service's address, or the connection broke before its answer was whole.
   #[error("the job service could not be reached: {0}")]
   Unreachable(String),
   /// The service answered with a status other than the route's, and the error body where it sent one.
@@ -62,6 +62,17 @@ impl ClientFailure {
     match self {
       Self::Answered { status, .. } => Some(*status),
       _ => None,
+    }
+  }
+
+  /// Whether the service gave no answer: nothing at its address, a connection that broke, or a 5xx a restarting
+  /// service or a proxy before it answers. A restart is no answer, so such a call may be made again; any other
+  /// failure is the service's own answer.
+  pub fn is_unanswered(&self) -> bool {
+    match self {
+      Self::Unreachable(_) => true,
+      Self::Answered { status, .. } => *status >= 500,
+      Self::Unreadable(_) => false,
     }
   }
 }
@@ -423,7 +434,7 @@ async fn expected(response: Response, statuses: &[StatusCode]) -> Result<Respons
 }
 
 async fn read<T: DeserializeOwned>(response: Response) -> Result<T, ClientFailure> {
-  let bytes = response.bytes().await.map_err(|error| ClientFailure::Unreadable(error.to_string()))?;
+  let bytes = response.bytes().await.map_err(|error| ClientFailure::Unreachable(error.to_string()))?;
   serde_json::from_slice(&bytes).map_err(|error| ClientFailure::Unreadable(error.to_string()))
 }
 

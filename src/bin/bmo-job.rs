@@ -170,8 +170,30 @@ async fn told_to_stop() {
   futures_util::future::select_all(waits).await;
 }
 
-// The close, with where it stands written on the item it was told as it moves. Told to stop while its check
-// runs, it takes its standing off the item and ends as a stopped run does.
+// The run's stop as many waits hear it: each future the returned call makes ends once the run is told to stop,
+// at once where it already was.
+fn stop_heard() -> impl Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Clone {
+  let (tell, heard) = tokio::sync::watch::channel(false);
+
+  tokio::spawn(async move {
+    told_to_stop().await;
+    let _ = tell.send(true);
+  });
+
+  move || {
+    let mut heard = heard.clone();
+
+    Box::pin(async move {
+      if heard.wait_for(|told| *told).await.is_err() {
+        std::future::pending::<()>().await;
+      }
+    })
+  }
+}
+
+// The close, with where it stands written on the item it was told as it moves, each write made again while the
+// service gives no answer. Told to stop while its check runs, it takes its standing off the item and ends as a
+// stopped run does, at once.
 async fn job_close(args: JobCloseArgs, todo: Option<i64>) -> ExitCode {
   let root = std::env::current_dir().unwrap_or_default();
   let data_root = data_root();
@@ -182,8 +204,10 @@ async fn job_close(args: JobCloseArgs, todo: Option<i64>) -> ExitCode {
       None
     }
   });
+  let stop = stop_heard();
   let runtime = tokio::runtime::Handle::current();
   let written = item.clone();
+  let stop_writing = stop.clone();
   let (root_again, data_root_again) = (root.clone(), data_root.clone());
   let since = std::time::SystemTime::now()
     .duration_since(std::time::UNIX_EPOCH)
@@ -191,7 +215,8 @@ async fn job_close(args: JobCloseArgs, todo: Option<i64>) -> ExitCode {
   let close = tokio::task::spawn_blocking(move || {
     job_close::close(&root, &data_root, &args, Path::new("bmo-testbed"), &|standing| {
       if let Some((client, item)) = &written
-        && let Err(why) = runtime.block_on(job_close::write_standing(client, *item, &standing))
+        && let Err(why) =
+          runtime.block_on(job_close::keep_standing(client, *item, &standing, stop_writing()))
       {
         eprintln!("job-close: {why}");
       }
@@ -207,7 +232,7 @@ async fn job_close(args: JobCloseArgs, todo: Option<i64>) -> ExitCode {
 
         match waiting {
           None => ExitCode::SUCCESS,
-          Some(commit) => waited(&root_again, &data_root_again, &commit, since, item.as_ref()).await,
+          Some(commit) => waited(&root_again, &data_root_again, &commit, since, item.as_ref(), stop).await,
         }
       }
       Ok(Err(why)) => {
@@ -219,15 +244,17 @@ async fn job_close(args: JobCloseArgs, todo: Option<i64>) -> ExitCode {
         ExitCode::FAILURE
       }
     },
-    () = told_to_stop() => {
+    () = stop() => {
+      // Told to stop, the run has no wait left in it: the standing is written off once, and the close's own
+      // thread ends with the process rather than going on to write after it.
       if let Some((client, item)) = &item
         && let Err(why) = job_close::write_standing(client, *item, &Standing::Off).await
       {
-        eprintln!("job-close: {why}");
+        eprintln!("job-close: item {item} was not written on: {why}");
       }
 
       eprintln!("job-close: told to stop");
-      ExitCode::from(130)
+      std::process::exit(130);
     }
   }
 }
@@ -241,6 +268,7 @@ async fn waited(
   commit: &str,
   since: i64,
   item: Option<&(bmo_job_client::JobClient, i64)>,
+  stop: impl Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
 ) -> ExitCode {
   println!("waiting for the deployment of {} to end", &commit[..commit.len().min(12)]);
 
@@ -249,7 +277,7 @@ async fn waited(
     tokio::task::spawn_blocking(move || job_close::wait_deployed(&root, &data_root, &asked, since));
   let take_off = || async {
     if let Some((client, item)) = item
-      && let Err(why) = job_close::write_standing(client, *item, &Standing::Off).await
+      && let Err(why) = job_close::keep_standing(client, *item, &Standing::Off, stop()).await
     {
       eprintln!("job-close: {why}");
     }
@@ -280,9 +308,9 @@ async fn waited(
         ExitCode::FAILURE
       }
     },
-    () = told_to_stop() => {
+    () = stop() => {
       eprintln!("job-close: told to stop while waiting for the deployment");
-      ExitCode::from(130)
+      std::process::exit(130);
     }
   }
 }

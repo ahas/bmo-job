@@ -355,7 +355,7 @@ with the events still to come; a page asked with none starts at the oldest the w
 | `lease.created`, `lease.expired`, `lease.deleted` | A lease taken, run out, or given back or ended by its item's move |
 | `question.created`, `question.changed`, `question.due`, `question.deleted` | A question asked, moved, past its due time while open, or let go with its scope |
 | `reply.created` | A reply given |
-| `subscription.created`, `subscription.changed`, `subscription.deleted` | A subscription made, changed, moved to `failing`, or deleted or run out |
+| `subscription.created`, `subscription.changed`, `subscription.deleted` | A subscription made, changed, moved to `failing` or back to `active`, or deleted or run out |
 
 - **Narrowing:** `kinds` (comma-separated), `scope`, and `subscriptionId` for the events a subscription
   matches. An event of an item, its notes, reports, review, work order, tasks and leases carries the item's queue and
@@ -380,14 +380,16 @@ A subscription is how a caller is told of changes: `id`, `holderName`, `kinds`, 
 - **Pushed to a `url`:** each matching event is posted there in event order, at least once, as the
   `subscription-event` webhook the OpenAPI document states: the event as the body, the subscription's key in
   the `Job-Subscription` header and, where a `secret` was given, `sha256=` and the lowercase hex HMAC-SHA256 of
-  the body under that secret in `Job-Signature`. A 2xx acknowledges it. A post waits for the subscriber's answer
-  however long it takes; a connection that is refused or breaks, a subscriber gone silent under the TCP
-  keep-alive probe among them, or any other answer than a 2xx, is tried again after one second, doubling to a
-  minute; ten failures in a row move the subscription
-  to `failing`, and nothing more is posted until its `state` is set back to `active`, when delivery goes on
-  from the event after `deliveredEventId`. The subscriber drops an event it has seen by its `id`. A
-  subscription whose next event has left the window moves to `failing` at once, since nothing can be delivered
-  in order any more; it is deleted and made again.
+  the body under that secret in `Job-Signature`. A 2xx acknowledges it. A post is given a minute for its
+  answer; a connection that is refused or breaks, a subscriber gone silent under the TCP keep-alive probe, a
+  post with no answer within the minute, or any other answer than a 2xx, is tried again after one second,
+  doubling to a minute; ten failures in a row move the subscription to `failing`.
+- **A failing subscription is still tried,** one post every five minutes, since a subscriber down for longer
+  than the retries above comes back. The first post taken moves it back to `active`, told as
+  `subscription.changed`, and delivery goes on at the pace above from the event after `deliveredEventId`;
+  setting its `state` back to `active` tries it at once. The subscriber drops an event it has seen by its
+  `id`. A subscription whose next event has left the window moves to `failing` at once and stays there, since
+  nothing can be delivered in order any more; it is deleted and made again.
 - **Read as a stream:** a subscription without a `url` is read on `GET /events?subscriptionId=`, which starts
   past `deliveredEventId` where no cursor is given, and records each event it hands over as delivered. Asking
   the stream of a subscription with a `url` is answered 409 `conflict`. A paused subscription hands nothing
@@ -397,7 +399,7 @@ A subscription is how a caller is told of changes: `id`, `holderName`, `kinds`, 
   deleted. One that runs out is told as
   `subscription.deleted`, and from then on, like one deleted, answered 410 `gone`.
 - **Its moves:** `active` and `paused` to each other, and `failing` to either. Setting `failing` is answered
-  409 `conflict`; only delivery moves a subscription there.
+  409 `conflict`; only delivery moves a subscription there, and back to `active` once a post is taken.
 - **The secret** is kept for signing and never answered.
 
 | Method and path | Does |
@@ -469,6 +471,10 @@ client of its own.
 - **Installing it.** `bun pm pack` in `package/` writes `bmo-job-client-<version>.tgz`, and a downstream
   checkout names that file in its dependencies as a `file:` address. The pack carries the manifest, the entry
   point and the generated types; `openapi-fetch` comes with it as the package's one dependency.
+- **A failure says whether the service answered.** A call of `JobClient` that fails tells a service that gave
+  no answer, nothing at its address, a connection that broke before the answer was whole, or a 5xx, from one
+  that answered with a refusal or an answer of another shape. A caller makes the first kind again, since a
+  restart is no answer.
 - **Version and types.** The package carries the repository's version, and its own test fails where the
   committed types differ from what `docs/openapi.json` generates.
 

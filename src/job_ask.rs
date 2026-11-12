@@ -10,11 +10,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use bmo_job_client::{
-  ClientFailure, JobClient, NewQuestion, NewReply, Page, Question, QuestionChange, QuestionRecommendation,
-  QuestionState, Reply, ReplySource, WaitQuery,
+  ClientFailure, JobClient, NewQuestion, NewReply, Page, Question, QuestionChange, QuestionQuery,
+  QuestionRecommendation, QuestionState, Reply, ReplySource, WaitQuery,
 };
 use serde_json::{Value, json};
 
+use crate::again::{Halt, Unanswered, until_answered};
 use crate::outside::outside_refusal;
 
 /// The exit of a call that comes back with talk instead of an answer: the question is still open.
@@ -63,6 +64,49 @@ pub struct TalkAsk {
   pub recommend: Option<i64>,
   pub text: Option<String>,
   pub why: Option<String>,
+}
+
+/// What a call to the receiver came to short of its answer.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ReceiverFailure {
+  /// Nothing answered at its address, the connection broke, or it answered a 5xx: no answer, so the call is made
+  /// again.
+  #[error("the receiver gave no answer: {0}")]
+  Unanswered(String),
+  /// The receiver answered, refusing or with an answer that does not read.
+  #[error("{0}")]
+  Answered(String),
+}
+
+impl Unanswered for ReceiverFailure {
+  fn is_unanswered(&self) -> bool {
+    matches!(self, Self::Unanswered(_))
+  }
+}
+
+// A request to the receiver sent, and its answer where its status is a success: a 5xx is no answer, any other
+// status a refusal of `route`.
+async fn receiver_answer(
+  request: reqwest::RequestBuilder,
+  route: &str,
+) -> Result<reqwest::Response, ReceiverFailure> {
+  let answer = request.send().await.map_err(|why| ReceiverFailure::Unanswered(why.to_string()))?;
+  let status = answer.status();
+
+  if status.is_server_error() {
+    return Err(ReceiverFailure::Unanswered(format!("it answered {} to {route}", status.as_u16())));
+  }
+
+  if !status.is_success() {
+    let said = answer.text().await.unwrap_or_default();
+
+    return Err(ReceiverFailure::Answered(format!(
+      "the receiver answered {} to {route}: {said}",
+      status.as_u16()
+    )));
+  }
+
+  Ok(answer)
 }
 
 /// The receiver as this verb reaches it: where the words are handed to the room's supervisor.
@@ -120,25 +164,17 @@ impl Receiver {
   }
 
   /// The owner's private room, the only room his answer can be given in.
-  pub async fn owner_room(&self) -> Result<i64, String> {
-    let answer = self
-      .http
-      .get(format!("{}/owner", self.url))
-      .bearer_auth(&self.token)
-      .send()
-      .await
-      .map_err(|why| why.to_string())?;
-    let status = answer.status();
-
-    if !status.is_success() {
-      return Err(format!("the receiver answered {} to GET /owner", status.as_u16()));
-    }
-
-    let owner: Value = answer.json().await.map_err(|why| why.to_string())?;
+  pub async fn owner_room(&self) -> Result<i64, ReceiverFailure> {
+    let request = self.http.get(format!("{}/owner", self.url)).bearer_auth(&self.token);
+    let answer = receiver_answer(request, "GET /owner").await?;
+    let body = answer.bytes().await.map_err(|why| ReceiverFailure::Unanswered(why.to_string()))?;
+    let owner: Value = serde_json::from_slice(&body).map_err(|why| {
+      ReceiverFailure::Answered(format!("the receiver's GET /owner does not read: {why}"))
+    })?;
 
     owner["room"]
       .as_i64()
-      .ok_or_else(|| "the receiver's GET /owner names no room".to_owned())
+      .ok_or_else(|| ReceiverFailure::Answered("the receiver's GET /owner names no room".to_owned()))
   }
 
   /// An order queued for the room's supervisor: the instruction's number where the receiver answers one.
@@ -149,32 +185,23 @@ impl Receiver {
     number: i64,
     summary: &str,
     order: &str,
-  ) -> Result<Option<i64>, String> {
-    let answer = self
-      .http
-      .post(format!("{}/instructions", self.url))
-      .bearer_auth(&self.token)
-      .json(&json!({
-        "room": room,
-        "said": { "order": order },
-        "agentName": Value::Null,
-        "sort": "job",
-        "kind": format!("{kind}:{number}"),
-        "summary": summary,
-        "events": [format!("{kind}:#{number}")],
-        "run": Value::Null,
-      }))
-      .send()
-      .await
-      .map_err(|why| why.to_string())?;
-    let status = answer.status();
-
-    if !status.is_success() {
-      let said = answer.text().await.unwrap_or_default();
-
-      return Err(format!("the receiver answered {} to POST /instructions: {said}", status.as_u16()));
-    }
-
+  ) -> Result<Option<i64>, ReceiverFailure> {
+    let request =
+      self
+        .http
+        .post(format!("{}/instructions", self.url))
+        .bearer_auth(&self.token)
+        .json(&json!({
+          "room": room,
+          "said": { "order": order },
+          "agentName": Value::Null,
+          "sort": "job",
+          "kind": format!("{kind}:{number}"),
+          "summary": summary,
+          "events": [format!("{kind}:#{number}")],
+          "run": Value::Null,
+        }));
+    let answer = receiver_answer(request, "POST /instructions").await?;
     let kept: Value = answer.json().await.unwrap_or(Value::Null);
 
     Ok(kept["id"].as_i64())
@@ -314,13 +341,70 @@ fn gone(failure: &ClientFailure) -> bool {
   matches!(failure, ClientFailure::Answered { status: 404, .. })
 }
 
-async fn closed(client: &JobClient, id: i64, state: QuestionState) -> Result<(), String> {
+async fn closed(client: &JobClient, id: i64, state: QuestionState) -> Result<(), ClientFailure> {
   let change = QuestionChange {
     state: Some(state),
     ..QuestionChange::default()
   };
 
-  client.change_question(id, &change).await.map(drop).map_err(|why| why.to_string())
+  client.change_question(id, &change).await.map(drop)
+}
+
+// The question opened once. Where opening it went unanswered, the try may have landed, so the room's open
+// questions are read before it is opened again, and one of the same asker, item, words and options is the one
+// opened (docs/cli.md, 「`bmo-job job ask`」).
+async fn opened_once(
+  client: &JobClient,
+  asked: &NewQuestion,
+  stop: std::pin::Pin<&mut impl Future<Output = ()>>,
+) -> Result<Question, Halt<ClientFailure>> {
+  let mut tried = false;
+
+  until_answered("ask", stop, || {
+    let again = std::mem::replace(&mut tried, true);
+
+    async move {
+      if again && let Some(landed) = already_opened(client, asked).await? {
+        return Ok(landed);
+      }
+
+      client.ask(asked).await
+    }
+  })
+  .await
+}
+
+async fn already_opened(
+  client: &JobClient,
+  asked: &NewQuestion,
+) -> Result<Option<Question>, ClientFailure> {
+  let query = QuestionQuery {
+    scope: asked.scope.clone(),
+    item_id: asked.item_id,
+    state: Some("open".to_owned()),
+    limit: Some(500),
+    ..QuestionQuery::default()
+  };
+  let page = client.questions(&query).await?;
+
+  Ok(page.items.into_iter().rev().find(|question| {
+    question.asker_name == asked.asker_name
+      && question.text == asked.text
+      && question.choices == asked.choices
+  }))
+}
+
+// The item's title, read again while the service gives no answer; none where it answers otherwise.
+async fn title_of(
+  client: &JobClient,
+  item: i64,
+  stop: std::pin::Pin<&mut impl Future<Output = ()>>,
+) -> Result<Option<String>, ()> {
+  match until_answered("ask", stop, || client.item(item)).await {
+    Ok(item) => Ok(Some(item.title)),
+    Err(Halt::Answered(_)) => Ok(None),
+    Err(Halt::Stopped) => Err(()),
+  }
 }
 
 /// A new question opened in the owner's private room, handed to its supervisor and waited on. A question that
@@ -355,25 +439,34 @@ pub async fn ask(
     return Err(refused(&refusal));
   }
 
-  // Nothing is opened until the room it goes to is known, so a receiver that cannot name it leaves no question.
-  let room = receiver
-    .owner_room()
-    .await
-    .map_err(|why| format!("ask: the question was not put, and nothing was opened: {why}"))?;
-  let question = client
-    .ask(&NewQuestion {
-      item_id: Some(item),
-      asker_name: asked.by.clone(),
-      scope: Some(room.to_string()),
-      text: asked.question.clone(),
-      choices: asked.options.clone(),
-      recommendation: recommendation(&asked.options, recommend, &asked.why),
-      wait_ms: Some(DUE_MS),
-      told_by_asker: true,
-    })
-    .await
-    .map_err(|why| format!("ask: the question was not opened: {why}"))?;
-  let title = client.item(item).await.ok().map(|item| item.title);
+  let mut stop = std::pin::pin!(stop);
+
+  // Nothing is opened until the room it goes to is known, so a receiver that refuses to name it leaves no
+  // question.
+  let room =
+    until_answered("ask", stop.as_mut(), || receiver.owner_room())
+      .await
+      .map_err(|halt| match halt {
+        Halt::Answered(why) => format!("ask: the question was not put, and nothing was opened: {why}"),
+        Halt::Stopped => "ask: the run was told to stop, and nothing was opened".to_owned(),
+      })?;
+  let opening = NewQuestion {
+    item_id: Some(item),
+    asker_name: asked.by.clone(),
+    scope: Some(room.to_string()),
+    text: asked.question.clone(),
+    choices: asked.options.clone(),
+    recommendation: recommendation(&asked.options, recommend, &asked.why),
+    wait_ms: Some(DUE_MS),
+    told_by_asker: true,
+  };
+  let question = opened_once(client, &opening, stop.as_mut()).await.map_err(|halt| match halt {
+    Halt::Answered(why) => format!("ask: the question was not opened: {why}"),
+    Halt::Stopped => "ask: the run was told to stop, and nothing was opened".to_owned(),
+  })?;
+  let Ok(title) = title_of(client, item, stop.as_mut()).await else {
+    return stopped(client, receiver, question.id, None).await;
+  };
   let order = question_order(
     item,
     title.as_deref(),
@@ -384,13 +477,22 @@ pub async fn ask(
     &asked.why,
   );
   let summary = format!("Question #{} awaits the owner", question.id);
-  let told = match receiver.order(room, "question-awaits-answer", question.id, &summary, &order).await {
+  let ordered = until_answered("ask", stop.as_mut(), || {
+    receiver.order(room, "question-awaits-answer", question.id, &summary, &order)
+  })
+  .await;
+  let told = match ordered {
     Ok(told) => told,
-    Err(why) => {
-      let closing = closed(client, question.id, QuestionState::Unsent).await;
-      let left = closing
-        .err()
-        .map_or_else(String::new, |failed| format!("; closing it failed too: {failed}"));
+    Err(Halt::Stopped) => return stopped(client, receiver, question.id, None).await,
+    Err(Halt::Answered(why)) => {
+      let left =
+        match until_answered("ask", stop.as_mut(), || closed(client, question.id, QuestionState::Unsent))
+          .await
+        {
+          Ok(()) => String::new(),
+          Err(Halt::Stopped) => return stopped(client, receiver, question.id, None).await,
+          Err(Halt::Answered(failed)) => format!("; closing it failed too: {failed}"),
+        };
 
       return Err(format!(
         "ask: question #{} could not be put to the owner, so nothing will ever answer it, and it is closed unsent: {why}{left}",
@@ -420,10 +522,12 @@ pub async fn talk(
     return Err(refused(&refusal));
   }
 
-  let question = client
-    .question(asked.question)
-    .await
-    .map_err(|why| format!("ask: question #{}: {why}", asked.question))?;
+  let mut stop = std::pin::pin!(stop);
+  let question = match until_answered("ask", stop.as_mut(), || client.question(asked.question)).await {
+    Ok(question) => question,
+    Err(Halt::Answered(why)) => return Err(format!("ask: question #{}: {why}", asked.question)),
+    Err(Halt::Stopped) => return stopped(client, receiver, asked.question, None).await,
+  };
 
   if !matches!(question.state, QuestionState::Open | QuestionState::Paused) {
     return wait_on(client, receiver, question, None, stop).await;
@@ -436,7 +540,10 @@ pub async fn talk(
     .ok_or_else(|| format!("ask: question #{} stands in no room, so it takes no talk", question.id))?;
   let item = question.item_id.unwrap_or_default();
   let title = match item > 0 {
-    true => client.item(item).await.ok().map(|item| item.title),
+    true => match title_of(client, item, stop.as_mut()).await {
+      Ok(title) => title,
+      Err(()) => return stopped(client, receiver, question.id, None).await,
+    },
     false => None,
   };
   let mut put_again = None;
@@ -474,38 +581,46 @@ pub async fn talk(
       ..QuestionChange::default()
     };
 
-    question = client
-      .change_question(question.id, &change)
-      .await
-      .map_err(|why| format!("ask: {why}"))?;
+    question =
+      match until_answered("ask", stop.as_mut(), || client.change_question(question.id, &change)).await {
+        Ok(changed) => changed,
+        Err(Halt::Answered(why)) => return Err(format!("ask: {why}")),
+        Err(Halt::Stopped) => return stopped(client, receiver, question.id, None).await,
+      };
     put_again = Some(question_data(&text, &asked.options, recommend, &why));
   }
 
   let order = talk_order(item, title.as_deref(), question.id, &asked.say, put_again);
   let summary = format!("Question #{} goes on in talk", question.id);
 
-  receiver
-    .order(room, "question-talk", question.id, &summary, &order)
-    .await
-    .map_err(|why| {
-      format!(
+  let ordered = until_answered("ask", stop.as_mut(), || {
+    receiver.order(room, "question-talk", question.id, &summary, &order)
+  })
+  .await;
+
+  match ordered {
+    Ok(_) => {}
+    Err(Halt::Answered(why)) => {
+      return Err(format!(
         "ask: your answer did not reach the owner, and question #{} stays open; say it again: {why}",
         question.id
-      )
-    })?;
+      ));
+    }
+    Err(Halt::Stopped) => return stopped(client, receiver, question.id, None).await,
+  }
 
-  client
-    .reply(
-      question.id,
-      &NewReply {
-        choice: None,
-        text: asked.say.clone(),
-        actor_name: question.asker_name.clone(),
-        settles: Some(false),
-      },
-    )
-    .await
-    .map_err(|why| format!("ask: {why}"))?;
+  let said = NewReply {
+    choice: None,
+    text: asked.say.clone(),
+    actor_name: question.asker_name.clone(),
+    settles: Some(false),
+  };
+
+  match until_answered("ask", stop.as_mut(), || client.reply(question.id, &said)).await {
+    Ok(_) => {}
+    Err(Halt::Answered(why)) => return Err(format!("ask: {why}")),
+    Err(Halt::Stopped) => return stopped(client, receiver, question.id, None).await,
+  }
 
   wait_on(client, receiver, question, None, stop).await
 }
@@ -533,8 +648,8 @@ async fn stopped(
 }
 
 // The question and its replies read until a person settles it or the owner talks. A stop withdraws it. A service
-// that does not answer is asked again, since a restart is no answer; one that no longer holds the question ends
-// the wait.
+// that does not answer is asked again, since a restart is no answer, and so is keeping where the job heard
+// through; a service that no longer holds the question ends the wait.
 async fn wait_on(
   client: &JobClient,
   receiver: &Receiver,
@@ -594,9 +709,11 @@ async fn wait_on(
         ..QuestionChange::default()
       };
 
-      client.change_question(id, &change).await.map_err(|why| format!("ask: {why}"))?;
-
-      return Ok(Ending::Talk(heard_message(id, &heard)));
+      return match until_answered("ask", stop.as_mut(), || client.change_question(id, &change)).await {
+        Ok(_) => Ok(Ending::Talk(heard_message(id, &heard))),
+        Err(Halt::Answered(why)) => Err(format!("ask: {why}")),
+        Err(Halt::Stopped) => stopped(client, receiver, id, told).await,
+      };
     }
   }
 }

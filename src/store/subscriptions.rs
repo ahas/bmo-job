@@ -47,9 +47,11 @@ impl Kept {
 /// Where one webhook's delivery stands after an attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Delivery {
-  /// The subscription goes on being delivered.
+  /// The subscription goes on being delivered at the quick pace.
   Going,
-  /// The subscription ended, was paused, moved to failing, or no longer posts to a url.
+  /// The subscription is failing, now or already, and goes on being tried at the slow pace.
+  Failing,
+  /// The subscription ended or was paused.
   Stopped,
 }
 
@@ -351,11 +353,12 @@ impl Store {
     Ok(kept)
   }
 
-  /// The keys of every active subscription that posts to a url.
+  /// The keys of every active or failing subscription that posts to a url.
   pub async fn webhook_subscriptions(&self) -> Result<Vec<i64>, Refusal> {
     Ok(
       sqlx::query_scalar(
-        "SELECT id FROM subscriptions WHERE ended_at IS NULL AND url IS NOT NULL AND state = 'active' ORDER BY id",
+        "SELECT id FROM subscriptions WHERE ended_at IS NULL AND url IS NOT NULL AND state IN ('active', 'failing') \
+         ORDER BY id",
       )
       .fetch_all(&self.pool)
       .await?,
@@ -378,44 +381,54 @@ impl Store {
     Ok(events)
   }
 
-  /// Records that the events up to `event_id` were handed over, and that delivery is no longer failing.
+  /// Records that the events up to `event_id` were handed over, and that delivery is no longer failing: a
+  /// failing subscription moves back to active, told as changed.
   pub async fn delivered(&self, id: i64, event_id: i64) -> Result<(), Refusal> {
+    let now = self.now();
     let mut tx = self.begin().await?;
-    sqlx::query(
-      "UPDATE subscriptions SET delivered_event_id = MAX(COALESCE(delivered_event_id, 0), $1), failure_count = 0 \
-       WHERE id = $2",
-    )
-    .bind(event_id)
-    .bind(id)
-    .execute(&mut *tx)
-    .await?;
+    let mut kept = standing(&mut tx, id).await?;
+    let subscription = &mut kept.subscription;
+    subscription.delivered_event_id = Some(subscription.delivered_event_id.unwrap_or(0).max(event_id));
+    subscription.failure_count = 0;
+    let recovered = subscription.state == SubscriptionState::Failing;
+    if recovered {
+      subscription.state = SubscriptionState::Active;
+      subscription.changed_at = now;
+    }
+    save(&mut tx, &kept).await?;
+    if recovered {
+      told(&mut tx, now, EventKind::SubscriptionChanged, &kept.subscription).await?;
+      return self.commit(tx).await;
+    }
     tx.commit().await?;
     Ok(())
   }
 
-  /// Records a failed delivery; the `most`th in a row moves the subscription to failing. Answers whether
-  /// delivery goes on.
+  /// Records a failed delivery; the `most`th in a row moves an active subscription to failing, told as changed.
+  /// Answers how delivery goes on.
   pub async fn delivery_failed(&self, id: i64, most: i64) -> Result<Delivery, Refusal> {
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut kept = standing(&mut tx, id).await?;
-    if kept.subscription.state != SubscriptionState::Active {
+    let was = kept.subscription.state;
+    if !matches!(was, SubscriptionState::Active | SubscriptionState::Failing) {
       tx.commit().await?;
       return Ok(Delivery::Stopped);
     }
     kept.subscription.failure_count += 1;
-    let failing = kept.subscription.failure_count >= most;
-    if failing {
+    let fails_now = was == SubscriptionState::Active && kept.subscription.failure_count >= most;
+    if fails_now {
       kept.subscription.state = SubscriptionState::Failing;
       kept.subscription.changed_at = now;
     }
     save(&mut tx, &kept).await?;
-    if failing {
+    if fails_now {
       told(&mut tx, now, EventKind::SubscriptionChanged, &kept.subscription).await?;
-      self.commit(tx).await?;
-      return Ok(Delivery::Stopped);
     }
     self.commit(tx).await?;
-    Ok(Delivery::Going)
+    Ok(match kept.subscription.state {
+      SubscriptionState::Failing => Delivery::Failing,
+      _ => Delivery::Going,
+    })
   }
 }

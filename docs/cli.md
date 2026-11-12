@@ -40,17 +40,22 @@ records what goes live writes the commit down.
 - **Both labels are taken off** where the check or the suite does not pass, where the close is told to stop
   while they run, and where the commit is already what is deployed, so an item carries them only while its
   close is under way or its commit waits.
-- **The item is reached as `bmo-job todo` reaches it** (「`bmo-job todo`」). An item that cannot be read or
-  written stops no close: the close says so in one line and goes on.
+- **The item is reached as `bmo-job todo` reaches it** (「`bmo-job todo`」), and a restart is no answer. While
+  the service does not answer, nothing at its address, a connection cut or a 5xx, its labels are written again,
+  after a quarter of a second at first and every five seconds at most, and the close goes on only once they
+  are written or the run is told to stop. An item the service refuses, one it does not hold or a change it
+  will not take, stops no close: the close says so in one line and goes on.
 - **A close with no `--todo` writes on no item.**
 - **What ends the wait.** The close reads the deployment's progress record and its record of what went live
   under the checkout's deploy root (bmo-testbed's `docs/deploy.md`, 「What a deployment says of itself as it
-  runs」), again every few seconds:
+  runs」), again every few seconds. A record with no ending yet is a deployment still running only while the
+  process it names is alive and the user unit it names is not read inactive or failed; one whose process or
+  unit is gone was cut off, and the record read once more still unended says so:
 
   | What happened | Standard output | Standard error | Exit |
   |---|---|---|---|
   | A deployment begun after the handover, carrying the commit, ended `live`; or, none under way, the record of what went live carries it | `live: <commit> is live` | | 0 |
-  | Such a deployment ended `rolled-back`, `failed` or `stopped` | | `not live:` with the outcome and the deployment's reason, the journal of its unit, and that the commit is to be mended and closed again | 1 |
+  | Such a deployment ended `rolled-back`, `failed` or `stopped`, or was cut off, its record unended with its process or unit gone | | `not live:` with the outcome, `cut off` for one cut off, and the deployment's reason, the journal of its unit, and that the commit is to be mended and closed again | 1 |
   | The run was told to stop | | one line saying so | 130 |
 
   Either ending takes the item's labels off. A commit that did not go live is the same job's to mend: it finds
@@ -73,8 +78,8 @@ no clock is among it.
   |---|---|---|---|
   | A person settled it | One line: the option's words, or his own | | 0 |
   | He talked instead of choosing; the question stays open | His words and the call that answers him | | 3 |
-  | The question could not be put; it is closed `unsent` | Nothing | Why | 1 |
-  | The question was withdrawn, or the run was told to stop, which withdraws it | Nothing | Why | 1 |
+  | The question could not be put, the receiver refusing it; it is closed `unsent` | Nothing | Why | 1 |
+  | The question was withdrawn, or the run was told to stop, which withdraws a question already opened | Nothing | Why | 1 |
   | The words were refused; no question opened | Nothing | Why, and the usage | 1 |
 
 - **A recommendation is shown and never answers.** It is printed only where a person settled the question with
@@ -82,14 +87,23 @@ no clock is among it.
 - **Putting the question.** The verb reads the owner's private room from the receiver's `GET /owner`, opens the
   question there with `toldByAsker` (docs/api.md, "Questions and replies"), and hands it to the room's supervisor
   through the receiver's `POST /instructions`, an order under the sort `job` of the kind
-  `question-awaits-answer`. Anything but a queued instruction is a failed send. A question that is settled or
+  `question-awaits-answer`. An answer other than a queued instruction is a failed send. A question that is settled or
   stopped has its instruction withdrawn where it has not reached the supervisor yet.
 - **What a turn carries.** An order carries the notice's kind and number, the item's number and title, and the data
   it is about: the question and its options numbered with the recommended one marked, or the job's words in a talk,
   with the question's words and options again where the talk changed it. It carries no instruction, since how a
   notice is read stands in the receiving session's own instructions.
-- **What ends no wait.** A service or a receiver that does not answer while the verb waits is asked again; a
-  restart is not an answer. Only a question the service no longer holds ends it, with 1.
+- **A restart is no answer.** Every call the verb makes, reading the owner's room, opening the question,
+  reading the item's title, handing the order or the talk over, keeping the job's words and where it heard
+  through, closing the question, and every read while it waits, is made again while the service or the
+  receiver does not answer: nothing at its address, a connection cut, or a 5xx. Setting a question up, it is
+  made again after a quarter of a second at first and every five seconds at most; waiting, every five
+  seconds. The run told to stop ends it as above. Only an answer ends a call: while the question is put, a
+  refusal closes it `unsent`; while it is waited on, only a question the service no longer holds ends the
+  wait, with 1.
+- **At least once.** A call cut after its peer took it is made again, so an order or the job's words in a talk
+  can reach the room twice. A question is opened once: where opening it was cut, the room's open questions
+  are read first, and one of the same asker, item, words and options is taken as the one opened.
 - **The due time.** The question is asked with a due time of one hour, which paces the one notice
   `question.due` tells and settles nothing.
 - **Pages hosted elsewhere are refused:** an address of a claude.ai artifact, a published Claude page, a gist or a

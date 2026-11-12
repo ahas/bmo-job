@@ -5,6 +5,7 @@
 use crate::support;
 
 use std::process::Stdio;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -17,28 +18,47 @@ use bmo_job_client::{
   JobClient, NewItem, NewReply, Question, QuestionQuery, QuestionState, Reply, ReplySource,
 };
 use serde_json::{Value, json};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
 use support::Service;
 
 const ROOM: i64 = 4242;
 
-/// A receiver of the test's own: the owner's room, what it was handed, and what was taken back.
+/// A receiver of the test's own: the owner's room, what it was handed, and what was taken back. Each route
+/// answers 503, as a receiver restarting behind its proxy does, as many times as its count of `unavailable` says.
 #[derive(Clone, Default)]
 struct Heard {
   refuses: bool,
   orders: Arc<Mutex<Vec<Value>>>,
   withdrawn: Arc<Mutex<Vec<i64>>>,
+  owner_unavailable: Arc<AtomicUsize>,
+  orders_unavailable: Arc<AtomicUsize>,
 }
 
-async fn owner() -> axum::Json<Value> {
-  axum::Json(json!({ "senderId": 1, "room": ROOM }))
+// Whether a route answers 503 this time, its count of such answers taken down by one.
+fn unavailable(count: &AtomicUsize) -> bool {
+  count
+    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1))
+    .is_ok()
+}
+
+async fn owner(State(heard): State<Heard>) -> (StatusCode, axum::Json<Value>) {
+  if unavailable(&heard.owner_unavailable) {
+    return (StatusCode::SERVICE_UNAVAILABLE, axum::Json(json!({})));
+  }
+
+  (StatusCode::OK, axum::Json(json!({ "senderId": 1, "room": ROOM })))
 }
 
 async fn instruct(
   State(heard): State<Heard>,
   axum::Json(body): axum::Json<Value>,
 ) -> (StatusCode, axum::Json<Value>) {
+  if unavailable(&heard.orders_unavailable) {
+    return (StatusCode::SERVICE_UNAVAILABLE, axum::Json(json!({})));
+  }
+
   if heard.refuses {
     return (
       StatusCode::CONFLICT,
@@ -212,14 +232,37 @@ async fn a_failed_send_ends_non_zero_prints_no_option_and_closes_the_question_un
 }
 
 #[tokio::test]
-async fn a_receiver_that_cannot_be_reached_opens_no_question() {
+async fn a_receiver_that_gives_no_answer_is_asked_again_and_a_stop_opens_nothing() {
   let service = Service::start().await;
   let client = service.client();
   let item = item(&client).await;
-  let (code, out, _) = ended(asked(&service, "http://[::1]:9", item)).await;
+  let mut child = asked(&service, "http://[::1]:9", item);
+  let mut said = BufReader::new(child.stderr.take().expect("its standard error")).lines();
+  let heard_again = tokio::time::timeout(Duration::from_secs(30), async {
+    while let Some(line) = said.next_line().await.expect("a line") {
+      if line.contains("asking again") {
+        return;
+      }
+    }
+    panic!("the command ended without asking again");
+  });
+
+  heard_again.await.expect("the receiver is asked again");
+
+  let pid = i32::try_from(child.id().expect("it runs")).expect("a pid");
+
+  assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+
+  let (code, out, _) = ended(child).await;
+  let mut rest = String::new();
+
+  while let Ok(Some(line)) = said.next_line().await {
+    rest.push_str(&line);
+  }
 
   assert_eq!(code, 1);
   assert_eq!(out, "");
+  assert!(rest.contains("nothing was opened"), "{rest}");
 
   let page = client
     .questions(&QuestionQuery {
@@ -230,6 +273,41 @@ async fn a_receiver_that_cannot_be_reached_opens_no_question() {
     .expect("the item's questions");
 
   assert!(page.items.is_empty());
+}
+
+#[tokio::test]
+async fn a_receiver_restarting_is_no_answer_and_the_question_goes_out_once() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+
+  heard.owner_unavailable.store(1, Ordering::SeqCst);
+  heard.orders_unavailable.store(1, Ordering::SeqCst);
+
+  let item = item(&client).await;
+  let child = asked(&service, &address, item);
+  let question = opened(&client, &heard, 1).await;
+
+  client
+    .reply(question.id, &person(Some("strict grammar"), "strict"))
+    .await
+    .expect("answered");
+
+  let (code, out, err) = ended(child).await;
+
+  assert_eq!(code, 0, "{err}");
+  assert_eq!(out.trim(), "strict grammar");
+  assert_eq!(heard.orders.lock().expect("the orders").len(), 1);
+
+  let page = client
+    .questions(&QuestionQuery {
+      item_id: Some(item),
+      ..QuestionQuery::default()
+    })
+    .await
+    .expect("the item's questions");
+
+  assert_eq!(page.items.len(), 1, "the question is opened once");
 }
 
 #[tokio::test]

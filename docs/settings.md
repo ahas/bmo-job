@@ -62,4 +62,5 @@ worker holds, which is filed with the label `lane` at `pr-review` (docs/base-lib
 
 The spans and bounds docs/api.md states are the service's contract, not a deployment's choice, so they stand in
 the code: the page sizes, the longest wait, a lease's and a subscription's span, the event window, and webhook
-delivery's retries and the failures that move a subscription to `failing`.
+delivery's wait for an answer, its retries, the failures that move a subscription to `failing` and the pace
+a failing one is tried at.

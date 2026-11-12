@@ -3,11 +3,14 @@
 //! or to the job's own base where that commit is not in the repository the close runs in. Where the close
 //! stands is written on the item it was told, as two of the item's labels.
 
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use bmo_job_client::{Item, ItemChange, JobClient};
+use bmo_job_client::{ClientFailure, Item, ItemChange, JobClient};
 use serde::Deserialize;
+
+use crate::again::{Halt, until_answered};
 
 /// The label saying where an item's close stands, and the one naming the commit it handed over.
 pub const PHASE_LABEL: &str = "close-phase";
@@ -32,9 +35,13 @@ pub fn waiting_commit(item: &Item) -> Option<&str> {
 }
 
 /// Where the close stands written on its item, the item's other labels kept; nothing is written where the
-/// item already says it.
-pub async fn write_standing(client: &JobClient, item: i64, standing: &Standing) -> Result<(), String> {
-  let read = client.item(item).await.map_err(|why| format!("item {item} could not be read: {why}"))?;
+/// item already says it. One read and one write, either of which may fail.
+pub async fn write_standing(
+  client: &JobClient,
+  item: i64,
+  standing: &Standing,
+) -> Result<(), ClientFailure> {
+  let read = client.item(item).await?;
   let mut labels = read.labels.clone();
 
   labels.remove(PHASE_LABEL);
@@ -59,11 +66,26 @@ pub async fn write_standing(client: &JobClient, item: i64, standing: &Standing) 
     ..ItemChange::default()
   };
 
-  client
-    .change_item(item, &change)
+  client.change_item(item, &change).await.map(drop)
+}
+
+/// Where the close stands written on its item, written again while the service gives no answer, since a
+/// restart is no answer (docs/cli.md, 「`bmo-job job close`」), until it lands or `stop` ends. A refusal and a
+/// stop come back as the one line the close says before it goes on.
+pub async fn keep_standing(
+  client: &JobClient,
+  item: i64,
+  standing: &Standing,
+  stop: impl Future<Output = ()>,
+) -> Result<(), String> {
+  let stop = std::pin::pin!(stop);
+
+  until_answered("job-close", stop, || write_standing(client, item, standing))
     .await
-    .map(|_| ())
-    .map_err(|why| format!("item {item} was not written on: {why}"))
+    .map_err(|halt| match halt {
+      Halt::Answered(why) => format!("item {item} was not written on: {why}"),
+      Halt::Stopped => format!("item {item} was not written on: the run was told to stop"),
+    })
 }
 
 /// What a close is asked: why the commit goes live, and why the suite is skipped where it is.
@@ -123,7 +145,8 @@ pub enum Deployed {
 
 /// Waits, with no clock, for a deployment begun at `since` or after that carries `commit` to end, reading the
 /// deployment's progress record under the checkout's deploy root (bmo-testbed's docs/deploy.md, 「What a
-/// deployment says of itself as it runs」) and its record of what went live.
+/// deployment says of itself as it runs」) and its record of what went live. A record left unended by a run
+/// whose process or unit is gone is a deployment cut off, read once more before it is taken as one.
 pub fn wait_deployed(root: &Path, data_root: &Path, commit: &str, since: i64) -> Deployed {
   let deploy_root = declared_deploy_root(root).unwrap_or_else(|| data_root.to_path_buf());
   let short = short_of(commit);
@@ -134,27 +157,29 @@ pub fn wait_deployed(root: &Path, data_root: &Path, commit: &str, since: i64) ->
 
     if let Some(progress) = progress.as_ref().filter(|one| one.started_at >= since && carries(&one.commit))
     {
-      if let Some(ending) = &progress.ending {
-        let ran = short_of(&progress.commit);
+      match &progress.ending {
+        Some(ending) if ending.outcome == "live" => {
+          return Deployed::Live(vec![format!(
+            "live: {short} is live, deployed as {}",
+            short_of(&progress.commit)
+          )]);
+        }
+        Some(ending) => {
+          let why = ending.why.as_deref().map(|why| format!(": {why}")).unwrap_or_default();
 
-        return if ending.outcome == "live" {
-          Deployed::Live(vec![format!("live: {short} is live, deployed as {ran}")])
-        } else {
-          let mut lines = vec![format!(
-            "not live: the deployment of {ran}, carrying {short}, ended {}{}",
-            ending.outcome,
-            ending.why.as_deref().map(|why| format!(": {why}")).unwrap_or_default()
-          )];
-
-          if let Some(unit) = &progress.unit {
-            lines.push(format!("its whole account: journalctl --user -u {unit} --no-pager"));
-          }
-
-          lines.push(
-            "the commit is not live: find the cause, mend it, commit, push and close again".to_owned(),
-          );
-          Deployed::NotLive(lines)
-        };
+          return Deployed::NotLive(not_live(progress, &short, &format!("ended {}{why}", ending.outcome)));
+        }
+        None
+          if progress.run_gone()
+            && read_progress(&deploy_root).is_some_and(|again| again.cut_off(progress)) =>
+        {
+          return Deployed::NotLive(not_live(
+            progress,
+            &short,
+            "was cut off: its record has no ending, and its process or its unit is gone",
+          ));
+        }
+        None => {}
       }
     } else if progress.as_ref().is_none_or(|one| one.ending.is_some())
       && deployed_commit_under(&deploy_root).is_some_and(|live| carries(&live))
@@ -164,6 +189,22 @@ pub fn wait_deployed(root: &Path, data_root: &Path, commit: &str, since: i64) ->
 
     std::thread::sleep(LOOK_AGAIN);
   }
+}
+
+// What a close says of a deployment carrying its commit that did not put it live: how it ended, where its whole
+// account stands, and that the commit is the job's to mend.
+fn not_live(progress: &Progress, short: &str, ended: &str) -> Vec<String> {
+  let mut lines = vec![format!(
+    "not live: the deployment of {}, carrying {short}, {ended}",
+    short_of(&progress.commit)
+  )];
+
+  if let Some(unit) = &progress.unit {
+    lines.push(format!("its whole account: journalctl --user -u {unit} --no-pager"));
+  }
+
+  lines.push("the commit is not live: find the cause, mend it, commit, push and close again".to_owned());
+  lines
 }
 
 /// The deployment's progress record as a waiting close reads it.
@@ -177,7 +218,30 @@ struct Progress {
   #[serde(default)]
   unit: Option<String>,
   #[serde(default)]
+  pid: Option<u32>,
+  #[serde(default)]
   ending: Option<Ending>,
+}
+
+impl Progress {
+  /// Whether the run that writes this record is gone: its process no longer stands, or the service manager
+  /// reads its user unit inactive or failed. A unit the service manager cannot be asked of is taken as running.
+  fn run_gone(&self) -> bool {
+    self.pid.is_some_and(|pid| !Path::new("/proc").join(pid.to_string()).exists())
+      || self.unit.as_deref().is_some_and(unit_gone)
+  }
+
+  /// Whether this record, read after `before` was found with its run gone, is still that run's, unended.
+  fn cut_off(&self, before: &Progress) -> bool {
+    self.ending.is_none() && self.started_at == before.started_at && self.commit == before.commit
+  }
+}
+
+fn unit_gone(unit: &str) -> bool {
+  Command::new("systemctl")
+    .args(["--user", "is-active", unit])
+    .output()
+    .is_ok_and(|output| matches!(String::from_utf8_lossy(&output.stdout).trim(), "inactive" | "failed"))
 }
 
 #[derive(Deserialize)]

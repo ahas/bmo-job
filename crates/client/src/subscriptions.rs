@@ -22,8 +22,9 @@ wire_enum! {
                  items named, an empty list or a null scope matching all. With a url each event is posted there \
                  as the subscription-event webhook; without one it is read on GET /events with subscriptionId. A \
                  subscription with ttlMs runs out at expiresAt unless a change renews it. A webhook that keeps \
-                 failing moves it to failing; setting state back to active delivers again from the event after \
-                 deliveredEventId."
+                 failing moves it to failing, where it is still tried every five minutes and moved back to \
+                 active by the first post taken; setting state back to active delivers again at once from the \
+                 event after deliveredEventId."
 )]
 pub struct Subscription {
   pub id: i64,
