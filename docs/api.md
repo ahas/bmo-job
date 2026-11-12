@@ -116,6 +116,21 @@ and who is to take it, the caller's scope and labels, its approvals and its stat
 - **A label is not it.** A label naming an item, such as `raised-by`, is the caller's metadata like any other;
   `raisedBy` is what a reader of the item reads.
 
+### While leased
+
+An item a lease stands on keeps what its holder took it with until that lease ends.
+
+- **It stays in its queue.** A change moving a leased item to another queue is answered 409 `conflict`.
+- **What the lease holds fixed stays as it stood.** A lease may hold fixed some of its item's fields and the
+  values of some of its label keys (Leases, `frozen`): what its holder read to start the work it holds the
+  item for. A change that would give one of them another value, a label key added, removed or given another
+  value among them, is answered 409 `item-frozen`, the sentence naming the item, the lease and its holder,
+  what the change would have touched, and the reason the holder gave. A change giving them the values they
+  hold already is no change to them and goes through, and the rest of the item changes as any other's.
+- **The check reads the lease as it stood before the change,** so a change that also moves the item and ends
+  its lease is refused alike: what is held fixed is given another value only once the lease has ended, by the
+  holder giving it back or by a change of its own.
+
 ### States and moves
 
 | From | To | By |
@@ -144,7 +159,7 @@ to an item past `draft` is recorded beside the others and moves nothing.
 | `GET /items` | Items in queue order, filtered by `state`, `queueName`, `assigneeName`, `scope`, `label` (a key, or `key=value`), `ids`, `raisedBy` (the items raised from that item) and `q` (words found in the title or the brief, in any case) |
 | `POST /items` | Raises an item as a `draft`, or `open` where it carries an unattended label (above): `title`, `brief` and `queueName` required, `priority`, `assigneeName`, `requesterName`, `scope`, `labels` and `raisedBy` optional, `raisedBy` taken from the caller's one standing lease where it is left out (above). A `raisedBy` naming no item is answered 422 `unknown-item`. Answers 201 and the item |
 | `GET /items/{itemId}` | One item |
-| `PATCH /items/{itemId}` | Changes an item as a merge patch: `state`, `approval` (`at`, which is the time of the change where left out; the caller is the token's), `mergedInto`, `title`, `brief`, `queueName`, `priority`, `position`, `assigneeName`, `requesterName`, `scope`, `labels`. A nullable field set to null is cleared |
+| `PATCH /items/{itemId}` | Changes an item as a merge patch: `state`, `approval` (`at`, which is the time of the change where left out; the caller is the token's), `mergedInto`, `title`, `brief`, `queueName`, `priority`, `position`, `assigneeName`, `requesterName`, `scope`, `labels`. A nullable field set to null is cleared. A leased item changes as "While leased" (above) says |
 
 A queue comes to stand with the first item raised or moved into it. A queue name is 1 to 64 letters, digits,
 dots, underscores and hyphens.
@@ -253,7 +268,7 @@ stands, or null for one that stands until it is released.
 ## Leases
 
 A lease is an item held by one holder for a span: `id`, `queueName`, `itemId`, `holderName`, `ttlMs`,
-`expiresAt`, `createdAt` and `item`, the item as it stands. A lease runs out at `expiresAt` unless it is
+`expiresAt`, `createdAt`, `frozen` and `item`, the item as it stands. A lease runs out at `expiresAt` unless it is
 renewed; one that runs out gives its item back to `open` and is told as `lease.expired`. An ended lease,
 given back, run out or ended by its item's move, is answered 410 `gone` from then on.
 
@@ -269,13 +284,19 @@ given back, run out or ended by its item's move, is answered 410 `gone` from the
   `unknown-item`. The item must be in `queueName` (400 `bad-request` otherwise) and `open`: one that another
   holder took first, or that is in any other state, is answered 409 `conflict`, so harnesses told of the same
   item race for it and one wins.
+- **`frozen` is what of its item the lease holds fixed** while it stands (Items, "While leased"), or null for
+  nothing: `fields`, item fields among `title`, `brief`, `queueName`, `priority`, `position`, `assigneeName`,
+  `requesterName` and `scope`; `labels`, label keys, a key the item does not carry held fixed as absent; and
+  `reason`, the holder's own sentence for why, or null. The holder gives it as it takes the lease or as it
+  renews it, and every reader of the lease reads it. A field outside that list, or a label key that is empty,
+  is answered 400 `bad-request`.
 
 | Method and path | Does |
 |---|---|
-| `POST /leases` | Takes an item as above. Answers 201 and the lease |
+| `POST /leases` | Takes an item as above, `frozen` optional. Answers 201 and the lease |
 | `GET /leases` | The leases standing now, filtered by `holderName` and `queueName` |
 | `GET /leases/{leaseId}` | One lease |
-| `PATCH /leases/{leaseId}` | Renews it: `ttlMs` from now |
+| `PATCH /leases/{leaseId}` | Renews it: `ttlMs` from now; `frozen`, where it is carried, set in place of what stood, null holding nothing fixed |
 | `DELETE /leases/{leaseId}` | Gives it back; its item is `open` again. Answers 204 |
 
 ## Questions and replies

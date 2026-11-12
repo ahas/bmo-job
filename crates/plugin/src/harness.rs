@@ -173,7 +173,17 @@ impl Harness {
         )
       };
       for (id, ttl_ms) in leases {
-        match self.client.renew_lease(id, &LeaseRenewal { ttl_ms }).await {
+        match self
+          .client
+          .renew_lease(
+            id,
+            &LeaseRenewal {
+              ttl_ms,
+              frozen: None,
+            },
+          )
+          .await
+        {
           Ok(_) => self.renewed_lease(id, ttl_ms),
           Err(failure) if ended(&failure) => self.let_lease_go(id),
           Err(_) => {}

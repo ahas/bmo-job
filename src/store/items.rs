@@ -8,7 +8,7 @@ use sqlx::sqlite::SqliteRow;
 use sqlx::{QueryBuilder, Row, Sqlite};
 
 use super::events::{EventKeys, emit};
-use super::leases::{end_standing_lease, held_lease_item};
+use super::leases::{end_standing_lease, held_lease_item, refuse_frozen_change};
 use super::queues::ensure_queue;
 use super::{Store, Tx, filled, from_json, listed, page_limit, paged, queue_name, stored, to_json};
 use crate::access::Caller;
@@ -352,6 +352,7 @@ impl Store {
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut item = item_at(&mut tx, id).await?;
+    let before = item.clone();
     let previous = item.state;
 
     if let Some(title) = change.title {
@@ -389,6 +390,7 @@ impl Store {
     if let Some(labels) = change.labels {
       item.labels = labels;
     }
+    refuse_frozen_change(&mut tx, &before, &item).await?;
 
     let approved = change.approval.is_some() && caller.approves;
     if let Some(approval) = change.approval {

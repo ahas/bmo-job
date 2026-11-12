@@ -39,6 +39,7 @@ async fn a_closing_leaves_its_reports_and_moves_no_state() {
         ttl_ms: 60_000,
         assignee_name: None,
         item_id: Some(item.id),
+        frozen: None,
       },
       &LeaseWait { wait_ms: None },
     )
@@ -101,6 +102,7 @@ async fn a_close_s_standing_is_written_on_the_item_and_a_closing_names_the_commi
         ttl_ms: 60_000,
         assignee_name: None,
         item_id: Some(item.id),
+        frozen: None,
       },
       &LeaseWait { wait_ms: None },
     )
@@ -203,6 +205,7 @@ async fn the_command_leaves_the_account_with_the_address_and_token_the_run_names
         ttl_ms: 60_000,
         assignee_name: None,
         item_id: Some(item.id),
+        frozen: None,
       },
       &LeaseWait { wait_ms: None },
     )
@@ -260,6 +263,7 @@ async fn leased(service: &Service, title: &str) -> i64 {
         ttl_ms: 60_000,
         assignee_name: None,
         item_id: Some(item.id),
+        frozen: None,
       },
       &LeaseWait { wait_ms: None },
     )
@@ -432,6 +436,7 @@ async fn a_leased_item_s_steps_stand_fixed() {
         ttl_ms: 60_000,
         assignee_name: None,
         item_id: Some(item.id),
+        frozen: None,
       },
       &LeaseWait { wait_ms: None },
     )

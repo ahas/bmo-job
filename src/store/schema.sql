@@ -97,7 +97,8 @@ CREATE TABLE leases (
   ttl_ms INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
-  ended_at INTEGER
+  ended_at INTEGER,
+  frozen TEXT
 );
 CREATE INDEX leases_standing ON leases (ended_at, expires_at);
 CREATE INDEX leases_by_item ON leases (item_id);

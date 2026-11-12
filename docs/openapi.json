@@ -136,6 +136,42 @@
         ],
         "type": "object"
       },
+      "Frozen": {
+        "additionalProperties": false,
+        "description": "What of its item a lease holds fixed while it stands: a change giving any of it another value is refused.",
+        "properties": {
+          "fields": {
+            "default": [],
+            "description": "The item's fields held fixed.",
+            "items": {
+              "$ref": "#/components/schemas/ItemField"
+            },
+            "type": "array"
+          },
+          "labels": {
+            "default": [],
+            "description": "The label keys whose values are held fixed, a key the item does not carry held as absent.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reason": {
+            "default": null,
+            "description": "The holder's own sentence for why, or null.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "fields",
+          "labels",
+          "reason"
+        ],
+        "type": "object"
+      },
       "Health": {
         "description": "Whether the service is ready to answer, why not where it is not, and its version.",
         "properties": {
@@ -408,6 +444,20 @@
         },
         "type": "object"
       },
+      "ItemField": {
+        "description": "An item field a lease may hold fixed.",
+        "enum": [
+          "title",
+          "brief",
+          "queueName",
+          "priority",
+          "position",
+          "assigneeName",
+          "requesterName",
+          "scope"
+        ],
+        "type": "string"
+      },
       "ItemPage": {
         "description": "One page of a list, and whether anything stands past its last member.",
         "properties": {
@@ -453,6 +503,17 @@
             "format": "int64",
             "type": "integer"
           },
+          "frozen": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Frozen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What of its item the lease holds fixed while it stands, or null for nothing."
+          },
           "holderName": {
             "type": "string"
           },
@@ -484,6 +545,7 @@
           "ttlMs",
           "expiresAt",
           "createdAt",
+          "frozen",
           "item"
         ],
         "type": "object"
@@ -498,6 +560,17 @@
               "string",
               "null"
             ]
+          },
+          "frozen": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Frozen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What of the item the lease holds fixed while it stands."
           },
           "holderName": {
             "type": "string"
@@ -547,8 +620,19 @@
       },
       "LeaseRenewal": {
         "additionalProperties": false,
-        "description": "A lease renewed.",
+        "description": "A lease renewed, and what it holds fixed set where it is carried.",
         "properties": {
+          "frozen": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Frozen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What of its item the lease holds fixed from now, in place of what stood; null for nothing, left out to\nleave it as it stands."
+          },
           "ttlMs": {
             "description": "The new span from now, 1000 to 3600000.",
             "format": "int64",
@@ -2432,6 +2516,7 @@
           "bad-request",
           "not-found",
           "conflict",
+          "item-frozen",
           "unknown-item"
         ]
       }
@@ -3369,7 +3454,7 @@
             "$ref": "#/components/responses/Error"
           }
         },
-        "summary": "Renew a lease for another ttlMs.",
+        "summary": "Renew a lease for another ttlMs, and set what it holds fixed.",
         "tags": [
           "leases"
         ],
@@ -4791,6 +4876,17 @@
               "null"
             ]
           },
+          "frozen": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Frozen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What of the item the lease holds fixed while it stands."
+          },
           "holderName": {
             "type": "string"
           },
@@ -4833,10 +4929,21 @@
       "route": "POST /leases"
     },
     {
-      "description": "Renew a lease for another ttlMs.",
+      "description": "Renew a lease for another ttlMs; with frozen, set what of its item it holds fixed while it stands, null for nothing.",
       "input": {
         "description": "A route's path key and the rest of its input together, as one tool's input.",
         "properties": {
+          "frozen": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Frozen"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What of its item the lease holds fixed from now, in place of what stood; null for nothing, left out to\nleave it as it stands."
+          },
           "leaseId": {
             "format": "int64",
             "type": "integer"

@@ -259,7 +259,8 @@ pub fn tools() -> Vec<JobTool> {
     ),
     tool::<Keyed<LeaseKey, LeaseRenewal>, Lease, _, _>(
       "job_lease_renew",
-      "Renew a lease for another ttlMs.",
+      "Renew a lease for another ttlMs; with frozen, set what of its item it holds fixed while it stands, null for \
+       nothing.",
       "PATCH /leases/{leaseId}",
       |harness, input| async move {
         let lease = harness.client.renew_lease(input.key.lease_id, &input.rest).await?;

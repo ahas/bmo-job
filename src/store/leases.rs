@@ -1,13 +1,15 @@
 //! Leases: an item taken by one holder for a span, renewed, given back, or run out (docs/api.md, "Leases").
 
-use bmo_job_client::{Code, EventKind, Item, ItemState, Lease, LeaseAsk, LeaseQuery, Page};
+use bmo_job_client::{
+  Code, EventKind, Frozen, Item, ItemState, Lease, LeaseAsk, LeaseQuery, LeaseRenewal, Page,
+};
 use sqlx::Row;
 use sqlx::sqlite::SqliteRow;
 
 use super::events::{emit, key_alone};
 use super::items::{item_at, item_keys, save_item, told_changed};
 use super::queues::{find_queue, gives_leases};
-use super::{OWN_NAME, Store, Tx, filled, page_limit, paged, queue_name};
+use super::{OWN_NAME, Store, Tx, filled, from_json, page_limit, paged, queue_name, to_json};
 use crate::access::Caller;
 use crate::refusal::Refusal;
 
@@ -15,7 +17,7 @@ use crate::refusal::Refusal;
 const LEASE_SPAN_MS: std::ops::RangeInclusive<i64> = 1_000..=3_600_000;
 
 const LEASE_COLUMNS: &str =
-  "id, queue_name, item_id, holder_name, ttl_ms, expires_at, created_at, ended_at";
+  "id, queue_name, item_id, holder_name, ttl_ms, expires_at, created_at, ended_at, frozen";
 
 /// A lease row: the lease short of its item, and when it ended.
 struct LeaseRow {
@@ -27,6 +29,7 @@ struct LeaseRow {
   expires_at: i64,
   created_at: i64,
   ended_at: Option<i64>,
+  frozen: Option<Frozen>,
 }
 
 fn lease_row(row: &SqliteRow) -> Result<LeaseRow, Refusal> {
@@ -39,6 +42,7 @@ fn lease_row(row: &SqliteRow) -> Result<LeaseRow, Refusal> {
     expires_at: row.try_get("expires_at")?,
     created_at: row.try_get("created_at")?,
     ended_at: row.try_get("ended_at")?,
+    frozen: row.try_get::<Option<&str>, _>("frozen")?.map(from_json).transpose()?,
   })
 }
 
@@ -52,6 +56,7 @@ impl LeaseRow {
       ttl_ms: self.ttl_ms,
       expires_at: self.expires_at,
       created_at: self.created_at,
+      frozen: self.frozen,
       item,
     }
   }
@@ -73,6 +78,56 @@ async fn standing_lease(tx: &mut Tx, id: i64) -> Result<LeaseRow, Refusal> {
     return Err(Refusal::gone(format!("The lease {id} has ended.")));
   }
   Ok(lease)
+}
+
+/// What a lease holds fixed, as a body gave it: every label key named.
+fn frozen_checked(frozen: Option<&Frozen>) -> Result<Option<String>, Refusal> {
+  let Some(frozen) = frozen else {
+    return Ok(None);
+  };
+  if frozen.labels.iter().any(|key| key.trim().is_empty()) {
+    return Err(Refusal::bad_request("A label key a lease holds fixed is empty."));
+  }
+  Ok(Some(to_json(frozen)))
+}
+
+/// Refuses a change that gives anything the lease standing on `before` holds fixed another value in `after`
+/// (docs/api.md, "While leased").
+pub(crate) async fn refuse_frozen_change(tx: &mut Tx, before: &Item, after: &Item) -> Result<(), Refusal> {
+  let Some(lease_id) = before.lease_id else {
+    return Ok(());
+  };
+  let lease = lease_row_at(tx, lease_id).await?;
+  let Some(frozen) = lease.frozen else {
+    return Ok(());
+  };
+  let fields = frozen
+    .fields
+    .iter()
+    .filter(|field| field.differs(before, after))
+    .map(|field| format!("field {}", field.as_str()));
+  let labels = frozen
+    .labels
+    .iter()
+    .filter(|key| before.labels.get(*key) != after.labels.get(*key))
+    .map(|key| format!("label {key}"));
+  let touched: Vec<String> = fields.chain(labels).collect();
+  if touched.is_empty() {
+    return Ok(());
+  }
+  let why = match frozen.reason.as_deref().map(str::trim) {
+    Some(reason) if !reason.is_empty() => format!(": {reason}"),
+    _ => ".".to_owned(),
+  };
+  Err(Refusal::new(
+    Code::ItemFrozen,
+    format!(
+      "The lease {lease_id} held by {} holds the item {}'s {} fixed until it ends{why}",
+      lease.holder_name,
+      before.id,
+      touched.join(", "),
+    ),
+  ))
 }
 
 fn span(ttl_ms: i64) -> Result<(), Refusal> {
@@ -149,6 +204,7 @@ impl Store {
   pub async fn take_lease(&self, ask: &LeaseAsk, caller: &Caller) -> Result<Option<Lease>, Refusal> {
     span(ask.ttl_ms)?;
     filled("holderName", &ask.holder_name)?;
+    let frozen = frozen_checked(ask.frozen.as_ref())?;
     queue_name(&ask.queue_name)?;
     let now = self.now();
     let mut tx = self.begin().await?;
@@ -202,8 +258,8 @@ impl Store {
 
     let expires_at = now + ask.ttl_ms;
     let lease_id: i64 = sqlx::query_scalar(
-      "INSERT INTO leases (queue_name, item_id, holder_name, caller_name, ttl_ms, expires_at, created_at) \
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+      "INSERT INTO leases (queue_name, item_id, holder_name, caller_name, ttl_ms, expires_at, created_at, frozen) \
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
     )
     .bind(&ask.queue_name)
     .bind(item.id)
@@ -212,6 +268,7 @@ impl Store {
     .bind(ask.ttl_ms)
     .bind(expires_at)
     .bind(now)
+    .bind(frozen)
     .fetch_one(&mut *tx)
     .await?;
     let mut item = item;
@@ -259,17 +316,22 @@ impl Store {
     Ok(lease.with(item))
   }
 
-  /// Renews a standing lease for `ttl_ms` from now.
-  pub async fn renew_lease(&self, id: i64, ttl_ms: i64) -> Result<Lease, Refusal> {
-    span(ttl_ms)?;
+  /// Renews a standing lease for its span from now, and sets what it holds fixed where the renewal carries it.
+  pub async fn renew_lease(&self, id: i64, renewal: LeaseRenewal) -> Result<Lease, Refusal> {
+    span(renewal.ttl_ms)?;
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut lease = standing_lease(&mut tx, id).await?;
-    lease.ttl_ms = ttl_ms;
-    lease.expires_at = now + ttl_ms;
-    sqlx::query("UPDATE leases SET ttl_ms = $1, expires_at = $2 WHERE id = $3")
+    lease.ttl_ms = renewal.ttl_ms;
+    lease.expires_at = now + renewal.ttl_ms;
+    if let Some(frozen) = renewal.frozen {
+      lease.frozen = frozen;
+    }
+    let frozen = frozen_checked(lease.frozen.as_ref())?;
+    sqlx::query("UPDATE leases SET ttl_ms = $1, expires_at = $2, frozen = $3 WHERE id = $4")
       .bind(lease.ttl_ms)
       .bind(lease.expires_at)
+      .bind(frozen)
       .bind(id)
       .execute(&mut *tx)
       .await?;

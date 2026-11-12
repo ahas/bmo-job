@@ -233,7 +233,7 @@ export interface paths {
         delete: operations["deleteLeasesByLeaseId"];
         options?: never;
         head?: never;
-        /** Renew a lease for another ttlMs. */
+        /** Renew a lease for another ttlMs, and set what it holds fixed. */
         patch: operations["changeLeasesByLeaseId"];
         trace?: never;
     };
@@ -485,6 +485,24 @@ export interface components {
             items: components["schemas"]["Event"][];
             more: boolean;
         };
+        /** @description What of its item a lease holds fixed while it stands: a change giving any of it another value is refused. */
+        Frozen: {
+            /**
+             * @description The item's fields held fixed.
+             * @default []
+             */
+            fields: components["schemas"]["ItemField"][];
+            /**
+             * @description The label keys whose values are held fixed, a key the item does not carry held as absent.
+             * @default []
+             */
+            labels: string[];
+            /**
+             * @description The holder's own sentence for why, or null.
+             * @default null
+             */
+            reason: string | null;
+        };
         /** @description Whether the service is ready to answer, why not where it is not, and its version. */
         Health: {
             ready: boolean;
@@ -574,6 +592,11 @@ export interface components {
             state?: components["schemas"]["ItemState"] | null;
             title?: string | null;
         };
+        /**
+         * @description An item field a lease may hold fixed.
+         * @enum {string}
+         */
+        ItemField: "title" | "brief" | "queueName" | "priority" | "position" | "assigneeName" | "requesterName" | "scope";
         /** @description One page of a list, and whether anything stands past its last member. */
         ItemPage: {
             items: components["schemas"]["Item"][];
@@ -596,6 +619,8 @@ export interface components {
              * @description Epoch milliseconds.
              */
             expiresAt: number;
+            /** @description What of its item the lease holds fixed while it stands, or null for nothing. */
+            frozen: components["schemas"]["Frozen"] | null;
             holderName: string;
             /** Format: int64 */
             id: number;
@@ -611,6 +636,8 @@ export interface components {
         LeaseAsk: {
             /** @description Take items assigned to this name; left out, items assigned to no one. */
             assigneeName?: string | null;
+            /** @description What of the item the lease holds fixed while it stands. */
+            frozen?: components["schemas"]["Frozen"] | null;
             holderName: string;
             /**
              * Format: int64
@@ -629,8 +656,13 @@ export interface components {
             items: components["schemas"]["Lease"][];
             more: boolean;
         };
-        /** @description A lease renewed. */
+        /** @description A lease renewed, and what it holds fixed set where it is carried. */
         LeaseRenewal: {
+            /**
+             * @description What of its item the lease holds fixed from now, in place of what stood; null for nothing, left out to
+             *     leave it as it stands.
+             */
+            frozen?: components["schemas"]["Frozen"] | null;
             /**
              * Format: int64
              * @description The new span from now, 1000 to 3600000.

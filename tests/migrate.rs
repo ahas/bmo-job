@@ -2,7 +2,7 @@
 //! recommendation and the reply's source and reason are added, a reply already standing coming from a person;
 //! from version 2, the item an item was raised from, filled from its `raised-by` label where that label is the
 //! key of another standing item, and the caller who holds a lease; from version 3, whether a question's asker
-//! tells of it and what it was handed (docs/schema.md).
+//! tells of it and what it was handed; from version 6, what a lease holds of its item fixed (docs/schema.md).
 
 use bmo_job::{Clock, Store};
 use sqlx::Row;
@@ -77,7 +77,7 @@ async fn migrated(directory: &tempfile::TempDir, schema: &str, version: i64) -> 
 
   let pool = sqlx::SqlitePool::connect(&url).await.expect("the store");
   let version: i64 = sqlx::query_scalar("PRAGMA user_version").fetch_one(&pool).await.expect("the version");
-  assert_eq!(version, 6);
+  assert_eq!(version, 7);
   pool
 }
 
@@ -154,4 +154,9 @@ async fn a_version_two_store_fills_raised_by_from_a_label_naming_a_standing_item
     .await
     .expect("the lease");
   assert_eq!(holder, None, "a lease standing then is held by no named caller");
+  let frozen: Option<String> = sqlx::query_scalar("SELECT frozen FROM leases WHERE id = 1")
+    .fetch_one(&pool)
+    .await
+    .expect("the lease");
+  assert_eq!(frozen, None, "a lease standing then holds nothing of its item fixed");
 }

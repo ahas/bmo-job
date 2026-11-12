@@ -53,6 +53,9 @@ assigned to a name is only taken by a lease asking with that same `assigneeName`
 
 The lease holds the item for `ttlMs` (at most 3600000). The server renews it at half its span while it runs;
 `job_lease_renew` renews it yourself. A lease that runs out gives the item back to the queue for someone else.
+A lease may hold fixed what of its item its holder read to start the work, `frozen` on `job_lease_next` or
+`job_lease_renew`: item fields and label keys, with the holder's reason. While it stands, a change of the item
+that would give any of them another value is refused 409 `item-frozen` with that reason.
 
 ## Doing it
 

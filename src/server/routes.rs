@@ -283,7 +283,7 @@ async fn renew_lease(
   InPath(lease_id): InPath<i64>,
   InBody(renewal): InBody<LeaseRenewal>,
 ) -> Answer {
-  ok(app.store.renew_lease(lease_id, renewal.ttl_ms).await?)
+  ok(app.store.renew_lease(lease_id, renewal).await?)
 }
 
 async fn release_lease(

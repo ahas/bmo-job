@@ -4,8 +4,8 @@
 use crate::support;
 
 use bmo_job_client::{
-  Hold, ItemChange, ItemState, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait, NewItem, QueueChange,
-  QueueState,
+  Frozen, Hold, ItemChange, ItemField, ItemState, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait, NewItem,
+  QueueChange, QueueState,
 };
 
 use support::{START, Service};
@@ -185,9 +185,27 @@ async fn a_lease_is_renewed_given_back_and_run_out() {
     .expect("a lease");
 
   service.pass(30_000).await;
-  let renewed = client.renew_lease(lease.id, &LeaseRenewal { ttl_ms: 60_000 }).await.expect("renewed");
+  let renewed = client
+    .renew_lease(
+      lease.id,
+      &LeaseRenewal {
+        ttl_ms: 60_000,
+        frozen: None,
+      },
+    )
+    .await
+    .expect("renewed");
   assert_eq!(renewed.expires_at, START + 90_000);
-  let refused = client.renew_lease(lease.id, &LeaseRenewal { ttl_ms: 10 }).await.expect_err("too short");
+  let refused = client
+    .renew_lease(
+      lease.id,
+      &LeaseRenewal {
+        ttl_ms: 10,
+        frozen: None,
+      },
+    )
+    .await
+    .expect_err("too short");
   assert_eq!(refused.code(), Some("bad-request"));
 
   client.release_lease(lease.id).await.expect("given back");
@@ -205,7 +223,15 @@ async fn a_lease_is_renewed_given_back_and_run_out() {
   let lapsed = client.item(item.id).await.expect("read");
   assert_eq!((lapsed.state, lapsed.lease_id), (ItemState::Open, None));
   assert_eq!(client.lease(again.id).await.expect_err("ran out").code(), Some("gone"));
-  let renew = client.renew_lease(again.id, &LeaseRenewal { ttl_ms: 60_000 }).await;
+  let renew = client
+    .renew_lease(
+      again.id,
+      &LeaseRenewal {
+        ttl_ms: 60_000,
+        frozen: None,
+      },
+    )
+    .await;
   assert_eq!(renew.expect_err("ran out").status(), Some(410));
 }
 
@@ -242,4 +268,106 @@ async fn holding_an_item_ends_its_lease_and_a_leased_item_stays_in_its_queue() {
     })
     .await;
   assert_eq!(refused.expect_err("a queue name").code(), Some("bad-request"));
+}
+
+#[tokio::test]
+async fn what_a_lease_holds_fixed_stays_until_the_holder_lets_it_go() {
+  let service = Service::start().await;
+  let client = service.client();
+  let item = service.open_item("build", "fixed work").await;
+  let labelled = |pairs: &[(&str, &str)]| ItemChange {
+    labels: Some(pairs.iter().map(|(key, value)| ((*key).to_owned(), (*value).to_owned())).collect()),
+    ..ItemChange::default()
+  };
+  client
+    .change_item(item.id, &labelled(&[("kind", "a"), ("note", "x")]))
+    .await
+    .expect("labelled");
+  let frozen = Frozen {
+    fields: vec![ItemField::Scope],
+    labels: vec!["kind".to_owned(), "size".to_owned()],
+    reason: Some("run 7 started as kind a".to_owned()),
+  };
+  let lease = client
+    .take_lease(
+      &LeaseAsk {
+        frozen: Some(frozen.clone()),
+        ..ask("build", "taker")
+      },
+      &AT_ONCE,
+    )
+    .await
+    .expect("answered")
+    .expect("a lease");
+  assert_eq!(lease.frozen.as_ref(), Some(&frozen));
+
+  let refused = |change: ItemChange| {
+    let client = client.clone();
+    async move { client.change_item(item.id, &change).await.expect_err("held fixed") }
+  };
+  let moved = refused(labelled(&[("kind", "b"), ("note", "x")])).await;
+  assert_eq!((moved.status(), moved.code()), (Some(409), Some("item-frozen")));
+  let said = moved.to_string();
+  assert!(said.contains(&format!("lease {}", lease.id)) && said.contains("label kind"), "{said}");
+  assert!(said.contains("run 7 started as kind a"), "{said}");
+  let added = refused(labelled(&[("kind", "a"), ("note", "x"), ("size", "1")])).await;
+  assert_eq!(added.code(), Some("item-frozen"));
+  let rescoped = refused(ItemChange {
+    scope: Some(Some("elsewhere".to_owned())),
+    ..ItemChange::default()
+  })
+  .await;
+  assert_eq!(rescoped.code(), Some("item-frozen"));
+  let held_and_moved = refused(ItemChange {
+    state: Some(ItemState::Held),
+    ..labelled(&[("kind", "b"), ("note", "x")])
+  })
+  .await;
+  assert_eq!(held_and_moved.code(), Some("item-frozen"));
+
+  let free = ItemChange {
+    brief: Some("more words".to_owned()),
+    ..labelled(&[("kind", "a"), ("note", "y")])
+  };
+  let changed = client.change_item(item.id, &free).await.expect("nothing fixed touched");
+  assert_eq!((changed.brief.as_str(), changed.labels["note"].as_str()), ("more words", "y"));
+
+  let empty_key = LeaseRenewal {
+    ttl_ms: 60_000,
+    frozen: Some(Some(Frozen {
+      labels: vec![" ".to_owned()],
+      ..Frozen::default()
+    })),
+  };
+  assert_eq!(
+    client.renew_lease(lease.id, &empty_key).await.expect_err("empty key").code(),
+    Some("bad-request")
+  );
+  let kept = client
+    .renew_lease(
+      lease.id,
+      &LeaseRenewal {
+        ttl_ms: 60_000,
+        frozen: None,
+      },
+    )
+    .await
+    .expect("renewed");
+  assert_eq!(kept.frozen.as_ref(), Some(&frozen));
+  let let_go = client
+    .renew_lease(
+      lease.id,
+      &LeaseRenewal {
+        ttl_ms: 60_000,
+        frozen: Some(None),
+      },
+    )
+    .await
+    .expect("renewed");
+  assert_eq!(let_go.frozen, None);
+  let relabelled = client
+    .change_item(item.id, &labelled(&[("kind", "b")]))
+    .await
+    .expect("nothing held fixed");
+  assert_eq!(relabelled.labels["kind"], "b");
 }

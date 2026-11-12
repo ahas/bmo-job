@@ -73,7 +73,7 @@ pub use health::Health;
 pub use items::{
   Approval, ApprovalGiven, ApprovalKind, Item, ItemChange, ItemEvent, ItemQuery, ItemState, NewItem,
 };
-pub use leases::{Lease, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait};
+pub use leases::{Frozen, ItemField, Lease, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait};
 pub use notes::{NewNote, Note, WaitQuery};
 pub use page::{Page, PageQuery};
 pub use questions::{

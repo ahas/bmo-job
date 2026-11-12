@@ -227,7 +227,7 @@ pub fn routes() -> Vec<Route> {
       None,
       Some(referred::<ItemChange>),
       vec![json::<Item>(200, "The item changed.")],
-      &[BadRequest, NotFound, Conflict, UnknownItem],
+      &[BadRequest, NotFound, Conflict, ItemFrozen, UnknownItem],
     ),
     route(
       Get,
@@ -400,7 +400,7 @@ pub fn routes() -> Vec<Route> {
       vec![json::<Lease>(200, "The lease.")],
       &[NotFound, Gone],
     ),
-    route(Patch, "/leases/{leaseId}", "changeLeasesByLeaseId", "leases", "Renew a lease for another ttlMs.").with(
+    route(Patch, "/leases/{leaseId}", "changeLeasesByLeaseId", "leases", "Renew a lease for another ttlMs, and set what it holds fixed.").with(
       None,
       Some(referred::<LeaseRenewal>),
       vec![json::<Lease>(200, "The lease renewed.")],
