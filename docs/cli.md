@@ -96,11 +96,10 @@ no clock is among it.
 - **A restart is no answer.** Every call the verb makes, reading the owner's room, opening the question,
   reading the item's title, handing the order or the talk over, keeping the job's words and where it heard
   through, closing the question, and every read while it waits, is made again while the service or the
-  receiver does not answer: nothing at its address, a connection cut, or a 5xx. Setting a question up, it is
-  made again after a quarter of a second at first and every five seconds at most; waiting, every five
-  seconds. The run told to stop ends it as above. Only an answer ends a call: while the question is put, a
-  refusal closes it `unsent`; while it is waited on, only a question the service no longer holds ends the
-  wait, with 1.
+  receiver does not answer: nothing at its address, a connection cut, or a 5xx. It is made again after a
+  quarter of a second at first and every five seconds at most. The run told to stop ends it as above. Only an
+  answer ends a call: while the question is put, a refusal closes it `unsent`; while it is waited on, only a
+  question the service no longer holds ends the wait, with 1.
 - **At least once.** A call cut after its peer took it is made again, so an order or the job's words in a talk
   can reach the room twice. A question is opened once: where opening it was cut, the room's open questions
   are read first, and one of the same asker, item, words and options is taken as the one opened.

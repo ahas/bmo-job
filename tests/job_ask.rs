@@ -112,7 +112,7 @@ async fn item(client: &JobClient) -> i64 {
     .id
 }
 
-fn command(service: &Service, receiver: &str, words: &[&str]) -> Command {
+fn command(service: &Service, receiver: &str, words: &[impl AsRef<std::ffi::OsStr>]) -> Command {
   let mut command = Command::new(env!("CARGO_BIN_EXE_bmo-job"));
 
   command
@@ -131,29 +131,28 @@ fn command(service: &Service, receiver: &str, words: &[&str]) -> Command {
   command
 }
 
-fn asked(service: &Service, receiver: &str, item: i64) -> Child {
-  let item = item.to_string();
+// The words of the question every test asks about `item`.
+fn asked_words(item: i64) -> Vec<String> {
+  [
+    "--todo",
+    &item.to_string(),
+    "--question",
+    "which one?",
+    "--option",
+    "strict grammar",
+    "--option",
+    "loose grammar",
+    "--recommend",
+    "1",
+    "--why",
+    "A loose grammar reads a stray token as a rule.",
+  ]
+  .map(str::to_owned)
+  .to_vec()
+}
 
-  command(
-    service,
-    receiver,
-    &[
-      "--todo",
-      &item,
-      "--question",
-      "which one?",
-      "--option",
-      "strict grammar",
-      "--option",
-      "loose grammar",
-      "--recommend",
-      "1",
-      "--why",
-      "A loose grammar reads a stray token as a rule.",
-    ],
-  )
-  .spawn()
-  .expect("the command runs")
+fn asked(service: &Service, receiver: &str, item: i64) -> Child {
+  command(service, receiver, &asked_words(item)).spawn().expect("the command runs")
 }
 
 // The question the running command opened, once it has handed it to the room.
@@ -727,4 +726,144 @@ async fn words_a_question_cannot_go_out_with_open_nothing() {
       .items
       .is_empty()
   );
+}
+
+#[tokio::test]
+async fn a_receiver_down_and_an_opening_cut_before_its_answer_put_the_question_once() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let receiving = support::Relay::before(&address).await;
+  let serving = support::Relay::before(&service.url).await;
+  let item = item(&client).await;
+
+  // The receiver restarts as the run begins, and the job service takes the question and is cut before it answers.
+  receiving.go_down();
+  serving.cut_answers(1);
+
+  let mut command = command(&service, &receiving.url, &asked_words(item));
+  let child = command.env("BMO_JOB_URL", &serving.url).spawn().expect("the command runs");
+
+  receiving.until_cut(2).await;
+  receiving.come_up();
+
+  let question = opened(&client, &heard, 1).await;
+
+  assert_eq!(serving.cuts(), 1, "the opening was cut after the service took it");
+
+  client
+    .reply(question.id, &person(Some("strict grammar"), "strict"))
+    .await
+    .expect("answered");
+
+  let (code, out, err) = ended(child).await;
+
+  assert_eq!(code, 0, "{err}");
+  assert_eq!(out.trim(), "strict grammar");
+  assert!(err.contains("asking again"), "{err}");
+  assert_eq!(heard.orders.lock().expect("the orders").len(), 1);
+
+  let page = client
+    .questions(&QuestionQuery {
+      item_id: Some(item),
+      ..QuestionQuery::default()
+    })
+    .await
+    .expect("the item's questions");
+
+  assert_eq!(page.items.len(), 1, "the question is opened once");
+}
+
+#[tokio::test]
+async fn a_job_service_restart_in_the_middle_of_the_wait_still_hands_the_owners_talk_over() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let serving = support::Relay::before(&service.url).await;
+  let item = item(&client).await;
+  let mut command = command(&service, &address, &asked_words(item));
+  let mut child = command.env("BMO_JOB_URL", &serving.url).spawn().expect("the command runs");
+  let mut said = BufReader::new(child.stderr.take().expect("its standard error")).lines();
+  let question = opened(&client, &heard, 1).await;
+
+  // The service restarts while the run waits, and the owner talks while it is down.
+  serving.go_down();
+  tokio::time::timeout(Duration::from_secs(30), async {
+    while let Some(line) = said.next_line().await.expect("a line") {
+      if line.contains("asking again") {
+        return;
+      }
+    }
+    panic!("the command ended without asking again");
+  })
+  .await
+  .expect("the run met the restart");
+  client
+    .reply(
+      question.id,
+      &NewReply {
+        choice: None,
+        text: "why not both?".to_owned(),
+        actor_name: "owner".to_owned(),
+        settles: Some(false),
+      },
+    )
+    .await
+    .expect("he talks");
+  serving.come_up();
+
+  let (code, out, _) = ended(child).await;
+
+  assert_eq!(code, i32::from(bmo_job::job_ask::TALK_EXIT));
+  assert!(out.contains("> why not both?"), "{out}");
+  assert!(
+    client.question(question.id).await.expect("the question").heard_through.is_some(),
+    "where the job heard through is kept"
+  );
+}
+
+#[tokio::test]
+async fn a_talk_waits_out_a_receiver_restart_and_reaches_the_room_once() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let receiving = support::Relay::before(&address).await;
+  let question = client
+    .ask(&bmo_job_client::NewQuestion {
+      asker_name: "job-7".to_owned(),
+      scope: Some(ROOM.to_string()),
+      text: "which?".to_owned(),
+      choices: vec!["one".to_owned(), "two".to_owned()],
+      told_by_asker: true,
+      ..Default::default()
+    })
+    .await
+    .expect("asked");
+  let id = question.id.to_string();
+
+  receiving.go_down();
+
+  let child = command(&service, &receiving.url, &["--talk", &id, "--say", "one keeps it simple"])
+    .spawn()
+    .expect("runs");
+
+  receiving.until_cut(2).await;
+  receiving.come_up();
+  opened(&client, &heard, 1).await;
+  client.reply(question.id, &person(Some("one"), "one")).await.expect("answered");
+
+  let (code, out, err) = ended(child).await;
+
+  assert_eq!(code, 0, "{err}");
+  assert_eq!(out.trim(), "one");
+  assert!(order_text(&heard, 0).contains("one keeps it simple"));
+  assert_eq!(heard.orders.lock().expect("the orders").len(), 1);
+
+  let replies = client
+    .replies(question.id, &bmo_job_client::WaitQuery::default())
+    .await
+    .expect("the replies")
+    .items;
+
+  assert_eq!(replies.iter().filter(|reply| reply.text == "one keeps it simple").count(), 1);
 }

@@ -7,11 +7,19 @@ use std::cell::RefCell;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::Duration;
+
+use crate::support;
 
 use bmo_job::job_close::{
   Deployed, JobCloseArgs, Standing, close, commits_refusal, deployed_commit_of, wait_deployed,
 };
+
+use bmo_job_client::{EventQuery, NewItem};
+
+// How often a test's wait reads the deployment's records again.
+const QUICK: Duration = Duration::from_millis(10);
 
 // A record as the testbed's deployment writes it, under the deploy root it names.
 const RECORD: &str = r#"{
@@ -517,7 +525,7 @@ fn a_waiting_close_ends_with_how_the_deployment_carrying_its_commit_ended() {
 
   progress(&later, 2_000, r#"{"outcome":"live","at":3000,"why":null}"#);
   assert!(
-    matches!(wait_deployed(repo.path(), data.path(), &handed, 1_000), Deployed::Live(_)),
+    matches!(wait_deployed(repo.path(), data.path(), &handed, 1_000, QUICK), Deployed::Live(_)),
     "a later commit carrying it went live"
   );
 
@@ -527,7 +535,7 @@ fn a_waiting_close_ends_with_how_the_deployment_carrying_its_commit_ended() {
     r#"{"outcome":"rolled-back","at":3000,"why":"the step register-tool after the health failed"}"#,
   );
 
-  match wait_deployed(repo.path(), data.path(), &handed, 1_000) {
+  match wait_deployed(repo.path(), data.path(), &handed, 1_000, QUICK) {
     Deployed::NotLive(lines) => {
       let said = lines.join("\n");
 
@@ -544,7 +552,10 @@ fn a_waiting_close_ends_with_how_the_deployment_carrying_its_commit_ended() {
   // live does, once no deployment is under way.
   progress(&later, 500, r#"{"outcome":"failed","at":900,"why":"an older run"}"#);
   record_at(deploy.path(), &handed);
-  assert!(matches!(wait_deployed(repo.path(), data.path(), &handed, 1_000), Deployed::Live(_)));
+  assert!(matches!(
+    wait_deployed(repo.path(), data.path(), &handed, 1_000, QUICK),
+    Deployed::Live(_)
+  ));
 }
 
 #[test]
@@ -571,7 +582,7 @@ fn a_deployment_whose_run_is_gone_with_no_ending_is_cut_off_and_not_live() {
   )
   .expect("the progress record");
 
-  match wait_deployed(repo.path(), data.path(), &handed, 1_000) {
+  match wait_deployed(repo.path(), data.path(), &handed, 1_000, QUICK) {
     Deployed::NotLive(lines) => {
       let said = lines.join("\n");
 
@@ -580,4 +591,210 @@ fn a_deployment_whose_run_is_gone_with_no_ending_is_cut_off_and_not_live() {
     }
     other => panic!("not live expected: {other:?}"),
   }
+}
+
+// A process standing for a deploy run, taken down when it is dropped.
+struct DeployRun(std::process::Child);
+
+impl Drop for DeployRun {
+  fn drop(&mut self) {
+    let _ = self.0.kill();
+    let _ = self.0.wait();
+  }
+}
+
+// A user unit standing for a deploy run's own, stopped when it is dropped.
+struct DeployUnit(String);
+
+impl Drop for DeployUnit {
+  fn drop(&mut self) {
+    let _ = Command::new("systemctl").args(["--user", "stop", &self.0]).output();
+  }
+}
+
+// A checkout whose commit was handed over, its deploy root declared, and the wait on it running on a thread of
+// its own, its ending sent once it comes.
+fn waiting_on(
+  progress: impl Fn(&str) -> String,
+) -> (tempfile::TempDir, tempfile::TempDir, std::sync::mpsc::Receiver<Deployed>) {
+  let repo = tempfile::tempdir().expect("a checkout");
+  let deploy = tempfile::tempdir().expect("a deploy root");
+
+  init(repo.path());
+  commit(repo.path(), "a.txt", "First");
+
+  let handed = commit(repo.path(), "b.txt", "Second");
+
+  declare_deploy_root(repo.path(), deploy.path());
+  fs::write(deploy.path().join("deploy-progress.json"), progress(&handed)).expect("the progress record");
+
+  let (send, ended) = std::sync::mpsc::channel();
+  let root = repo.path().to_path_buf();
+  let data = deploy.path().to_path_buf();
+
+  std::thread::spawn(move || {
+    let _ = send.send(wait_deployed(&root, &data, &handed, 1_000, QUICK));
+  });
+
+  (repo, deploy, ended)
+}
+
+fn cut_off(ended: &std::sync::mpsc::Receiver<Deployed>) {
+  match ended.recv_timeout(Duration::from_secs(30)).expect("the wait ends once the run is gone") {
+    Deployed::NotLive(lines) => assert!(lines.join("\n").contains("was cut off"), "{lines:?}"),
+    other => panic!("not live expected: {other:?}"),
+  }
+}
+
+#[test]
+fn a_deploy_run_stopped_in_the_middle_of_the_wait_ends_it_cut_off() {
+  let mut run = DeployRun(Command::new("sleep").arg("600").spawn().expect("a deploy run"));
+  let pid = run.0.id();
+  let (_repo, _deploy, ended) =
+    waiting_on(|handed| format!(r#"{{"pid":{pid},"commit":"{handed}","startedAt":2000,"ending":null}}"#));
+
+  assert!(
+    ended.recv_timeout(Duration::from_millis(200)).is_err(),
+    "a run still standing is waited on"
+  );
+
+  run.0.kill().expect("the run is stopped");
+  run.0.wait().expect("and gone");
+  cut_off(&ended);
+}
+
+#[test]
+fn a_deploy_unit_stopped_in_the_middle_of_the_wait_ends_it_cut_off() {
+  let name = format!("bmo-job-test-deploy-{}", std::process::id());
+  let started = Command::new("systemd-run")
+    .args(["--user", "--quiet", "--unit", &name, "sleep", "600"])
+    .output();
+
+  if !started.as_ref().is_ok_and(|output| output.status.success()) {
+    eprintln!("no user service manager answers here, so no unit can stand for a deploy run: {started:?}");
+    return;
+  }
+
+  let unit = DeployUnit(name);
+  let (_repo, _deploy, ended) = waiting_on(|handed| {
+    format!(r#"{{"unit":"{}","commit":"{handed}","startedAt":2000,"ending":null}}"#, unit.0)
+  });
+
+  assert!(
+    ended.recv_timeout(Duration::from_millis(200)).is_err(),
+    "a unit still active is waited on"
+  );
+
+  let stopped = Command::new("systemctl")
+    .args(["--user", "stop", &unit.0])
+    .output()
+    .expect("systemctl runs");
+
+  assert!(stopped.status.success(), "{stopped:?}");
+  cut_off(&ended);
+}
+
+#[tokio::test]
+async fn the_close_writes_its_standing_through_a_job_service_restart_and_hears_its_run_cut_off() {
+  let service = support::Service::start().await;
+  let client = service.client();
+  let relay = support::Relay::before(&service.url).await;
+  let item = client
+    .create_item(&NewItem {
+      title: "closed through a restart".to_owned(),
+      brief: "close".to_owned(),
+      queue_name: "todo".to_owned(),
+      ..NewItem::default()
+    })
+    .await
+    .expect("the item")
+    .id;
+  let repo = tempfile::tempdir().expect("a repository");
+  let data = tempfile::tempdir().expect("a data root");
+  let deploy = tempfile::tempdir().expect("a deploy root");
+  let tools = tempfile::tempdir().expect("a directory for the testbed stand-in");
+
+  init(repo.path());
+  let base = commit(repo.path(), "one.md", "Add the first page");
+  let head = commit(repo.path(), "two.md", "Add the second page");
+  git(repo.path(), &["update-ref", "refs/remotes/origin/main", &head]);
+  declare_deploy_root(repo.path(), deploy.path());
+  record_at(deploy.path(), &base);
+
+  // The deployment that takes the commit is already under way, and its run died before it wrote an ending.
+  let mut gone = Command::new("true").spawn().expect("a process");
+  let pid = gone.id();
+  gone.wait().expect("it ends");
+  let later = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .expect("the time")
+    .as_millis()
+    + 3_600_000;
+  fs::write(
+    deploy.path().join("deploy-progress.json"),
+    format!(r#"{{"pid":{pid},"commit":"{head}","startedAt":{later},"ending":null}}"#),
+  )
+  .expect("the progress record");
+
+  let (_, calls) = testbed_at(tools.path());
+  let path = format!("{}:{}", tools.path().display(), std::env::var("PATH").unwrap_or_default());
+
+  relay.go_down();
+
+  let child = tokio::process::Command::new(env!("CARGO_BIN_EXE_bmo-job"))
+    .args(["job", "close", "--then", "Land the second page", "--todo", &item.to_string()])
+    .current_dir(repo.path())
+    .env("BMO_JOB_URL", &relay.url)
+    .env("BMO_JOB_TOKEN", support::TOKEN)
+    .env("BMO_DATA_DIR", data.path())
+    .env("PATH", path)
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .kill_on_drop(true)
+    .spawn()
+    .expect("the close runs");
+
+  relay.until_cut(3).await;
+  assert!(!calls.exists(), "nothing is checked before the close's standing is written");
+  relay.come_up();
+
+  let output = tokio::time::timeout(Duration::from_secs(60), child.wait_with_output())
+    .await
+    .expect("the close ends")
+    .expect("its output");
+  let said = String::from_utf8_lossy(&output.stderr);
+
+  assert_eq!(output.status.code(), Some(1), "{said}");
+  assert!(said.contains("asking again"), "{said}");
+  assert!(said.contains("was cut off"), "{said}");
+  assert_eq!(fs::read_to_string(&calls).expect("the testbed's calls"), "check\nsuite\n");
+
+  let standing = client.item(item).await.expect("the item").labels;
+
+  assert!(!standing.contains_key("close-phase"), "{standing:?}");
+
+  let changes = client
+    .events_page(&EventQuery {
+      kinds: Some("item.changed".to_owned()),
+      ..EventQuery::default()
+    })
+    .await
+    .expect("the item's changes")
+    .items;
+  let phases: Vec<&str> = changes
+    .iter()
+    .filter(|event| event.item_id() == Some(item))
+    .filter_map(|event| event.data.get("labels")?.get("close-phase")?.as_str())
+    .collect();
+
+  assert_eq!(phases, ["testing", "waiting-live"]);
+  assert!(changes.iter().any(|event| {
+    event
+      .data
+      .get("labels")
+      .and_then(|labels| labels.get("close-commit"))
+      .and_then(|commit| commit.as_str())
+      == Some(head.as_str())
+  }));
 }

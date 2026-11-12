@@ -237,6 +237,41 @@ async fn a_failing_webhook_is_still_tried_and_the_first_post_taken_makes_it_acti
 }
 
 #[tokio::test]
+async fn a_subscriber_down_longer_than_the_retries_gets_the_event_once_it_is_back() {
+  let service = Service::start_with(bmo_job::DeliveryPolicy {
+    failing_retry: Duration::from_millis(20),
+    ..support::quick_delivery()
+  })
+  .await;
+  let client = service.client();
+  let mut hook = receiver(StatusCode::OK).await;
+  let relay = support::Relay::before(&hook.url).await;
+  let subscription = client
+    .subscribe(&NewSubscription {
+      url: Some(relay.url.clone()),
+      ..to_build("harness")
+    })
+    .await
+    .expect("subscribed");
+
+  relay.go_down();
+
+  let item = service.open_item("build", "told while the subscriber restarts").await;
+
+  until_state(&service, subscription.id, SubscriptionState::Failing).await;
+  relay.until_cut(4).await;
+  relay.come_up();
+
+  assert_eq!(
+    hook.next().await.1.item_id(),
+    Some(item.id),
+    "the event goes out once the subscriber is back"
+  );
+  let active = until_state(&service, subscription.id, SubscriptionState::Active).await;
+  assert!(active.delivered_event_id.is_some());
+}
+
+#[tokio::test]
 async fn a_post_left_unanswered_counts_as_a_failure() {
   let service = Service::start_with(bmo_job::DeliveryPolicy {
     answer_within: Duration::from_millis(50),

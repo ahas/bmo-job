@@ -11,6 +11,29 @@ use bmo_job_client::ClientFailure;
 const FIRST_REST: Duration = Duration::from_millis(250);
 const LONGEST_REST: Duration = Duration::from_secs(5);
 
+/// The rests between tries of a call its peer does not answer: a quarter of a second first, doubled after each
+/// try up to five seconds.
+#[derive(Debug, Clone)]
+pub struct Rests {
+  next: Duration,
+}
+
+impl Default for Rests {
+  fn default() -> Self {
+    Self { next: FIRST_REST }
+  }
+}
+
+impl Rests {
+  /// The rest before the next try, the one after it doubled.
+  pub fn take(&mut self) -> Duration {
+    let rest = self.next;
+
+    self.next = (self.next * 2).min(LONGEST_REST);
+    rest
+  }
+}
+
 /// A failure that tells whether its peer answered at all.
 pub trait Unanswered: std::fmt::Display {
   /// Whether the peer gave no answer, so the call is made again.
@@ -45,7 +68,7 @@ where
   Fut: Future<Output = Result<T, E>>,
   S: Future<Output = ()>,
 {
-  let mut rest = FIRST_REST;
+  let mut rests = Rests::default();
 
   loop {
     let failure = tokio::select! {
@@ -61,9 +84,7 @@ where
 
     tokio::select! {
       () = &mut stop => return Err(Halt::Stopped),
-      () = tokio::time::sleep(rest) => {}
+      () = tokio::time::sleep(rests.take()) => {}
     }
-
-    rest = (rest * 2).min(LONGEST_REST);
   }
 }

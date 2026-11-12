@@ -273,8 +273,9 @@ async fn waited(
   println!("waiting for the deployment of {} to end", &commit[..commit.len().min(12)]);
 
   let (root, data_root, asked) = (root.to_path_buf(), data_root.to_path_buf(), commit.to_owned());
-  let wait =
-    tokio::task::spawn_blocking(move || job_close::wait_deployed(&root, &data_root, &asked, since));
+  let wait = tokio::task::spawn_blocking(move || {
+    job_close::wait_deployed(&root, &data_root, &asked, since, job_close::LOOK_AGAIN)
+  });
   let take_off = || async {
     if let Some((client, item)) = item
       && let Err(why) = job_close::keep_standing(client, *item, &Standing::Off, stop()).await

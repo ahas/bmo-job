@@ -6,6 +6,7 @@
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use bmo_job_client::{ClientFailure, Item, ItemChange, JobClient};
 use serde::Deserialize;
@@ -133,7 +134,7 @@ pub fn close(
 }
 
 /// How often the deployment's records are read again while a close waits on its commit going live.
-const LOOK_AGAIN: std::time::Duration = std::time::Duration::from_secs(5);
+pub const LOOK_AGAIN: Duration = Duration::from_secs(5);
 
 /// How the deployment that took a close's commit ended, as the close reads it (docs/cli.md, 「`bmo-job job
 /// close`」): live, or not, with what the deployment said of why.
@@ -146,8 +147,9 @@ pub enum Deployed {
 /// Waits, with no clock, for a deployment begun at `since` or after that carries `commit` to end, reading the
 /// deployment's progress record under the checkout's deploy root (bmo-testbed's docs/deploy.md, 「What a
 /// deployment says of itself as it runs」) and its record of what went live. A record left unended by a run
-/// whose process or unit is gone is a deployment cut off, read once more before it is taken as one.
-pub fn wait_deployed(root: &Path, data_root: &Path, commit: &str, since: i64) -> Deployed {
+/// whose process or unit is gone is a deployment cut off, read once more before it is taken as one. The
+/// records are read again every `every`, `LOOK_AGAIN` for a close.
+pub fn wait_deployed(root: &Path, data_root: &Path, commit: &str, since: i64, every: Duration) -> Deployed {
   let deploy_root = declared_deploy_root(root).unwrap_or_else(|| data_root.to_path_buf());
   let short = short_of(commit);
 
@@ -187,7 +189,7 @@ pub fn wait_deployed(root: &Path, data_root: &Path, commit: &str, since: i64) ->
       return Deployed::Live(vec![format!("live: {short} is live")]);
     }
 
-    std::thread::sleep(LOOK_AGAIN);
+    std::thread::sleep(every);
   }
 }
 

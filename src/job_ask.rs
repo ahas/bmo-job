@@ -7,7 +7,6 @@
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use bmo_job_client::{
   ClientFailure, JobClient, NewQuestion, NewReply, Page, Question, QuestionChange, QuestionQuery,
@@ -15,7 +14,7 @@ use bmo_job_client::{
 };
 use serde_json::{Value, json};
 
-use crate::again::{Halt, Unanswered, until_answered};
+use crate::again::{Halt, Rests, Unanswered, until_answered};
 use crate::outside::outside_refusal;
 
 /// The exit of a call that comes back with talk instead of an answer: the question is still open.
@@ -30,8 +29,6 @@ pub const USAGE: &str = "usage: bmo job ask --todo <id> --question '<what is to 
 const DUE_MS: i64 = 3_600_000;
 // How long one read of the replies is held open; the wait goes on past it.
 const HELD_OPEN_MS: i64 = 60_000;
-// How long the verb lets a service that did not answer rest before asking it again.
-const AGAIN_AFTER: Duration = Duration::from_secs(5);
 
 /// How a wait ended, as the job reads it. A question that cannot be answered any more is an `Err`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -661,6 +658,7 @@ async fn wait_on(
   let asker = question.asker_name.clone();
   let mut after = question.heard_through;
   let mut stop = std::pin::pin!(stop);
+  let mut rests = Rests::default();
 
   loop {
     let looked = tokio::select! {
@@ -668,7 +666,10 @@ async fn wait_on(
       looked = look(client, id, after) => looked,
     };
     let page = match looked {
-      Ok(page) => page,
+      Ok(page) => {
+        rests = Rests::default();
+        page
+      }
       Err(failure) if gone(&failure) => {
         return Err(format!("ask: the service no longer holds question #{id}"));
       }
@@ -676,7 +677,7 @@ async fn wait_on(
         eprintln!("ask: {failure}; asking again");
         tokio::select! {
           () = &mut stop => return stopped(client, receiver, id, told).await,
-          () = tokio::time::sleep(AGAIN_AFTER) => {}
+          () = tokio::time::sleep(rests.take()) => {}
         }
 
         continue;

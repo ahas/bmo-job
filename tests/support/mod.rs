@@ -4,12 +4,15 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bmo_job::{Access, App, Caller, Clock, DeliveryPolicy, Store, Unattended};
 use bmo_job_client::{ApprovalGiven, Item, ItemChange, ItemState, JobClient, NewItem};
 use tempfile::TempDir;
-use tokio::net::TcpListener;
+use tokio::io::AsyncReadExt;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
 pub const ROOT: &str = env!("CARGO_MANIFEST_DIR");
@@ -194,4 +197,126 @@ impl Service {
     assert_eq!(opened.state, ItemState::Open);
     opened
   }
+}
+
+/// A stand-in in front of a peer on loopback, standing for that peer's restarts: it passes each connection
+/// through while the peer is up; going down cuts every connection it holds and every new one until it comes up
+/// again; and it can let a request reach the peer and cut the connection before the answer comes back.
+pub struct Relay {
+  pub url: String,
+  state: Arc<RelayState>,
+  task: JoinHandle<()>,
+}
+
+#[derive(Default)]
+struct RelayState {
+  down: AtomicBool,
+  answers_to_cut: AtomicUsize,
+  cuts: AtomicUsize,
+  live: Mutex<Vec<JoinHandle<()>>>,
+}
+
+impl Drop for Relay {
+  fn drop(&mut self) {
+    self.task.abort();
+    self.state.live.lock().expect("the live connections").iter().for_each(JoinHandle::abort);
+  }
+}
+
+impl Relay {
+  /// A relay in front of the peer at `url`, answering at the same path on a port of its own.
+  pub async fn before(url: &str) -> Self {
+    let target = url::Url::parse(url).expect("the peer's address");
+    let peer = format!(
+      "{}:{}",
+      target.host_str().expect("the peer's host"),
+      target.port_or_known_default().expect("the peer's port")
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a loopback port");
+    let mut url = target.clone();
+    url
+      .set_port(Some(listener.local_addr().expect("the relay's address").port()))
+      .expect("a port");
+    let state = Arc::new(RelayState::default());
+    let serving = Arc::clone(&state);
+    let task = tokio::spawn(async move {
+      while let Ok((inbound, _)) = listener.accept().await {
+        if serving.down.load(Ordering::SeqCst) {
+          serving.cuts.fetch_add(1, Ordering::SeqCst);
+          drop(inbound);
+          continue;
+        }
+        let one = tokio::spawn(relay_one(inbound, peer.clone(), Arc::clone(&serving)));
+        let mut live = serving.live.lock().expect("the live connections");
+        live.retain(|connection| !connection.is_finished());
+        live.push(one);
+      }
+    });
+
+    Self {
+      url: url.as_str().trim_end_matches('/').to_owned(),
+      state,
+      task,
+    }
+  }
+
+  /// The peer goes down: every connection standing is cut, and every new one is cut as it comes.
+  pub fn go_down(&self) {
+    self.state.down.store(true, Ordering::SeqCst);
+    let live: Vec<_> = self.state.live.lock().expect("the live connections").drain(..).collect();
+    for connection in live {
+      if !connection.is_finished() {
+        connection.abort();
+        self.state.cuts.fetch_add(1, Ordering::SeqCst);
+      }
+    }
+  }
+
+  /// The peer is up again.
+  pub fn come_up(&self) {
+    self.state.down.store(false, Ordering::SeqCst);
+  }
+
+  /// The next `count` new connections reach the peer, and are cut once it begins to answer.
+  pub fn cut_answers(&self, count: usize) {
+    self.state.answers_to_cut.store(count, Ordering::SeqCst);
+  }
+
+  /// How many connections were cut so far.
+  pub fn cuts(&self) -> usize {
+    self.state.cuts.load(Ordering::SeqCst)
+  }
+
+  /// Waits, within a bound, until `count` connections were cut, so a caller is known to have met the cut.
+  pub async fn until_cut(&self, count: usize) {
+    for _ in 0..1_200 {
+      if self.cuts() >= count {
+        return;
+      }
+      tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("the relay cut {} connections, not {count}", self.cuts());
+  }
+}
+
+async fn relay_one(mut inbound: TcpStream, peer: String, state: Arc<RelayState>) {
+  let Ok(mut outbound) = TcpStream::connect(&peer).await else {
+    return;
+  };
+  let cut_answer = state
+    .answers_to_cut
+    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| left.checked_sub(1))
+    .is_ok();
+  if !cut_answer {
+    let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
+    return;
+  }
+  let (mut asked, _) = inbound.split();
+  let (mut answered, mut asking) = outbound.split();
+  let mut first = [0_u8; 1];
+  tokio::select! {
+    _ = tokio::io::copy(&mut asked, &mut asking) => {}
+    _ = answered.read(&mut first) => {}
+  }
+  state.cuts.fetch_add(1, Ordering::SeqCst);
 }
