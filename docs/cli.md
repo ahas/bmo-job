@@ -7,7 +7,7 @@ The binary `bmo-job` carries these commands.
 | `bmo-job nouns` | Every noun this unit carries (`job`, `job ask` and `todo`), one a line, `job ask` marked `home` after a tab, which `bmo` reads to find the commands it hands this unit |
 | `bmo-job serve` | Serves the API by the settings file (docs/settings.md) until it is told to stop by an interrupt or a termination signal; every open event stream ends then, so the stop is not held |
 | `bmo-job mcp --service <url>` | Serves the harness plugin's MCP server on standard input and output, reaching the service at the address (docs/api.md, "The harness plugin") |
-| `bmo-job job close` | Hands the job's commit over to its repository's deployment, with the range narrowed to the commit the deployment recorded as live (「`bmo-job job close`」) |
+| `bmo-job job close` | Checks what the job changed, merges its commits onto the remote's main and leaves the item waiting for its repository's batch deployment (「`bmo-job job close`」) |
 | `bmo-job job ask` | Puts a choice to the owner in the middle of a job and waits for a person to settle it (「`bmo-job job ask`」) |
 | `bmo-job todo` | Closes an item, holds it with the run's account on it, or raises a new one, each through the service's own routes (「`bmo-job todo`」) |
 | `bmo-job openapi` | Prints the OpenAPI document, the one committed as `docs/openapi.json` |
@@ -20,26 +20,56 @@ the unit command the deployment links into `~/.local/bin` (docs/deploy.md, "The 
 | Option | What it does |
 |---|---|
 | `--then <why>` | Why this goes live, in English; required. A reason holding Hangul is refused |
-| `--skip-suite <why>` | Why the change reaches nothing the suite runs, in English; the static check still runs |
+| `--skip-suite <why>` | Read as a reason, English like `--then`, and nothing more: the close runs no suite, so it changes nothing, and the close says so in one line |
 | `--todo <item>` | The item the job works on; the close writes where it stands onto that item (below) |
 
-The close reads the live commit from the deployment record (docs/deploy.md, "A job closes"), narrows the job's
-own commits to those past it, refuses a commit whose message holds Hangul or one that is not on the remote,
-runs the check and the suite, says `waiting to go live: <commit> stands pushed for its deployment`, and then
-waits for that commit's deployment, with no clock, as `bmo job ask` waits for a person: the job that closed is
-the one that hears how its deployment ended. A commit the record already names as live runs nothing and ends
-clean. Where the record's commit is not in the
-repository or is no ancestor of `HEAD`, the range is taken from the job's own base commit instead, and the
-close says in one line which range it used. It reads no archive and no pending list; the deployment that
-records what goes live writes the commit down.
+A close ends at the merge. It checks what the job changed, puts the job's commits on the remote's main, marks
+the item waiting for its repository's batch deployment and ends; it runs no suite, waits for no deployment and
+confirms nothing live. The suite, the deployment and the live check are the batch deployment's, which puts every
+commit waiting on main live at once, its gate running the suite once for all of them (docs/deploy.md, "What gates
+a deployment").
 
+```mermaid
+flowchart TD
+  A[Reasons read] --> B[Remote fetched]
+  B --> C{Commits not on main?}
+  C -- yes --> D[Main must stand under HEAD]
+  C -- no --> E[Range from the record]
+  D --> F[Commit messages read]
+  E --> F
+  F --> G[Check since the base]
+  G --> H[HEAD pushed where main lacks it]
+  H --> I[Item waits for the batch]
+```
+
+- **The main it lands on.** The remote is the one the checkout's branch follows, else `origin`; its main is the
+  remote's `main`, else its `master` where the remote holds no `main`. The close fetches that remote first, and
+  a remote that cannot be read refuses the close with what git said.
+- **The job's own commits.** Where `HEAD` holds commits the remote's main does not, those are the job's own, and
+  the base is the remote's main. A branch the remote's main has moved past, so that it no longer stands under
+  `HEAD`, is refused with the command that brings it up: the close merges by fast-forward alone and never
+  rewrites the checkout.
+- **A commit already on main.** Where the remote's main already holds `HEAD`, nothing is pushed, and the range is
+  read from the deployment record (docs/deploy.md, "A job closes"): the job's commits are those past the commit
+  the record names as live. Where the record's commit is not in the repository or is no ancestor of `HEAD`, the
+  range is taken from the job's own base commit instead, and the close says in one line which range it used. A
+  commit the record already names as live runs nothing and ends clean.
+- **What is refused before the check.** A commit of the range whose message holds Hangul, each such commit named
+  with the command that rewords it; nothing is checked, pushed or written on the item.
+- **The check.** `bmo-testbed check --since <base>`, which `bmo check --since` runs, runs in the checkout: the
+  check a change owes over every path changed since the base (bmo-testbed's `docs/checks.md`). A check that does
+  not pass refuses the close with exit 1, and nothing is pushed.
+- **The merge.** Once the check passes, the job's commits are pushed onto the remote's main as `HEAD` stands. A
+  push the remote refuses, its main having moved while the check ran, refuses the close with what git said and
+  the way to close again; nothing is written as waiting.
 - **Where the close stands is written on the item `--todo` names,** as two of its labels, the rest of its labels
-  kept: `close-phase` is `testing` from the moment the check starts and `waiting-live` once the check and the
-  suite have passed, and `close-commit` is the commit handed over, written with `waiting-live`. A reader of
-  the queue tells from them an item whose work is being tested from one whose commit waits for its deployment.
-- **Both labels are taken off** where the check or the suite does not pass, where the close is told to stop
-  while they run, and where the commit is already what is deployed, so an item carries them only while its
-  close is under way or its commit waits.
+  kept: `close-phase` is `testing` from the moment the check starts and `waiting-batch` once the commit stands on
+  main, and `close-commit` is that commit, written with `waiting-batch`. A reader of the queue tells from them an
+  item whose work is being checked from one whose commit waits on main for its repository's batch deployment.
+  Taking them off once the commit is live is the deployer's, as is the batch deployment itself.
+- **Both labels are taken off** where the close is refused, where its check does not pass, where its push is
+  refused, where the close is told to stop, where the commit is already what is deployed, and where the
+  repository deploys nothing, so an item carries them only while its check runs or its commit waits.
 - **The item is reached as `bmo-job todo` reaches it** (「`bmo-job todo`」), and a restart is no answer. While
   the service does not answer, nothing at its address, a connection cut, a 5xx or a request left unanswered for
   ten seconds, its labels are written again, after a quarter of a second at first and every five seconds at
@@ -47,52 +77,43 @@ records what goes live writes the commit down.
   is told to stop; the last two are said in one line. An item the service refuses, one it does not hold or a
   change it will not take, stops no close: the close says so in one line and goes on.
 - **A close with no `--todo` writes on no item.**
-- **The check and the suite are watched.** Each is started as `bmo-testbed check` and `bmo-testbed suite` in
-  the checkout, in a process group of its own, its standard output and error read through pipes and written
-  on as they come. It is handed `BMO_TESTBED_HEARD`, naming a file of the close's own, which the testbed
-  touches while a command it watches writes but holds its output back; a touch counts as output.
-- **A step that falls silent ends the close.** A step that writes nothing and touches nothing for the close's
+- **The check is watched.** It is started in the checkout, in a process group of its own, its standard output
+  and error read through pipes and written on as they come. It is handed `BMO_TESTBED_HEARD`, naming a file of
+  the close's own, which the testbed touches while a command it watches writes but holds its output back; a
+  touch counts as output.
+- **A check that falls silent ends the close.** A check that writes nothing and touches nothing for the close's
   silence limit, fifteen minutes, is hung. The limit is deliberately longer than bmo-testbed's own ten-minute
   bound on a silent unit, so the testbed ends a hung unit first and names it, and the close's limit catches
-  what the testbed does not watch. The close names every process still running under the step, in its process
+  what the testbed does not watch. The close names every process still running under the check, in its process
   group or below it, sends each a TERM, and a KILL to whatever stands ten seconds later. It then reads the
-  checkout's `git status` against what it read before the check, and fails with the step's last line, what was
-  still running, and whether the checkout stands as it found it or which paths differ. The close itself writes
-  nothing in the checkout.
-- **A running close says where it stands.** Every minute while a step runs, one line on standard output names
-  the step, how long it has run, how long ago its output last moved and its last line, so a reader tells a
-  slow step, whose output moves, from a wedged one, whose does not. Every minute while it waits for its
-  deployment, one line names how long it has waited and whether a deployment carrying its commit has begun.
-  Whatever ends the close, its last line on standard output is `job-close: ended, exit <code>`, so a caller
-  reading its log needs no process listing to know it has ended.
+  checkout's `git status` against what it read before the check, and refuses the close with the check's last
+  line, what was still running, and whether the checkout stands as it found it or which paths differ:
+  `job-close: refused — the static check wrote nothing for 900s and was ended`. The close itself writes nothing
+  in the checkout.
+- **A running close says where it stands.** Every minute while the check runs, one line on standard output
+  names it, how long it has run, how long ago its output last moved and its last line, so a reader tells a slow
+  check, whose output moves, from a wedged one, whose does not. Whatever ends the close, its last line on
+  standard output is `job-close: ended, exit <code>`, so a caller reading its log needs no process listing to
+  know it has ended.
 - **Every wait inside a close has a clock the code names.** Each request writing the item's labels waits ten
-  seconds and the writing as a whole two minutes; each `git` or service-manager call one minute, after which
-  it is ended and read as failed; a step's silence fifteen minutes, and the pause before the KILL ten seconds;
-  a running step is looked at every second, and the deployment's records every five seconds. The wait for the
-  deployment itself has no clock, as said above.
-- **Told to stop, a close ends the step it runs first,** every process under it as for a hung step, so nothing
-  it started goes on after it.
-- **A repository that deploys nothing ends its close on main.** Where the checkout's `testbed.toml` reads and
-  declares no `[deploy]` (a base library, which is released and never put live), there is no deployment to wait
-  for: the close says `live: <commit> stands on main, and this repository deploys nothing` and ends clean.
-- **What ends the wait.** The close reads the deployment's progress record and its record of what went live
-  under the checkout's deploy root (bmo-testbed's `docs/deploy.md`, 「What a deployment says of itself as it
-  runs」), again every few seconds. A record with no ending yet is a deployment still running only while the
-  process it names is alive and the user unit it names is not read inactive or failed; one whose process or
-  unit is gone was cut off, and the record read once more still unended says so:
+  seconds and the writing as a whole two minutes; each local `git` call one minute, and the fetch
+  and the push five minutes each, after which it is ended and read as failed; the check's silence fifteen
+  minutes, and the pause before the KILL ten seconds; the running check is looked at every second.
+- **Told to stop, a close ends the check it runs first,** every process under it as for a hung check, so
+  nothing it started goes on after it.
+- **What the close says is the account of its close.** A close that ends at the merge prints, before its last
+  line, the commits it put on main, each as its short commit and subject, and the check that passed with the
+  base it ran from. That is what a job's report says of its close: what changed and what was checked, and that
+  the commit waits for its repository's batch deployment.
+- **How it ends:**
 
   | What happened | Standard output | Standard error | Exit |
   |---|---|---|---|
-  | A deployment begun after the handover, carrying the commit, ended `live`; or, none under way, the record of what went live carries it | `live: <commit> is live` | | 0 |
-  | Such a deployment ended `rolled-back`, `failed` or `stopped`, or was cut off, its record unended with its process or unit gone | | `not live:` with the outcome, `cut off` for one cut off, and the deployment's reason, the journal of its unit, and that the commit is to be mended and closed again | 1 |
+  | The check passed and the commit stands on main, its repository deploying | `merged:` with the commits, `checked:` with the check, and `waiting for the batch deployment: <commit> stands on <remote>/<main>` | | 0 |
+  | The same in a repository whose `testbed.toml` reads and declares no `[deploy]` (a base library, released and never put live) | `merged:`, `checked:`, and `on main: <commit> stands on <remote>/<main>, and this repository deploys nothing` | | 0 |
+  | The record already names the commit as live | `this commit is already what is deployed` | | 0 |
+  | A reason, a commit message, the remote, a branch main has moved past, the check or the push refused it | | `job-close: refused —` and why | 1 |
   | The run was told to stop | | one line saying so | 130 |
-
-  Before the handover, a check or a suite that does not pass refuses the close with exit 1, and so does a step
-  ended for falling silent: `job-close: refused — the suite wrote nothing for 900s and was ended`, then its
-  last line, what was still running and how the checkout stands.
-
-  Either ending takes the item's labels off. A commit that did not go live is the same job's to mend: it finds
-  the cause, commits, pushes and closes again, and its item is never closed while its commit is not live.
 
 ## `bmo-job job ask`
 
@@ -150,7 +171,7 @@ The worker's run already names the job service in `BMO_JOB_URL` and its token in
 
 | Form | What it does |
 |---|---|
-| `--done <item> [--report <text>] [--unfinished <text>]` | Leaves the run's account of the finished work on the item: `--report` kept as a `final` report and `--unfinished` as a `held` one through `POST /items/{itemId}/reports`. It moves no state: the item is done once whoever ordered the work takes it — its review, or, for an item whose commit waits for its deployment (its label `close-phase` reading `waiting-live`, 「`bmo-job job close`」), whoever puts that commit live. The verb prints one line saying what the item waits on: its commit going live, its review, or its orderer |
+| `--done <item> [--report <text>] [--unfinished <text>]` | Leaves the run's account of the finished work on the item: `--report` kept as a `final` report and `--unfinished` as a `held` one through `POST /items/{itemId}/reports`. It moves no state: the item is done once whoever ordered the work takes it — its review, or, for an item whose commit waits on main for its repository's batch deployment (its label `close-phase` reading `waiting-batch`, 「`bmo-job job close`」), whoever puts that commit live. The verb prints one line saying what the item waits on: `deployment` with the commit, `review`, or `orderer` |
 | `--stop-here <item> --report <text>` | Leaves the run's account on the item as a `held` report, for the run that picks the work up: what is finished and where the next run goes on. It moves no state; holding the item is its orderer's |
 | `--add --title <words> --judgement <words> --raised-by <item> [--repository <name>] [--from-todo <id>:<strand>[,<id>:<strand>]]` | Raises a draft in the queue and scope of the item it was raised from, the judgement as its brief, `--repository` as its assignee (the repository its work is in), else the assignee of the item it was raised from, and `--from-todo` as its label `from-todo`, and prints it |
 

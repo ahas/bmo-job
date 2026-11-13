@@ -1,12 +1,12 @@
-//! `bmo-job job close` from a shell (docs/cli.md, docs/deploy.md): the job's commit handed over to its
-//! repository's deployment, with the range narrowed to the commit that deployment last wrote down as live,
-//! or to the job's own base where that commit is not in the repository the close runs in. Where the close
-//! stands is written on the item it was told, as two of the item's labels.
+//! `bmo-job job close` from a shell (docs/cli.md, docs/deploy.md): what the job changed checked, its commits
+//! pushed onto the remote's main, and the item left waiting for its repository's batch deployment. The close runs
+//! no suite and waits for no deployment. Where the close stands is written on the item it was told, as two of the
+//! item's labels.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use bmo_job_client::{ClientFailure, Item, ItemChange, JobClient};
 use serde::Deserialize;
@@ -14,17 +14,20 @@ use serde::Deserialize;
 use crate::again::{Halt, until_answered};
 use crate::close_watch::{Running, StepEnd, output_within, run_step, spoken};
 
-/// How long a step may write nothing and touch nothing before it is hung: deliberately longer than
+/// How long the check may write nothing and touch nothing before it is hung: deliberately longer than
 /// bmo-testbed's own ten-minute bound on a silent unit, so the testbed ends a hung unit first and names it.
 pub const SILENCE: Duration = Duration::from_secs(15 * 60);
 /// How long a process sent a TERM is given before a KILL.
 pub const GRACE: Duration = Duration::from_secs(10);
-/// How often a running step is looked at.
+/// How often the running check is looked at.
 pub const LOOK: Duration = Duration::from_secs(1);
 /// How often a running close says where it stands.
 pub const STANDING_EVERY: Duration = Duration::from_secs(60);
-/// How long a `git` or service-manager call may run before it is ended and read as failed.
+/// How long a local `git` call may run before it is ended and read as failed.
 pub const COMMAND_WITHIN: Duration = Duration::from_secs(60);
+/// How long a `git` call that reaches the remote, the fetch and the push, may run before it is ended and read as
+/// failed.
+pub const REMOTE_WITHIN: Duration = Duration::from_secs(5 * 60);
 /// How long one request writing an item's labels is waited for before it is taken as no answer.
 pub const ANSWER_WITHIN: Duration = Duration::from_secs(10);
 /// How long the labels are written again while the service gives no answer, before the close goes on.
@@ -38,7 +41,6 @@ pub struct Clocks {
   pub grace: Duration,
   pub look: Duration,
   pub standing_every: Duration,
-  pub look_again: Duration,
 }
 
 impl Default for Clocks {
@@ -48,13 +50,12 @@ impl Default for Clocks {
       grace: GRACE,
       look: LOOK,
       standing_every: STANDING_EVERY,
-      look_again: LOOK_AGAIN,
     }
   }
 }
 
-/// What a close runs its check and suite with: the testbed's command, the clocks it keeps to, the step it is
-/// running for a stop to end, and where its lines saying where it stands go.
+/// What a close runs its check with: the testbed's command, the clocks it keeps to, the step it is running for a
+/// stop to end, and where its lines saying where it stands go.
 pub struct Steps<'a> {
   pub testbed: &'a Path,
   pub clocks: Clocks,
@@ -62,25 +63,25 @@ pub struct Steps<'a> {
   pub say: &'a dyn Fn(&str),
 }
 
-/// The label saying where an item's close stands, and the one naming the commit it handed over.
+/// The label saying where an item's close stands, and the one naming the commit it left on main.
 pub const PHASE_LABEL: &str = "close-phase";
 pub const COMMIT_LABEL: &str = "close-commit";
 
 const TESTING: &str = "testing";
-const WAITING_LIVE: &str = "waiting-live";
+const WAITING_BATCH: &str = "waiting-batch";
 
-/// Where a close stands, as its item says it: its check and suite under way, its commit waiting to go live,
-/// or neither.
+/// Where a close stands, as its item says it: its check under way, its commit waiting on main for its
+/// repository's batch deployment, or neither.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Standing {
   Testing,
-  WaitingLive(String),
+  WaitingBatch(String),
   Off,
 }
 
-/// The commit an item waits on to go live: the one its close handed over, where its labels say it waits.
+/// The commit an item waits on to be deployed: the one its close left on main, where its labels say it waits.
 pub fn waiting_commit(item: &Item) -> Option<&str> {
-  (item.labels.get(PHASE_LABEL).map(String::as_str) == Some(WAITING_LIVE))
+  (item.labels.get(PHASE_LABEL).map(String::as_str) == Some(WAITING_BATCH))
     .then(|| item.labels.get(COMMIT_LABEL).map_or("", String::as_str))
 }
 
@@ -100,8 +101,8 @@ pub async fn write_standing(
     Standing::Testing => {
       labels.insert(PHASE_LABEL.to_owned(), TESTING.to_owned());
     }
-    Standing::WaitingLive(commit) => {
-      labels.insert(PHASE_LABEL.to_owned(), WAITING_LIVE.to_owned());
+    Standing::WaitingBatch(commit) => {
+      labels.insert(PHASE_LABEL.to_owned(), WAITING_BATCH.to_owned());
       labels.insert(COMMIT_LABEL.to_owned(), commit.clone());
     }
     Standing::Off => {}
@@ -151,239 +152,163 @@ pub async fn keep_standing(
   }
 }
 
-/// What a close is asked: why the commit goes live, and why the suite is skipped where it is.
+/// What a close is asked: why the commit goes live, and a reason for skipping the suite, which the close reads
+/// for its language alone since it runs no suite.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct JobCloseArgs {
   pub then_reason: String,
   pub skip_suite: Option<String>,
 }
 
-/// A commit of the job's own: its short key and subject for a refusal, and its whole message for the
-/// language the repository keeps.
+/// A commit of the job's own: its short key and subject for a refusal and for what the close says it merged, and
+/// its whole message for the language the repository keeps.
 struct OwnCommit {
   short: String,
   subject: String,
   text: String,
 }
 
-/// Closes a job's commit: reads the live commit from the deployment record, reads the job's own commits past
-/// it, refuses an unpushed commit or one the remote does not know, runs the check and the suite, and hands
-/// the commit over to the deployment that records what goes live. The check and the suite run as `steps` says,
-/// watched. `tell` is handed where the close stands as it moves: testing once the check starts, waiting once it
-/// is handed over, and off where it ends any other way.
+/// Closes a job's change: checks what the job changed, pushes its commits onto the remote's main, and leaves the
+/// commit waiting there for its repository's batch deployment. The check runs as `steps` says, watched. `tell` is
+/// handed where the close stands as it moves: testing once the check starts, waiting for the batch once the commit
+/// stands on main in a repository that deploys, and off where it ends any other way. What comes back is what the
+/// close says of itself: the commits it merged and the check that passed.
 pub fn close(
   root: &Path,
   data_root: &Path,
   args: &JobCloseArgs,
   steps: &Steps,
   tell: &dyn Fn(Standing),
-) -> Result<(Vec<String>, Option<String>), String> {
+) -> Result<Vec<String>, String> {
   if let Some(refusal) = reasons_refusal(args) {
     return Err(refusal);
   }
 
-  let closed = handed_over(root, data_root, args, steps, tell);
+  let closed = merged(root, data_root, args, steps, tell);
 
   match &closed {
-    Ok(Handed::Waiting(_, commit)) => tell(Standing::WaitingLive(commit.clone())),
-    Ok(Handed::Live(_)) | Err(_) => tell(Standing::Off),
+    Ok(Closed::Waiting(_, commit)) => tell(Standing::WaitingBatch(commit.clone())),
+    Ok(Closed::Ended(_)) | Err(_) => tell(Standing::Off),
   }
 
-  closed.map(|handed| match handed {
-    Handed::Waiting(lines, commit) => (lines, Some(commit)),
-    Handed::Live(lines) => (lines, None),
+  closed.map(|closed| match closed {
+    Closed::Waiting(lines, _) | Closed::Ended(lines) => lines,
   })
 }
 
-/// How often the deployment's records are read again while a close waits on its commit going live.
-pub const LOOK_AGAIN: Duration = Duration::from_secs(5);
-
-/// How the deployment that took a close's commit ended, as the close reads it (docs/cli.md, 「`bmo-job job
-/// close`」): live, or not, with what the deployment said of why.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Deployed {
-  Live(Vec<String>),
-  NotLive(Vec<String>),
-}
-
-/// Waits, with no clock, for a deployment begun at `since` or after that carries `commit` to end, reading the
-/// deployment's progress record under the checkout's deploy root (bmo-testbed's docs/deploy.md, 「What a
-/// deployment says of itself as it runs」) and its record of what went live. A record left unended by a run
-/// whose process or unit is gone is a deployment cut off, read once more before it is taken as one. The
-/// records are read again every `look_again`, and every `standing_every` `say` is handed one line saying how
-/// long the close has waited and whether a deployment carrying its commit has begun.
-pub fn wait_deployed(
-  root: &Path,
-  data_root: &Path,
-  commit: &str,
-  since: i64,
-  clocks: &Clocks,
-  say: &dyn Fn(&str),
-) -> Deployed {
-  // A repository whose declaration reads and names no deployment is never put live: its commit on main is the end.
-  if deploys_nothing(root) {
-    return Deployed::Live(vec![format!(
-      "live: {} stands on main, and this repository deploys nothing",
-      short_of(commit)
-    )]);
-  }
-
-  let deploy_root = declared_deploy_root(root).unwrap_or_else(|| data_root.to_path_buf());
-  let short = short_of(commit);
-  let began = Instant::now();
-  let mut said = began;
-
-  loop {
-    let progress = read_progress(&deploy_root);
-    let carries = |of: &str| of == commit || is_ancestor(root, commit, of);
-
-    if let Some(progress) = progress.as_ref().filter(|one| one.started_at >= since && carries(&one.commit))
-    {
-      match &progress.ending {
-        Some(ending) if ending.outcome == "live" => {
-          return Deployed::Live(vec![format!(
-            "live: {short} is live, deployed as {}",
-            short_of(&progress.commit)
-          )]);
-        }
-        Some(ending) => {
-          let why = ending.why.as_deref().map(|why| format!(": {why}")).unwrap_or_default();
-
-          return Deployed::NotLive(not_live(progress, &short, &format!("ended {}{why}", ending.outcome)));
-        }
-        None
-          if progress.run_gone()
-            && read_progress(&deploy_root).is_some_and(|again| again.cut_off(progress)) =>
-        {
-          return Deployed::NotLive(not_live(
-            progress,
-            &short,
-            "was cut off: its record has no ending, and its process or its unit is gone",
-          ));
-        }
-        None => {}
-      }
-    } else if progress.as_ref().is_none_or(|one| one.ending.is_some())
-      && deployed_commit_under(&deploy_root).is_some_and(|live| carries(&live))
-    {
-      return Deployed::Live(vec![format!("live: {short} is live")]);
-    }
-
-    if said.elapsed() >= clocks.standing_every {
-      let under_way = progress
-        .as_ref()
-        .filter(|one| one.started_at >= since && one.ending.is_none() && carries(&one.commit))
-        .map_or_else(
-          || "no deployment carrying it has begun".to_owned(),
-          |one| format!("the deployment of {} carrying it is under way", short_of(&one.commit)),
-        );
-
-      say(&format!(
-        "job-close: waiting for the deployment of {short} for {}: {under_way}",
-        spoken(began.elapsed())
-      ));
-      said = Instant::now();
-    }
-
-    std::thread::sleep(clocks.look_again);
-  }
-}
-
-// What a close says of a deployment carrying its commit that did not put it live: how it ended, where its whole
-// account stands, and that the commit is the job's to mend.
-fn not_live(progress: &Progress, short: &str, ended: &str) -> Vec<String> {
-  let mut lines = vec![format!(
-    "not live: the deployment of {}, carrying {short}, {ended}",
-    short_of(&progress.commit)
-  )];
-
-  if let Some(unit) = &progress.unit {
-    lines.push(format!("its whole account: journalctl --user -u {unit} --no-pager"));
-  }
-
-  lines.push("the commit is not live: find the cause, mend it, commit, push and close again".to_owned());
-  lines
-}
-
-/// The deployment's progress record as a waiting close reads it.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Progress {
-  #[serde(default)]
-  commit: String,
-  #[serde(default)]
-  started_at: i64,
-  #[serde(default)]
-  unit: Option<String>,
-  #[serde(default)]
-  pid: Option<u32>,
-  #[serde(default)]
-  ending: Option<Ending>,
-}
-
-impl Progress {
-  /// Whether the run that writes this record is gone: its process no longer stands, or the service manager
-  /// reads its user unit inactive or failed. A unit the service manager cannot be asked of is taken as running.
-  fn run_gone(&self) -> bool {
-    self.pid.is_some_and(|pid| !Path::new("/proc").join(pid.to_string()).exists())
-      || self.unit.as_deref().is_some_and(unit_gone)
-  }
-
-  /// Whether this record, read after `before` was found with its run gone, is still that run's, unended.
-  fn cut_off(&self, before: &Progress) -> bool {
-    self.ending.is_none() && self.started_at == before.started_at && self.commit == before.commit
-  }
-}
-
-fn unit_gone(unit: &str) -> bool {
-  output_within(Command::new("systemctl").args(["--user", "is-active", unit]), COMMAND_WITHIN)
-    .is_ok_and(|output| matches!(String::from_utf8_lossy(&output.stdout).trim(), "inactive" | "failed"))
-}
-
-#[derive(Deserialize)]
-struct Ending {
-  #[serde(default)]
-  outcome: String,
-  #[serde(default)]
-  why: Option<String>,
-}
-
-fn read_progress(deploy_root: &Path) -> Option<Progress> {
-  serde_json::from_str(&std::fs::read_to_string(deploy_root.join("deploy-progress.json")).ok()?).ok()
-}
-
-// How a close ended where it was not refused: its commit already live, or handed over to wait.
-enum Handed {
-  Live(Vec<String>),
+// How a close ended where it was not refused: its commit on main waiting for the batch deployment, or ended
+// with nothing to wait for, the commit already deployed or its repository deploying nothing.
+enum Closed {
   Waiting(Vec<String>, String),
+  Ended(Vec<String>),
 }
 
-fn handed_over(
+// The remote's main a close lands on: the remote the checkout's branch follows, else `origin`, and its `main`,
+// else its `master`, with the commit it stands at once fetched.
+struct Main {
+  remote: String,
+  branch: String,
+  tip: String,
+}
+
+impl Main {
+  fn name(&self) -> String {
+    format!("{}/{}", self.remote, self.branch)
+  }
+
+  // The command that brings a branch main has moved past up onto it.
+  fn bring_up(&self) -> String {
+    format!("git pull --rebase {} {}", self.remote, self.branch)
+  }
+}
+
+fn merged(
   root: &Path,
   data_root: &Path,
   args: &JobCloseArgs,
   steps: &Steps,
   tell: &dyn Fn(Standing),
-) -> Result<Handed, String> {
+) -> Result<Closed, String> {
   let head =
     git(root, &["rev-parse", "HEAD"]).map_err(|why| format!("the checkout is on no commit: {why}"))?;
   let short = short_of(&head);
   let mut lines = vec![format!("job-close: {}", args.then_reason.trim())];
   let deployed = deployed_commit_of(root, data_root);
 
+  if args.skip_suite.is_some() {
+    lines.push("the suite is the deployment's: --skip-suite changes nothing".to_owned());
+  }
+
   // A commit its deployment already records as live runs nothing and ends clean.
   if deployed.as_deref() == Some(head.as_str()) {
     lines.push("this commit is already what is deployed".to_owned());
-    return Ok(Handed::Live(lines));
+    return Ok(Closed::Ended(lines));
   }
 
-  let remote = remote_branch(root);
-  let main = git(root, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_else(|_| "main".to_owned());
-  let base = match deployed.as_deref() {
-    // The record's commit is the range only where this repository holds it and HEAD stands past it.
-    Some(commit) if is_ancestor(root, commit, &head) => commit.to_owned(),
+  let main = fetched_main(root)?;
+  let to_push = !is_ancestor(root, &head, &main.tip);
+  let base = if to_push {
+    // The close merges by fast-forward alone: main must stand under HEAD.
+    if !is_ancestor(root, &main.tip, &head) {
+      return Err(format!(
+        "{} has moved past this branch; bring it up with {} and close again",
+        main.name(),
+        main.bring_up()
+      ));
+    }
+
+    main.tip.clone()
+  } else {
+    range_on_main(root, deployed.as_deref(), &head, &mut lines)?
+  };
+
+  let own = own_commits(root, &base)?;
+
+  if let Some(refusal) = language_refusal(&own, &main.name()) {
+    return Err(refusal);
+  }
+
+  let found = checkout_state(root);
+
+  tell(Standing::Testing);
+  check(root, steps, &base, found.as_deref())?;
+
+  if to_push {
+    push(root, &main)?;
+    lines.push(format!("merged: {} onto {}", merged_list(&own), main.name()));
+  } else {
+    lines.push(format!("merged: {short} already stands on {}", main.name()));
+  }
+
+  lines.push(format!("checked: the static check passed over what changed since {}", short_of(&base)));
+
+  // A repository whose declaration reads and names no deployment is never put live: its commit on main is the end.
+  if deploys_nothing(root) {
+    lines.push(format!(
+      "on main: {short} stands on {}, and this repository deploys nothing",
+      main.name()
+    ));
+    return Ok(Closed::Ended(lines));
+  }
+
+  lines.push(format!("waiting for the batch deployment: {short} stands on {}", main.name()));
+  Ok(Closed::Waiting(lines, head))
+}
+
+// The range of a job whose commits already stand on main: past the commit the deployment records as live, where
+// this repository holds it under HEAD, else past the job's own base, said in one line.
+fn range_on_main(
+  root: &Path,
+  deployed: Option<&str>,
+  head: &str,
+  lines: &mut Vec<String>,
+) -> Result<String, String> {
+  match deployed {
+    Some(commit) if is_ancestor(root, commit, head) => Ok(commit.to_owned()),
     record => {
       let base = job_base(root).ok_or_else(|| no_range_refusal(root, record))?;
+      let short = short_of(head);
+
       lines.push(match record {
         Some(commit) => format!(
           "the deployment record's {} is not in this repository or not an ancestor of HEAD; the range is {}..{}",
@@ -398,29 +323,69 @@ fn handed_over(
         ),
       });
 
-      base
+      Ok(base)
     }
-  };
+  }
+}
 
-  if let Some(refusal) = commits_refusal(root, &base, &main)? {
-    return Err(refusal);
+// The remote's main, fetched, so whether HEAD stands on it, or it under HEAD, is read against what the remote holds
+// now: its `main`, else its `master`.
+fn fetched_main(root: &Path) -> Result<Main, String> {
+  let remote = followed_remote(root);
+  let mut failed = Vec::new();
+
+  for branch in ["main", "master"] {
+    match remote_git(root, &["fetch", "--quiet", &remote, &format!("refs/heads/{branch}")]) {
+      Ok(_) => {
+        let tip = git(root, &["rev-parse", "FETCH_HEAD"])
+          .map_err(|why| format!("{remote}/{branch} was fetched but could not be read: {why}"))?;
+
+        return Ok(Main {
+          remote,
+          branch: branch.to_owned(),
+          tip,
+        });
+      }
+      Err(why) => failed.push(why),
+    }
   }
 
-  let known = git(root, &["rev-parse", "--verify", &remote]).is_ok();
-  if !known || !is_ancestor(root, &head, &remote) {
-    return Err(format!("{short} is not on {remote}; an unpushed commit is not deployable"));
-  }
+  Err(format!(
+    "the main of the remote {remote} could not be fetched: {}",
+    failed.first().map_or("", String::as_str)
+  ))
+}
 
-  let found = checkout_state(root);
+// The remote the checkout's branch follows, else `origin`.
+fn followed_remote(root: &Path) -> String {
+  git(root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
+    .ok()
+    .and_then(|branch| git(root, &["config", "--get", &format!("branch.{branch}.remote")]).ok())
+    .filter(|remote| !remote.is_empty() && remote != ".")
+    .unwrap_or_else(|| "origin".to_owned())
+}
 
-  tell(Standing::Testing);
-  step(root, steps, "check", "the static check", found.as_deref())?;
-  if args.skip_suite.is_none() {
-    step(root, steps, "suite", "the suite", found.as_deref())?;
-  }
+// HEAD pushed onto the remote's main. A push the remote refuses, its main having moved on, says how to close again.
+fn push(root: &Path, main: &Main) -> Result<(), String> {
+  remote_git(root, &["push", "--quiet", &main.remote, &format!("HEAD:refs/heads/{}", main.branch)])
+    .map(drop)
+    .map_err(|why| {
+      format!(
+        "the push onto {} was refused: {why}; bring the branch up with {} and close again",
+        main.name(),
+        main.bring_up()
+      )
+    })
+}
 
-  lines.push(format!("waiting to go live: {short} stands pushed for its deployment"));
-  Ok(Handed::Waiting(lines, head))
+// The commits a close merged, each as its short commit and subject, oldest first.
+fn merged_list(own: &[OwnCommit]) -> String {
+  own
+    .iter()
+    .rev()
+    .map(|commit| format!("{} {}", commit.short, commit.subject))
+    .collect::<Vec<_>>()
+    .join("; ")
 }
 
 /// The commit the checkout's own deployment last put live (docs/deploy.md, "A job closes"): the record under
@@ -433,33 +398,34 @@ pub fn deployed_commit_of(root: &Path, data_root: &Path) -> Option<String> {
   }
 }
 
-/// The refusal of the job's own commits, those past the commit the deployment recorded, where any message
-/// holds Hangul: each such commit named. None where every message is English.
+/// The refusal of the job's own commits, those past `base`, where any message holds Hangul: each such commit
+/// named. None where every message is English.
 pub fn commits_refusal(root: &Path, base: &str, main: &str) -> Result<Option<String>, String> {
-  let named: Vec<String> = own_commits(root, base)?
-    .into_iter()
+  Ok(language_refusal(&own_commits(root, base)?, main))
+}
+
+fn language_refusal(own: &[OwnCommit], main: &str) -> Option<String> {
+  let named: Vec<String> = own
+    .iter()
     .filter(|commit| hangul(&commit.text))
     .map(|commit| format!("{} {}", commit.short, commit.subject))
     .collect();
 
-  Ok((!named.is_empty()).then(|| {
+  (!named.is_empty()).then(|| {
     format!(
       "these commits hold Hangul, and what goes into git is English only: {}. Reword each in English (git commit --amend for the last, git rebase -i {main} for an earlier one) and close again",
       named.join("; ")
     )
-  }))
+  })
 }
 
-// The reasons a close is given: both English, and the suite's skip carrying why it is skipped.
+// The reasons a close is given: both English.
 fn reasons_refusal(args: &JobCloseArgs) -> Option<String> {
   if args.then_reason.trim().is_empty() {
     return Some(
       "usage: bmo job close --then '<why this goes live, in English>' [--todo <item>] [--skip-suite '<why, in English>']"
         .to_owned(),
     );
-  }
-  if args.skip_suite.as_deref().is_some_and(|reason| reason.trim().is_empty()) {
-    return Some("--skip-suite takes the reason the change reaches nothing the suite runs".to_owned());
   }
   for (flag, reason) in
     [("then", Some(args.then_reason.as_str())), ("skip-suite", args.skip_suite.as_deref())]
@@ -624,13 +590,13 @@ fn short_of(commit: &str) -> String {
   commit.chars().take(12).collect()
 }
 
-// One step of the testbed's, `verb`, run in the checkout and watched. A step the close ended for falling silent
-// says, besides its last line and what was running, how the checkout stands against `found`.
-fn step(root: &Path, steps: &Steps, verb: &str, what: &str, found: Option<&str>) -> Result<(), String> {
+// The testbed's check of what changed since `base`, run in the checkout and watched. A check the close ended for
+// falling silent says, besides its last line and what was running, how the checkout stands against `found`.
+fn check(root: &Path, steps: &Steps, base: &str, found: Option<&str>) -> Result<(), String> {
   let mut command = Command::new(steps.testbed);
-  command.arg(verb).current_dir(root);
+  command.args(["check", "--since", base]).current_dir(root);
 
-  run_step(command, what, &steps.clocks, &steps.running, steps.say).map_err(|end| match end {
+  run_step(command, "the static check", &steps.clocks, &steps.running, steps.say).map_err(|end| match end {
     StepEnd::Failed(why) => why,
     StepEnd::Hung(why) => format!("{why}; {}", checkout_against(root, found)),
   })
@@ -667,8 +633,20 @@ fn checkout_against(root: &Path, found: Option<&str>) -> String {
 }
 
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
-  let output = output_within(Command::new("git").arg("-C").arg(root).args(args), COMMAND_WITHIN)
-    .map_err(|why| format!("git {} could not be run: {why}", args.first().copied().unwrap_or_default()))?;
+  git_within(root, args, COMMAND_WITHIN)
+}
+
+// A `git` call that reaches the remote, on the longer clock, never stopping to ask for a password.
+fn remote_git(root: &Path, args: &[&str]) -> Result<String, String> {
+  git_within(root, args, REMOTE_WITHIN)
+}
+
+fn git_within(root: &Path, args: &[&str], within: Duration) -> Result<String, String> {
+  let output = output_within(
+    Command::new("git").arg("-C").arg(root).args(args).env("GIT_TERMINAL_PROMPT", "0"),
+    within,
+  )
+  .map_err(|why| format!("git {} could not be run: {why}", args.first().copied().unwrap_or_default()))?;
 
   if !output.status.success() {
     return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());

@@ -106,12 +106,13 @@ enum Verb {
 
 #[derive(Subcommand)]
 enum JobVerb {
-  /// Hands the job's commit over to the deployment that records what goes live.
+  /// Checks what the job changed, merges its commits onto the remote's main and leaves the item waiting for its
+  /// repository's batch deployment.
   Close {
     /// Why this goes live, in English.
     #[arg(long = "then", value_name = "why", allow_hyphen_values = true)]
     then_reason: String,
-    /// Why the change reaches nothing the suite runs, in English.
+    /// A reason in English, read for its language alone: the close runs no suite.
     #[arg(long = "skip-suite", value_name = "why", allow_hyphen_values = true)]
     skip_suite: Option<String>,
     /// The item the job works on, which the close writes where it stands onto.
@@ -196,9 +197,9 @@ fn stop_heard() -> impl Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output
 }
 
 // The close, with where it stands written on the item it was told as it moves, each write made again while the
-// service gives no answer, for two minutes at most. Told to stop while its check runs, it ends the step it runs
-// with everything under it, takes its standing off the item and ends as a stopped run does. Whatever ends it,
-// its last line says so (docs/cli.md, 「`bmo-job job close`」).
+// service gives no answer, for two minutes at most. It ends at the merge and waits for no deployment. Told to stop
+// while its check runs, it ends the check with everything under it, takes its standing off the item and ends as a
+// stopped run does. Whatever ends it, its last line says so (docs/cli.md, 「`bmo-job job close`」).
 async fn job_close(args: JobCloseArgs, todo: Option<i64>) -> ExitCode {
   let code = closed(args, todo).await;
 
@@ -233,10 +234,6 @@ async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
   let stop_writing = stop.clone();
   let running = Running::default();
   let running_now = running.clone();
-  let (root_again, data_root_again) = (root.clone(), data_root.clone());
-  let since = std::time::SystemTime::now()
-    .duration_since(std::time::UNIX_EPOCH)
-    .map_or(0, |elapsed| elapsed.as_millis() as i64);
   let close = tokio::task::spawn_blocking(move || {
     let steps = job_close::Steps {
       testbed: Path::new("bmo-testbed"),
@@ -262,15 +259,12 @@ async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
 
   tokio::select! {
     closed = close => match closed {
-      Ok(Ok((lines, waiting))) => {
+      Ok(Ok(lines)) => {
         for line in lines {
           println!("{line}");
         }
 
-        match waiting {
-          None => 0,
-          Some(commit) => waited(&root_again, &data_root_again, &commit, since, item.as_ref(), stop).await,
-        }
+        0
       }
       Ok(Err(why)) => {
         eprintln!("job-close: refused — {why}");
@@ -308,66 +302,6 @@ async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
       }
 
       eprintln!("job-close: told to stop");
-      stopped();
-    }
-  }
-}
-
-// The close waiting on its commit's deployment, with no clock, and ending with what it came to: live ends it clean
-// and takes the item's standing off; anything else ends it failed, with what the deployment said, for the job to
-// mend and close again (docs/cli.md, 「`bmo-job job close`」). Told to stop while it waits, it ends as a stopped run.
-async fn waited(
-  root: &Path,
-  data_root: &Path,
-  commit: &str,
-  since: i64,
-  item: Option<&(bmo_job_client::JobClient, i64)>,
-  stop: impl Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>,
-) -> u8 {
-  println!("waiting for the deployment of {} to end", &commit[..commit.len().min(12)]);
-
-  let (root, data_root, asked) = (root.to_path_buf(), data_root.to_path_buf(), commit.to_owned());
-  let wait = tokio::task::spawn_blocking(move || {
-    job_close::wait_deployed(&root, &data_root, &asked, since, &job_close::Clocks::default(), &|line| {
-      println!("{line}")
-    })
-  });
-  let take_off = || async {
-    if let Some((client, item)) = item
-      && let Err(why) =
-        job_close::keep_standing(client, *item, &Standing::Off, job_close::STANDING_WITHIN, stop()).await
-    {
-      eprintln!("job-close: {why}");
-    }
-  };
-
-  tokio::select! {
-    ended = wait => match ended {
-      Ok(job_close::Deployed::Live(lines)) => {
-        take_off().await;
-
-        for line in lines {
-          println!("{line}");
-        }
-
-        0
-      }
-      Ok(job_close::Deployed::NotLive(lines)) => {
-        take_off().await;
-
-        for line in lines {
-          eprintln!("job-close: {line}");
-        }
-
-        1
-      }
-      Err(why) => {
-        eprintln!("job-close: the wait did not end — {why}");
-        1
-      }
-    },
-    () = stop() => {
-      eprintln!("job-close: told to stop while waiting for the deployment");
       stopped();
     }
   }

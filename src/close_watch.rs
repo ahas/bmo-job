@@ -1,6 +1,6 @@
-//! What a close starts, watched (docs/cli.md, 「`bmo-job job close`」): the check and the suite run in a process
-//! group of their own with their output read through pipes, ended with everything under them once they write
-//! nothing for the close's silence limit, and saying where they stand as they run; and every short command the
+//! What a close starts, watched (docs/cli.md, 「`bmo-job job close`」): the check runs in a process group of its
+//! own with its output read through pipes, ended with everything under it once it writes nothing for the close's
+//! silence limit, and saying where it stands as it runs; and every short command the
 //! close asks, ended once it runs past its clock.
 
 use std::io::{ErrorKind, Read, Write};

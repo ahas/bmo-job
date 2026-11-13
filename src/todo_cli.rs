@@ -147,7 +147,7 @@ pub async fn close(client: &JobClient, args: &TodoArgs) -> Result<Vec<String>, S
   lines.push(
     match waiting_commit(&stands) {
       Some(commit) => {
-        serde_json::json!({ "itemId": args.done, "state": stands.state, "waitsOn": "live", "commit": commit })
+        serde_json::json!({ "itemId": args.done, "state": stands.state, "waitsOn": "deployment", "commit": commit })
       }
       None if review_open(client, args.done).await? => {
         serde_json::json!({ "itemId": args.done, "state": stands.state, "waitsOn": "review" })

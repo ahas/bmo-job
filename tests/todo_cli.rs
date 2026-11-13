@@ -122,7 +122,7 @@ async fn a_close_s_standing_is_written_on_the_item_and_a_closing_names_the_commi
   );
   assert_eq!(waiting_commit(&testing), None);
 
-  write_standing(&client, item.id, &Standing::WaitingLive("0123abcd".to_owned()))
+  write_standing(&client, item.id, &Standing::WaitingBatch("0123abcd".to_owned()))
     .await
     .unwrap();
 
@@ -144,7 +144,7 @@ async fn a_close_s_standing_is_written_on_the_item_and_a_closing_names_the_commi
   .unwrap();
 
   assert_eq!(lines.len(), 2, "the report and the line naming what it waits on");
-  assert!(lines[1].contains("\"waitsOn\":\"live\""), "{}", lines[1]);
+  assert!(lines[1].contains("\"waitsOn\":\"deployment\""), "{}", lines[1]);
   assert!(lines[1].contains("0123abcd"), "{}", lines[1]);
 
   let kept = client.item(item.id).await.unwrap();
