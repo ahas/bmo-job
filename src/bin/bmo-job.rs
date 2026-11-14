@@ -6,7 +6,7 @@ use std::process::ExitCode;
 
 use bmo_job::Settings;
 use bmo_job::close_watch::Running;
-use bmo_job::job_ask::{self, Ending, NewAsk, Receiver, TALK_EXIT, TalkAsk};
+use bmo_job::job_ask::{self, Ending, NewAsk, Receiver, Shown, TALK_EXIT, TalkAsk};
 use bmo_job::job_close::{self, JobCloseArgs, Standing};
 use bmo_job::todo_cli::{self, AddArgs, StopHereArgs, TodoArgs};
 use bmo_job_plugin::Start;
@@ -119,8 +119,8 @@ enum JobVerb {
     #[arg(long, value_name = "item")]
     todo: Option<i64>,
   },
-  /// Puts a choice to the owner in the middle of a job and waits for a person to settle it, or with --talk answers
-  /// his talk over the question and waits on it again.
+  /// Puts a choice to the owner in the middle of a job and waits for a person to settle it, with --talk answers
+  /// his talk over the question and waits on it again, or with --show reads a question or an item's questions.
   Ask {
     /// The item it is asked about.
     #[arg(long, value_name = "item")]
@@ -143,6 +143,9 @@ enum JobVerb {
     /// Your answer in the talk.
     #[arg(long, value_name = "words", allow_hyphen_values = true)]
     say: Option<String>,
+    /// Reads the question by its number, or with --todo and no number every question asked about the item.
+    #[arg(long, value_name = "question", num_args = 0..=1)]
+    show: Option<Option<String>>,
   },
 }
 
@@ -365,10 +368,74 @@ async fn job_ask(
 
       ExitCode::SUCCESS
     }
+    Ok(Ending::SettledBefore { question, line }) => {
+      println!("{line}");
+      eprintln!("ask: question #{question} was settled before; its answer stands");
+
+      ExitCode::SUCCESS
+    }
     Ok(Ending::Talk(message)) => {
       println!("{message}");
 
       ExitCode::from(TALK_EXIT)
+    }
+    Err(why) => {
+      eprintln!("{why}");
+
+      ExitCode::FAILURE
+    }
+  }
+}
+
+// `--show`: a question by its number or an item's questions, each printed as JSON on a line of its own.
+async fn job_ask_show(todo: Option<String>, question: Option<String>, asked: bool) -> ExitCode {
+  let refused = |why: &str| {
+    eprintln!("ask: {why}\n{}", job_ask::USAGE);
+
+    ExitCode::FAILURE
+  };
+
+  if asked {
+    return refused("--show reads, and takes no words of a question or a talk.");
+  }
+
+  let shown = match (question, todo) {
+    (Some(question), None) => match numbered(&question) {
+      Some(id) => Shown::Question(id),
+      None => return refused(&format!("--show {question:?} is not a question's number.")),
+    },
+    (None, Some(todo)) => match numbered(&todo) {
+      Some(item) => Shown::Item(item),
+      None => return refused(&format!("--todo {todo:?} is not an item's number.")),
+    },
+    (Some(_), Some(_)) => {
+      return refused("--show reads a question by its number or an item's questions, not both.");
+    }
+    (None, None) => return refused("--show names a question's number, or --todo names the item."),
+  };
+  let client = match todo_cli::client() {
+    Ok(client) => client,
+    Err(why) => {
+      eprintln!("ask: {why}");
+
+      return ExitCode::FAILURE;
+    }
+  };
+
+  match job_ask::show(&client, shown).await {
+    Ok(readings) => {
+      for reading in readings {
+        match serde_json::to_string(&reading) {
+          Ok(line) => println!("{line}"),
+          Err(why) => {
+            eprintln!("ask: {why}");
+
+            return ExitCode::FAILURE;
+          }
+        }
+      }
+
+      ExitCode::SUCCESS
     }
     Err(why) => {
       eprintln!("{why}");
@@ -447,6 +514,26 @@ async fn main() -> ExitCode {
         why,
         talk,
         say,
+        show: Some(show),
+      } => {
+        let asked = question.is_some()
+          || !options.is_empty()
+          || recommend.is_some()
+          || why.is_some()
+          || talk.is_some()
+          || say.is_some();
+
+        job_ask_show(todo, show, asked).await
+      }
+      JobVerb::Ask {
+        todo,
+        question,
+        options,
+        recommend,
+        why,
+        talk,
+        say,
+        show: None,
       } => job_ask(todo, question, options, recommend, why, talk, say).await,
     },
     Verb::Todo {

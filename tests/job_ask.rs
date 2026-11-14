@@ -867,3 +867,128 @@ async fn a_talk_waits_out_a_receiver_restart_and_reaches_the_room_once() {
 
   assert_eq!(replies.iter().filter(|reply| reply.text == "one keeps it simple").count(), 1);
 }
+
+// The questions asked about `item`, every state.
+async fn rows(client: &JobClient, item: i64) -> Vec<Question> {
+  client
+    .questions(&QuestionQuery {
+      item_id: Some(item),
+      ..QuestionQuery::default()
+    })
+    .await
+    .expect("the item's questions")
+    .items
+}
+
+#[tokio::test]
+async fn a_repeated_ask_for_one_item_is_one_row_told_once() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let item = item(&client).await;
+  let first = asked(&service, &address, item);
+  let question = opened(&client, &heard, 1).await;
+  let mut second = asked(&service, &address, item);
+  let mut said = BufReader::new(second.stderr.take().expect("its standard error")).lines();
+  let rejoined = tokio::time::timeout(Duration::from_secs(30), said.next_line())
+    .await
+    .expect("the second ask says what it stands as")
+    .expect("a line")
+    .unwrap_or_default();
+
+  assert!(
+    rejoined.contains(&format!("question #{} was asked before and still waits", question.id)),
+    "{rejoined}"
+  );
+
+  client
+    .reply(question.id, &person(Some("strict grammar"), "strict grammar"))
+    .await
+    .expect("answered");
+
+  let (code, out, err) = ended(first).await;
+
+  assert_eq!((code, out.as_str()), (0, "strict grammar\n"), "{err}");
+
+  let (code, out, err) = ended(second).await;
+
+  assert_eq!((code, out.as_str()), (0, "strict grammar\n"), "{err}");
+  assert_eq!(rows(&client, item).await.len(), 1, "one question is one row");
+  assert_eq!(heard.orders.lock().expect("the orders").len(), 1, "the owner is told once");
+}
+
+#[tokio::test]
+async fn an_answered_question_answers_its_second_ask_with_the_settled_line_and_opens_nothing() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let item = item(&client).await;
+  let first = asked(&service, &address, item);
+  let question = opened(&client, &heard, 1).await;
+
+  client
+    .reply(question.id, &person(Some("loose grammar"), "loose grammar"))
+    .await
+    .expect("answered");
+  ended(first).await;
+
+  let (code, out, err) = ended(asked(&service, &address, item)).await;
+
+  assert_eq!((code, out.as_str()), (0, "loose grammar\n"), "{err}");
+  assert!(err.contains(&format!("question #{} was settled before", question.id)), "{err}");
+  assert_eq!(rows(&client, item).await.len(), 1, "nothing is opened");
+  assert_eq!(heard.orders.lock().expect("the orders").len(), 1, "nobody is told again");
+
+  let shown = ["--todo", &item.to_string(), "--show"];
+  let (code, out, err) = ended(command(&service, &address, &shown).spawn().expect("runs")).await;
+  let read: Vec<Value> =
+    out.lines().map(|line| serde_json::from_str(line).expect("a line of JSON")).collect();
+
+  assert_eq!(code, 0, "{err}");
+  assert_eq!(
+    read
+      .iter()
+      .map(|question| (&question["id"], &question["state"], &question["answer"]))
+      .collect::<Vec<_>>(),
+    [(&json!(question.id), &json!("answered"), &json!("loose grammar"))]
+  );
+}
+
+#[tokio::test]
+async fn a_withdrawn_question_is_asked_anew_in_a_row_of_its_own() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let item = item(&client).await;
+  let first = asked(&service, &address, item);
+  let question = opened(&client, &heard, 1).await;
+
+  client
+    .change_question(
+      question.id,
+      &bmo_job_client::QuestionChange {
+        state: Some(QuestionState::Withdrawn),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("withdrawn");
+  // The run that asked first sees the withdrawal only once its held-open read ends, which another test covers;
+  // it is taken down here so this one waits on no clock.
+  drop(first);
+
+  let second = asked(&service, &address, item);
+  let anew = opened(&client, &heard, 2).await;
+
+  assert_ne!(anew.id, question.id, "a withdrawn question is not stood by");
+
+  client
+    .reply(anew.id, &person(Some("strict grammar"), "strict grammar"))
+    .await
+    .expect("answered");
+
+  let (code, out, err) = ended(second).await;
+
+  assert_eq!((code, out.as_str()), (0, "strict grammar\n"), "{err}");
+  assert_eq!(rows(&client, item).await.len(), 2, "the withdrawn row stands beside the new one");
+}

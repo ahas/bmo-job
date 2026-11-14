@@ -12,6 +12,7 @@ use bmo_job_client::{
   ClientFailure, JobClient, NewQuestion, NewReply, Page, Question, QuestionChange, QuestionQuery,
   QuestionRecommendation, QuestionState, Reply, ReplySource, WaitQuery,
 };
+use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::again::{Halt, Rests, Unanswered, until_answered};
@@ -22,16 +23,27 @@ pub const TALK_EXIT: u8 = 3;
 
 /// The verb's forms, printed under every refusal of its words.
 pub const USAGE: &str = "usage: bmo job ask --todo <id> --question '<what is to be settled>' --option '<one>' --option '<another>' --recommend <n> --why '<why you ask, in one line>'
-       bmo job ask --talk <question> --say '<your answer>' [--option '<one>' --option '<another>' --recommend <n> [--question '<words>'] [--why '<words>']]";
+       bmo job ask --talk <question> --say '<your answer>' [--option '<one>' --option '<another>' --recommend <n> [--question '<words>'] [--why '<words>']]
+       bmo job ask --show <question>
+       bmo job ask --todo <id> --show";
 
 // How long one read of the replies is held open; the wait goes on past it.
 const HELD_OPEN_MS: i64 = 60_000;
+
+// The states a question an ask stands as may be in: every one but those that will never be answered.
+const STANDING: &str = "open,paused,answered";
+
+// The most of a list one read takes.
+const MOST: i64 = 500;
 
 /// How a wait ended, as the job reads it. A question that cannot be answered any more is an `Err`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ending {
   /// A person settled it: the one line the job carries on with.
   Settled(String),
+  /// A person settled the same question before this ask: the line it was settled with, and its number. Nothing
+  /// was opened and nobody was told.
+  SettledBefore { question: i64, line: String },
   /// The owner talked instead of choosing: what the job is handed, and the question is still open.
   Talk(String),
 }
@@ -344,9 +356,9 @@ async fn closed(client: &JobClient, id: i64, state: QuestionState) -> Result<(),
   client.change_question(id, &change).await.map(drop)
 }
 
-// The question opened once. Where opening it went unanswered, the try may have landed, so the room's open
-// questions are read before it is opened again, and one of the same asker, item, words and options is the one
-// opened (docs/cli.md, 「`bmo-job job ask`」).
+// The question opened once. Where opening it went unanswered, the try may have landed, so the item's open
+// questions are read before it is opened again, and one of the same asker, words and options is the one opened
+// (docs/cli.md, 「`bmo-job job ask`」).
 async fn opened_once(
   client: &JobClient,
   asked: &NewQuestion,
@@ -358,7 +370,7 @@ async fn opened_once(
     let again = std::mem::replace(&mut tried, true);
 
     async move {
-      if again && let Some(landed) = already_opened(client, asked).await? {
+      if again && let Some(landed) = same_question(client, asked, "open").await? {
         return Ok(landed);
       }
 
@@ -368,24 +380,75 @@ async fn opened_once(
   .await
 }
 
-async fn already_opened(
+// The last question of the item in one of `states` that the same asker asked in the same words and options.
+async fn same_question(
   client: &JobClient,
   asked: &NewQuestion,
+  states: &str,
 ) -> Result<Option<Question>, ClientFailure> {
-  let query = QuestionQuery {
-    scope: asked.scope.clone(),
-    item_id: asked.item_id,
-    state: Some("open".to_owned()),
-    limit: Some(500),
-    ..QuestionQuery::default()
+  let Some(item) = asked.item_id else {
+    return Ok(None);
   };
-  let page = client.questions(&query).await?;
+  let questions = item_questions(client, item, Some(states)).await?;
 
-  Ok(page.items.into_iter().rev().find(|question| {
+  Ok(questions.into_iter().rev().find(|question| {
     question.asker_name == asked.asker_name
       && question.text == asked.text
       && question.choices == asked.choices
   }))
+}
+
+// The reply that settled a question, where one did.
+async fn settling_reply(client: &JobClient, id: i64) -> Result<Option<Reply>, ClientFailure> {
+  let mut query = WaitQuery {
+    wait_ms: None,
+    after: None,
+    limit: Some(MOST),
+  };
+
+  loop {
+    let page = client.replies(id, &query).await?;
+
+    query.after = page.items.last().map(|reply| reply.id);
+
+    if let Some(settling) = page.items.into_iter().find(|reply| reply.settles) {
+      return Ok(Some(settling));
+    }
+
+    if !page.more {
+      return Ok(None);
+    }
+  }
+}
+
+// The question an ask already stands as: one settled comes back with its answer, and one still waiting is waited
+// on as it stands, told to nobody again.
+async fn stood(
+  client: &JobClient,
+  receiver: &Receiver,
+  question: Question,
+  stop: impl Future<Output = ()>,
+) -> Result<Ending, String> {
+  let id = question.id;
+
+  if question.state != QuestionState::Answered {
+    eprintln!("ask: question #{id} was asked before and still waits; waiting on it again");
+
+    return wait_on(client, receiver, question, None, stop).await;
+  }
+
+  let mut stop = std::pin::pin!(stop);
+
+  match until_answered("ask", stop.as_mut(), || settling_reply(client, id)).await {
+    Ok(Some(reply)) => settled_line(&reply).map(|line| Ending::SettledBefore { question: id, line }),
+    Ok(None) => Err(format!("ask: question #{id} reads answered, yet no reply settled it")),
+    Err(Halt::Answered(why)) => {
+      Err(format!("ask: question #{id} was settled before, and its answer was not read: {why}"))
+    }
+    Err(Halt::Stopped) => {
+      Err(format!("ask: the run was told to stop before question #{id}'s settled answer was read"))
+    }
+  }
 }
 
 // The item's title, read again while the service gives no answer; none where it answers otherwise.
@@ -434,6 +497,30 @@ pub async fn ask(
   }
 
   let mut stop = std::pin::pin!(stop);
+  let mut opening = NewQuestion {
+    item_id: Some(item),
+    asker_name: asked.by.clone(),
+    scope: None,
+    text: asked.question.clone(),
+    choices: asked.options.clone(),
+    recommendation: recommendation(&asked.options, recommend, &asked.why),
+    // The service's own due time stands (docs/api.md, 「Questions and replies」): it paces the one notice of a
+    // question left unanswered and settles nothing.
+    wait_ms: None,
+    told_by_asker: true,
+  };
+
+  // One question is one row, told once: one the same ask already stands as is not opened again.
+  let standing = until_answered("ask", stop.as_mut(), || same_question(client, &opening, STANDING))
+    .await
+    .map_err(|halt| match halt {
+      Halt::Answered(why) => format!("ask: the question was not put, and nothing was opened: {why}"),
+      Halt::Stopped => "ask: the run was told to stop, and nothing was opened".to_owned(),
+    })?;
+
+  if let Some(question) = standing {
+    return stood(client, receiver, question, stop).await;
+  }
 
   // Nothing is opened until the room it goes to is known, so a receiver that refuses to name it leaves no
   // question.
@@ -444,18 +531,8 @@ pub async fn ask(
         Halt::Answered(why) => format!("ask: the question was not put, and nothing was opened: {why}"),
         Halt::Stopped => "ask: the run was told to stop, and nothing was opened".to_owned(),
       })?;
-  let opening = NewQuestion {
-    item_id: Some(item),
-    asker_name: asked.by.clone(),
-    scope: Some(room.to_string()),
-    text: asked.question.clone(),
-    choices: asked.options.clone(),
-    recommendation: recommendation(&asked.options, recommend, &asked.why),
-    // The service's own due time stands (docs/api.md, 「Questions and replies」): it paces the one notice of a
-    // question left unanswered and settles nothing.
-    wait_ms: None,
-    told_by_asker: true,
-  };
+  opening.scope = Some(room.to_string());
+
   let question = opened_once(client, &opening, stop.as_mut()).await.map_err(|halt| match halt {
     Halt::Answered(why) => format!("ask: the question was not opened: {why}"),
     Halt::Stopped => "ask: the run was told to stop, and nothing was opened".to_owned(),
@@ -738,4 +815,76 @@ async fn look(
   };
 
   client.replies(id, &query).await.map(Some)
+}
+
+/// What `--show` reads: one question by its number, or every question asked about an item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shown {
+  Question(i64),
+  Item(i64),
+}
+
+/// A question as a caller reads it: the question as the service keeps it, and the line a person settled it with.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reading {
+  #[serde(flatten)]
+  pub question: Question,
+  pub answer: Option<String>,
+}
+
+/// The questions `--show` names, read once: nothing is opened, waited on or told.
+pub async fn show(client: &JobClient, shown: Shown) -> Result<Vec<Reading>, String> {
+  let questions = match shown {
+    Shown::Question(id) => {
+      vec![client.question(id).await.map_err(|why| format!("ask: question #{id}: {why}"))?]
+    }
+    Shown::Item(item) => {
+      client.item(item).await.map_err(|why| format!("ask: item #{item}: {why}"))?;
+      item_questions(client, item, None)
+        .await
+        .map_err(|why| format!("ask: item #{item}: {why}"))?
+    }
+  };
+  let mut readings = Vec::with_capacity(questions.len());
+
+  for question in questions {
+    let answer = match question.state {
+      QuestionState::Answered => settling_reply(client, question.id)
+        .await
+        .map_err(|why| format!("ask: question #{}: {why}", question.id))?
+        .and_then(|reply| settled_line(&reply).ok()),
+      _ => None,
+    };
+
+    readings.push(Reading { question, answer });
+  }
+
+  Ok(readings)
+}
+
+// The questions asked about an item, in key order: those in `states` where it names some, else every one.
+async fn item_questions(
+  client: &JobClient,
+  item: i64,
+  states: Option<&str>,
+) -> Result<Vec<Question>, ClientFailure> {
+  let mut query = QuestionQuery {
+    item_id: Some(item),
+    state: states.map(str::to_owned),
+    limit: Some(MOST),
+    ..QuestionQuery::default()
+  };
+  let mut questions = Vec::new();
+
+  loop {
+    let page = client.questions(&query).await?;
+
+    query.after = page.items.last().map(|question| question.id);
+    questions.extend(page.items);
+
+    if !page.more {
+      return Ok(questions);
+    }
+  }
 }

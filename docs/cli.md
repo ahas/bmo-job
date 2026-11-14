@@ -128,12 +128,15 @@ no clock is among it.
 | `--todo <item> --question <words> --option <words> --option <words> --recommend <n> --why <words>` | Opens the question in the owner's private room, puts it to him and waits |
 | `--talk <question> --say <words>` | Puts the job's answer to his talk in the same room, then waits on the same question |
 | `--talk <question> --say <words> --option <words> --option <words> --recommend <n> [--question <words>] [--why <words>]` | The same, with the question put again in other words |
+| `--show <question>` | Reads one question by its number and waits on nothing |
+| `--todo <item> --show` | Reads every question asked about the item and waits on nothing |
 
 - **How it ends:**
 
   | What happened | Standard output | Standard error | Exit |
   |---|---|---|---|
   | A person settled it | One line: the option's words, or his own | | 0 |
+  | A person settled the same question before this run | The same one line | `ask: question #<n> was settled before; its answer stands` | 0 |
   | He talked instead of choosing; the question stays open | His words and the call that answers him | | 3 |
   | The question could not be put, the receiver refusing it; it is closed `unsent` | Nothing | Why | 1 |
   | The question was withdrawn, or the run was told to stop, which withdraws a question already opened | Nothing | Why | 1 |
@@ -150,16 +153,26 @@ no clock is among it.
   it is about: the question and its options numbered with the recommended one marked, or the job's words in a talk,
   with the question's words and options again where the talk changed it. It carries no instruction, since how a
   notice is read stands in the receiving session's own instructions.
-- **A restart is no answer.** Every call the verb makes, reading the owner's room, opening the question,
-  reading the item's title, handing the order or the talk over, keeping the job's words and where it heard
-  through, closing the question, and every read while it waits, is made again while the service or the
-  receiver does not answer: nothing at its address, a connection cut, or a 5xx. It is made again after a
+- **A restart is no answer.** Every call the verb makes, reading the item's questions and the answer one was
+  settled with, reading the owner's room, opening the question, reading the item's title, handing the order or
+  the talk over, keeping the job's words and where it heard through, closing the question, and every read while
+  it waits, is made again while the service or the receiver does not answer: nothing at its address, a connection cut, or a 5xx. It is made again after a
   quarter of a second at first and every five seconds at most. The run told to stop ends it as above. Only an
   answer ends a call: while the question is put, a refusal closes it `unsent`; while it is waited on, only a
   question the service no longer holds ends the wait, with 1.
+- **One question, one row, told once.** Before anything is opened, the item's questions are read, and the last
+  one of the same asker, words and options that is not `withdrawn` or `unsent` is the question this ask
+  stands as. One `open` or `paused` is waited on as it stands, told to nobody again, and the standard error
+  says so with its number. One `answered` comes back with the line it was settled with, its number on the
+  standard error, and nothing is opened or told. Only where every such question stands `withdrawn` or
+  `unsent`, or none was asked, is a new question opened and put to the owner.
 - **At least once.** A call cut after its peer took it is made again, so an order or the job's words in a talk
-  can reach the room twice. A question is opened once: where opening it was cut, the room's open questions
-  are read first, and one of the same asker, item, words and options is taken as the one opened.
+  can reach the room twice. A question is opened once: where opening it was cut, the item's open questions
+  are read before it is opened again, and one of the same asker, words and options is taken as the one opened.
+- **Reading a question.** `--show` prints each question as JSON, one a line: the question as the service keeps
+  it (docs/api.md, "Questions and replies") with `answer`, the line a person settled it with, or null. It reads
+  the service once, opens nothing and tells nobody; a question or an item the service does not hold ends it 1
+  with why on the standard error.
 - **The due time.** The question is asked with the service's own due time, a minute where the service names no
   other, which paces the one notice
   `question.due` tells and settles nothing.

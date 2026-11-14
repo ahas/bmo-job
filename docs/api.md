@@ -326,6 +326,10 @@ and `why` and `createdAt`. Every reply is written with `source` `person` and `wh
   are both required where it is given.
 - **When the due time passes** on an open question, the service tells `question.due` once and the question stays
   open for a person, with or without a recommendation. Nothing settles it but a settling reply or a withdrawal.
+- **One question, one row.** Every `POST /questions` opens a row of its own, so an asker that may ask the same
+  thing again reads the item's questions first and stands by the one it finds. `bmo job ask` does so in every
+  state: it waits on one `open` or `paused`, answers with the line one `answered` was settled with, and opens
+  a new row only where every one it finds stands `withdrawn` or `unsent` (docs/cli.md, 「`bmo-job job ask`」).
 - **A question's scope** is the one asked with, or the item's where it is left out.
 - **Who tells of it.** A consumer that watches the events tells of a new question, except one asked with
   `toldByAsker`: that asker puts it before whoever answers it itself, so it can see the failure and close the

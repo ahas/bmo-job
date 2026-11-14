@@ -251,6 +251,19 @@ async fn show(service: &Service, arguments: &Value) -> Answer {
     }
   }
 
+  let questions =
+    tool_call::get(service, "/questions", &[("itemId", id.to_string()), ("limit", MOST.to_owned())]).await;
+  if let Ok(page) = questions
+    && let Some(items) = page.get("items").and_then(Value::as_array)
+    && !items.is_empty()
+  {
+    lines.push(String::new());
+    lines.push("Questions".to_owned());
+    for question in items {
+      lines.push(question_line(service, question).await);
+    }
+  }
+
   let reports =
     tool_call::get(service, &format!("/items/{id}/reports"), &[("limit", MOST.to_owned())]).await;
   if let Ok(page) = reports
@@ -270,6 +283,28 @@ async fn show(service: &Service, arguments: &Value) -> Answer {
   }
 
   Answer::lines(lines)
+}
+
+// One question of an item as a line: its number, its state, its words and, where a reply settled it, that answer.
+async fn question_line(service: &Service, question: &Value) -> String {
+  let id = question.get("id").and_then(Value::as_i64).unwrap_or(0);
+  let state = text(question, "state").unwrap_or_default();
+  let mut line = format!("- #{id} [{state}] {}", text(question, "text").unwrap_or_default());
+
+  if state == "answered"
+    && let Ok(page) =
+      tool_call::get(service, &format!("/questions/{id}/replies"), &[("limit", MOST.to_owned())]).await
+    && let Some(settling) = page
+      .get("items")
+      .and_then(Value::as_array)
+      .and_then(|replies| replies.iter().find(|reply| reply.get("settles") == Some(&Value::Bool(true))))
+  {
+    let answer = text(settling, "choice").or_else(|| text(settling, "text")).unwrap_or_default();
+
+    line.push_str(&format!(" → {answer}"));
+  }
+
+  line
 }
 
 async fn add(service: &Service, arguments: &Value, handed: &Handed) -> Answer {

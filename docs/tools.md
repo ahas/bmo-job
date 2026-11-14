@@ -21,7 +21,8 @@
   person's approval, `held` what is set aside, `merged` what was merged away, and `chat` one room, by the
   item's scope.
 - **`worker/todo_show`** and **`bmo/todo_show`** read one item whole: its number, or the title of one that is
-  not finished. The answer carries the item, its notes and its reports.
+  not finished. The answer carries the item, its notes, its questions, each with its number, its state, its
+  words and the answer it was settled with, and its reports.
 - **`bmo/todo_add`** files a row through `POST /items`: its title, its brief from what is to be done and what
   was concluded, the room it came from as its scope, its requester and, where named, its model. A row filed
   this way is a draft until an approver approves it.
