@@ -14,9 +14,12 @@ use serde::Deserialize;
 use crate::again::{Halt, until_answered};
 use crate::close_watch::{Running, StepEnd, output_within, run_step, spoken};
 
-/// How long the check may write nothing and touch nothing before it is hung: deliberately longer than
-/// bmo-testbed's own ten-minute bound on a silent unit, so the testbed ends a hung unit first and names it.
+/// How long the check may write nothing and touch nothing before it is hung, in a checkout whose declaration
+/// sets no testbed silence: the testbed's own ten-minute default and the margin above it.
 pub const SILENCE: Duration = Duration::from_secs(15 * 60);
+/// How far the close's silence stands above the testbed's own bound on a silent unit, so the testbed ends a hung
+/// unit first and names it.
+pub const SILENCE_MARGIN: Duration = Duration::from_secs(5 * 60);
 /// How long a process sent a TERM is given before a KILL.
 pub const GRACE: Duration = Duration::from_secs(10);
 /// How often the running check is looked at.
@@ -52,6 +55,25 @@ impl Default for Clocks {
       standing_every: STANDING_EVERY,
     }
   }
+}
+
+impl Clocks {
+  /// The clocks a close keeps to in the checkout at `root`: the defaults, its silence read from the checkout's
+  /// declaration (`silence_for`).
+  pub fn for_checkout(root: &Path) -> Self {
+    Self {
+      silence: silence_for(root),
+      ..Self::default()
+    }
+  }
+}
+
+/// The close's silence in the checkout at `root`: the margin above the testbed silence its `testbed.toml` declares
+/// (`[test] silence_seconds`), else `SILENCE` where it declares none or its declaration does not read.
+pub fn silence_for(root: &Path) -> Duration {
+  declaration(root)
+    .and_then(|declaration| declaration.test?.silence_seconds)
+    .map_or(SILENCE, |seconds| Duration::from_secs(seconds).saturating_add(SILENCE_MARGIN))
 }
 
 /// What a close runs its check with: the testbed's command, the clocks it keeps to, the step it is running for a
@@ -440,18 +462,20 @@ fn reasons_refusal(args: &JobCloseArgs) -> Option<String> {
 
 // Whether the checkout's declaration reads and declares no deployment at all.
 fn deploys_nothing(root: &Path) -> bool {
-  std::fs::read_to_string(root.join("testbed.toml"))
-    .ok()
-    .and_then(|text| toml::from_str::<Declaration>(&text).ok())
-    .is_some_and(|declaration| declaration.deploy.is_none())
+  declaration(root).is_some_and(|declaration| declaration.deploy.is_none())
+}
+
+// The checkout's declaration, `testbed.toml` at its root; none where it stands absent or does not read.
+fn declaration(root: &Path) -> Option<Declaration> {
+  let text = std::fs::read_to_string(root.join("testbed.toml")).ok()?;
+
+  toml::from_str(&text).ok()
 }
 
 // The deploy root the checkout's declaration names, a bare `~` or `~/` standing for the home and a relative
 // path taken from the checkout; none where it declares none or its declaration does not read.
 fn declared_deploy_root(root: &Path) -> Option<PathBuf> {
-  let text = std::fs::read_to_string(root.join("testbed.toml")).ok()?;
-  let declaration: Declaration = toml::from_str(&text).ok()?;
-  let named = declaration.deploy?.root?;
+  let named = declaration(root)?.deploy?.root?;
   let expanded = if named == "~" {
     home()
   } else if let Some(rest) = named.strip_prefix("~/") {
@@ -667,6 +691,14 @@ fn home() -> PathBuf {
 struct Declaration {
   #[serde(default)]
   deploy: Option<Deploy>,
+  #[serde(default)]
+  test: Option<TestTable>,
+}
+
+#[derive(Deserialize)]
+struct TestTable {
+  #[serde(default)]
+  silence_seconds: Option<u64>,
 }
 
 #[derive(Deserialize)]

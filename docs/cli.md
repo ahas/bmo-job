@@ -82,13 +82,16 @@ flowchart TD
   the close's own, which the testbed touches while a command it watches writes but holds its output back; a
   touch counts as output.
 - **A check that falls silent ends the close.** A check that writes nothing and touches nothing for the close's
-  silence limit, fifteen minutes, is hung. The limit is deliberately longer than bmo-testbed's own ten-minute
-  bound on a silent unit, so the testbed ends a hung unit first and names it, and the close's limit catches
-  what the testbed does not watch. The close names every process still running under the check, in its process
+  silence limit is hung. The limit always stands five minutes above bmo-testbed's own bound on a silent unit,
+  so the testbed ends a hung unit first and names it, and the close's limit catches what the testbed does not
+  watch. Where the checkout's `testbed.toml` declares `[test] silence_seconds`, the close's limit is that many
+  seconds and five minutes more; where it declares none, or its declaration does not read, the testbed keeps
+  its ten-minute default and the close's limit is fifteen minutes. The close names every process still running under the check, in its process
   group or below it, sends each a TERM, and a KILL to whatever stands ten seconds later. It then reads the
   checkout's `git status` against what it read before the check, and refuses the close with the check's last
   line, what was still running, and whether the checkout stands as it found it or which paths differ:
-  `job-close: refused — the static check wrote nothing for 900s and was ended`. The close itself writes nothing
+  `job-close: refused — the static check wrote nothing for 900s and was ended`, the seconds being the limit
+  the close kept to. The close itself writes nothing
   in the checkout.
 - **A running close says where it stands.** Every minute while the check runs, one line on standard output
   names it, how long it has run, how long ago its output last moved and its last line, so a reader tells a slow
@@ -98,7 +101,7 @@ flowchart TD
 - **Every wait inside a close has a clock the code names.** Each request writing the item's labels waits ten
   seconds and the writing as a whole two minutes; each local `git` call one minute, and the fetch
   and the push five minutes each, after which it is ended and read as failed; the check's silence fifteen
-  minutes, and the pause before the KILL ten seconds; the running check is looked at every second.
+  minutes, or five more than the checkout's declared testbed silence, and the pause before the KILL ten seconds; the running check is looked at every second.
 - **Told to stop, a close ends the check it runs first,** every process under it as for a hung check, so
   nothing it started goes on after it.
 - **What the close says is the account of its close.** A close that ends at the merge prints, before its last

@@ -237,7 +237,7 @@ async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
   let close = tokio::task::spawn_blocking(move || {
     let steps = job_close::Steps {
       testbed: Path::new("bmo-testbed"),
-      clocks: job_close::Clocks::default(),
+      clocks: job_close::Clocks::for_checkout(&root),
       running: running_now,
       say: &|line| println!("{line}"),
     };

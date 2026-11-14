@@ -13,7 +13,8 @@ use crate::support;
 
 use bmo_job::close_watch::{Running, StepEnd, output_within, run_step};
 use bmo_job::job_close::{
-  Clocks, JobCloseArgs, Standing, Steps, close, commits_refusal, deployed_commit_of, keep_standing,
+  Clocks, JobCloseArgs, SILENCE, SILENCE_MARGIN, Standing, Steps, close, commits_refusal,
+  deployed_commit_of, keep_standing, silence_for,
 };
 
 use bmo_job_client::{EventQuery, NewItem};
@@ -226,6 +227,32 @@ fn closable() -> Closable {
     base,
     head,
   }
+}
+
+// A testbed silence of fifteen minutes, the close's own default, so the close's limit must rise past it.
+#[test]
+fn a_declared_testbed_silence_puts_the_close_s_silence_the_margin_above_it() {
+  let repo = tempfile::tempdir().expect("a repository");
+
+  fs::write(
+    repo.path().join("testbed.toml"),
+    "testbed = 0\nname = \"the-test\"\n\n[test]\nsilence_seconds = 900\n",
+  )
+  .expect("the declaration");
+
+  assert_eq!(silence_for(repo.path()), Duration::from_secs(900) + SILENCE_MARGIN);
+  assert_eq!(Clocks::for_checkout(repo.path()).silence, Duration::from_secs(900) + SILENCE_MARGIN);
+}
+
+#[test]
+fn a_checkout_declaring_no_testbed_silence_keeps_the_close_s_fifteen_minutes() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let deploy_root = tempfile::tempdir().expect("a deploy root");
+
+  assert_eq!(silence_for(repo.path()), SILENCE);
+  declare_deploy_root(repo.path(), deploy_root.path());
+  assert_eq!(silence_for(repo.path()), SILENCE);
+  assert_eq!(SILENCE, Duration::from_secs(15 * 60));
 }
 
 #[test]
