@@ -1308,23 +1308,34 @@ async fn past_the_sixth_wake_nobody_is_woken_and_the_question_waits_with_the_sup
 
   // Every notice the receiver takes reads delivered, and the supervisor says no word on any of them.
   heard.delivered.lock().expect("the orders delivered").extend(1..=8);
-  let child = asked_waking(&service, &address, item, 10);
+  let mut child = asked_waking(&service, &address, item, 10);
+  let mut said = BufReader::new(child.stderr.take().expect("its standard error")).lines();
   let held = opened(&client, &heard, 7).await;
 
   assert_eq!(held.addressee, QuestionAddressee::Supervisor);
   assert!(order_text(&heard, 6).contains("woken again: 6 of 6"), "{}", order_text(&heard, 6));
+
+  // Past the sixth wake the command says it wakes nobody again, and waits on.
+  let bounded = tokio::time::timeout(Duration::from_secs(60), async {
+    while let Some(line) = said.next_line().await.expect("a line") {
+      if line.contains("nobody is woken again") {
+        return;
+      }
+    }
+    panic!("the command never said it wakes nobody again");
+  });
+  bounded.await.expect("the wakes end");
 
   service
     .supervisor()
     .reply(held.id, &person(None, "strict grammar"))
     .await
     .expect("settled");
-  let (code, out, err) = ended(child).await;
+  let (code, out, _) = ended(child).await;
 
-  assert_eq!(code, 0, "{err}");
+  assert_eq!(code, 0);
   assert_eq!(out.trim(), "strict grammar");
   assert_eq!(heard.orders.lock().expect("the orders").len(), 7, "no seventh wake");
-  assert!(err.contains("nobody is woken again"), "{err}");
   assert_eq!(rows(&client, item).await.len(), 1, "nothing is put to the owner");
 }
 
