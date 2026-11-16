@@ -244,7 +244,10 @@ impl Receiver {
     }
 
     if status.is_server_error() {
-      return Err(ReceiverFailure::Unanswered(format!("it answered {} to GET /instructions", status.as_u16())));
+      return Err(ReceiverFailure::Unanswered(format!(
+        "it answered {} to GET /instructions",
+        status.as_u16()
+      )));
     }
 
     if !status.is_success() {
@@ -266,7 +269,8 @@ fn refused(reason: &str) -> String {
 // one line and said, the recommendation one of them.
 fn options_refusal(options: &[String], recommend: Option<i64>) -> Option<String> {
   if options.is_empty() {
-    return recommend.map(|_| "--recommend names one of the options, and an open question puts none.".to_owned());
+    return recommend
+      .map(|_| "--recommend names one of the options, and an open question puts none.".to_owned());
   }
 
   if options.len() < 2 {
@@ -347,7 +351,13 @@ fn order_kind(addressee: QuestionAddressee) -> &'static str {
 
 // The question as the room's supervisor is handed it: the notice, the item it is about and the question's data,
 // and for one it holds itself the tools that answer it.
-fn question_order(item: i64, title: Option<&str>, question: &Question, recommend: i64, why: &str) -> String {
+fn question_order(
+  item: i64,
+  title: Option<&str>,
+  question: &Question,
+  recommend: i64,
+  why: &str,
+) -> String {
   let tools = match question.addressee {
     QuestionAddressee::Supervisor => format!("\n\n{SUPERVISOR_TOOLS}"),
     QuestionAddressee::Person => String::new(),
@@ -516,7 +526,9 @@ async fn stood(
   let mut stop = std::pin::pin!(stop);
 
   match until_answered("ask", stop.as_mut(), || settling_reply(client, id)).await {
-    Ok(Some(reply)) => settled_answer(&reply, question.addressee).map(|line| Ending::SettledBefore { question: id, line }),
+    Ok(Some(reply)) => {
+      settled_answer(&reply, question.addressee).map(|line| Ending::SettledBefore { question: id, line })
+    }
     Ok(None) => Err(format!("ask: question #{id} reads answered, yet no reply settled it")),
     Err(Halt::Answered(why)) => {
       Err(format!("ask: question #{id} was settled before, and its answer was not read: {why}"))
@@ -550,7 +562,9 @@ pub async fn ask(
   stop: impl Future<Output = ()>,
 ) -> Result<Ending, String> {
   if asked.question.trim().is_empty() {
-    return Err(refused("say what is to be settled or done: --question '<what is to be settled or done>'."));
+    return Err(refused(
+      "say what is to be settled or done: --question '<what is to be settled or done>'.",
+    ));
   }
 
   if let Some(refusal) = options_refusal(&asked.options, asked.recommend) {
@@ -618,7 +632,8 @@ pub async fn ask(
       })?;
   opening.scope = Some(room.to_string());
 
-  let (question, told) = put(client, receiver, &opening, room, recommend, &asked.why, stop.as_mut()).await?;
+  let (question, told) =
+    put(client, receiver, &opening, room, recommend, &asked.why, stop.as_mut()).await?;
 
   wait_on(client, receiver, question, told, stop).await
 }
@@ -649,7 +664,9 @@ async fn put(
   let order = question_order(item, title.as_deref(), &question, recommend, why);
   let summary = format!("Question #{} awaits the {}", question.id, answerer(question.addressee));
   let kind = order_kind(question.addressee);
-  let ordered = until_answered("ask", stop.as_mut(), || receiver.order(room, kind, question.id, &summary, &order)).await;
+  let ordered =
+    until_answered("ask", stop.as_mut(), || receiver.order(room, kind, question.id, &summary, &order))
+      .await;
 
   match ordered {
     Ok(told) => Ok((question, told)),
@@ -682,13 +699,12 @@ async fn untaken(
   question: &Question,
   mut stop: std::pin::Pin<&mut impl Future<Output = ()>>,
 ) -> Result<Option<(Question, Option<i64>)>, String> {
-  let room = question
-    .scope
-    .as_deref()
-    .and_then(|scope| scope.parse::<i64>().ok())
-    .ok_or_else(|| format!("ask: question #{} stands in no room, so it cannot go to the owner", question.id))?;
+  let room = question.scope.as_deref().and_then(|scope| scope.parse::<i64>().ok()).ok_or_else(|| {
+    format!("ask: question #{} stands in no room, so it cannot go to the owner", question.id)
+  })?;
 
-  match until_answered("ask", stop.as_mut(), || closed(client, question.id, QuestionState::Withdrawn)).await {
+  match until_answered("ask", stop.as_mut(), || closed(client, question.id, QuestionState::Withdrawn)).await
+  {
     Ok(()) => {}
     Err(Halt::Answered(_)) => return Ok(None),
     Err(Halt::Stopped) => return Err(withdrawn(client, receiver, question.id, None).await),
@@ -907,7 +923,9 @@ async fn wait_on(
       match held {
         Ok(true) => {}
         Ok(false) => {
-          if let Some((put_to_owner, put_told)) = untaken(client, receiver, &question, stop.as_mut()).await? {
+          if let Some((put_to_owner, put_told)) =
+            untaken(client, receiver, &question, stop.as_mut()).await?
+          {
             question = put_to_owner;
             told = put_told;
             after = None;
@@ -928,7 +946,9 @@ async fn wait_on(
         rests = Rests::default();
         looked
       }
-      Ok(None) => return Err(format!("ask: question #{id} was closed unanswered, and no answer is coming")),
+      Ok(None) => {
+        return Err(format!("ask: question #{id} was closed unanswered, and no answer is coming"));
+      }
       Err(failure) if gone(&failure) => {
         return Err(format!("ask: the service no longer holds question #{id}"));
       }
@@ -944,7 +964,8 @@ async fn wait_on(
     };
 
     // The supervisor put it to the owner: its notice is done with, and his answer is waited on.
-    if question.addressee == QuestionAddressee::Supervisor && current.addressee == QuestionAddressee::Person {
+    if question.addressee == QuestionAddressee::Supervisor && current.addressee == QuestionAddressee::Person
+    {
       eprintln!("ask: the supervisor put question #{id} to the owner; waiting on his answer");
 
       if let Some(notice) = told.take() {
@@ -965,7 +986,15 @@ async fn wait_on(
           receiver.withdraw(told).await;
         }
 
-        return settled_answer(&reply, question.addressee).map(Ending::Settled);
+        // Who settled it is read as the question stands now: the supervisor may have put it to the owner after the
+        // look above, and the owner answered at once.
+        let addressee = match until_answered("ask", stop.as_mut(), || client.question(id)).await {
+          Ok(settled) => settled.addressee,
+          Err(Halt::Answered(_)) => question.addressee,
+          Err(Halt::Stopped) => return stopped(client, receiver, id, None).await,
+        };
+
+        return settled_answer(&reply, addressee).map(Ending::Settled);
       }
 
       if reply.actor_name != asker {

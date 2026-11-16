@@ -297,7 +297,12 @@ impl Store {
   /// Pauses a question's clock, starts it again, withdraws the question or closes it unsent; puts it again in
   /// other words; moves what its asker was handed; puts a question the supervisor holds to a person, where the
   /// caller supervises the work.
-  pub async fn change_question(&self, id: i64, change: QuestionChange, caller: &Caller) -> Result<Question, Refusal> {
+  pub async fn change_question(
+    &self,
+    id: i64,
+    change: QuestionChange,
+    caller: &Caller,
+  ) -> Result<Question, Refusal> {
     let QuestionChange {
       state,
       text,
@@ -451,10 +456,18 @@ impl Store {
 
 /// Puts a question the supervisor holds to a person: only a caller that supervises the work may, only while it
 /// waits, and never back to the supervisor. Its clock starts then with the wait it was asked with.
-fn readdressed(kept: &mut Kept, addressee: QuestionAddressee, caller: &Caller, now: i64) -> Result<(), Refusal> {
+fn readdressed(
+  kept: &mut Kept,
+  addressee: QuestionAddressee,
+  caller: &Caller,
+  now: i64,
+) -> Result<(), Refusal> {
   let question = &mut kept.question;
   if !matches!(question.state, QuestionState::Open | QuestionState::Paused) {
-    return Err(Refusal::conflict(format!("The question is {} and is put to nobody else.", question.state)));
+    return Err(Refusal::conflict(format!(
+      "The question is {} and is put to nobody else.",
+      question.state
+    )));
   }
   if question.addressee != QuestionAddressee::Supervisor || addressee != QuestionAddressee::Person {
     return Err(Refusal::conflict(format!(
@@ -477,7 +490,9 @@ fn readdressed(kept: &mut Kept, addressee: QuestionAddressee, caller: &Caller, n
 fn not_the_addressee(id: i64) -> Refusal {
   Refusal::new(
     Code::NotTheAddressee,
-    format!("Question {id} is put to the supervisor, and only a caller that supervises the work settles it or puts it elsewhere."),
+    format!(
+      "Question {id} is put to the supervisor, and only a caller that supervises the work settles it or puts it elsewhere."
+    ),
   )
 }
 

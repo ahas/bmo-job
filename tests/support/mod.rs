@@ -1,6 +1,6 @@
 //! What the root package's tests share: the root and the walk over the files the repository checks read, and
 //! the service run in process on loopback over a scratch database, its clock moved by hand, taking the shared
-//! token and the tokens of two callers, one of them an approver.
+//! token and the tokens of three callers, one of them an approver and one supervising the work.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,11 +28,16 @@ pub const APPROVER_TOKEN: &str = "approver-token";
 pub const CALLER: &str = "tester";
 pub const CALLER_TOKEN: &str = "caller-token";
 
+/// The caller every test's service marks as supervising the work, and its token.
+pub const SUPERVISOR: &str = "lead";
+pub const SUPERVISOR_TOKEN: &str = "supervisor-token";
+
 /// The tokens every test's service takes.
 pub fn access() -> Access {
   Access::shared(TOKEN)
     .with(APPROVER_TOKEN, Caller::named(APPROVER, true))
     .and_then(|access| access.with(CALLER_TOKEN, Caller::named(CALLER, false)))
+    .and_then(|access| access.with(SUPERVISOR_TOKEN, Caller::named(SUPERVISOR, false).supervising()))
     .expect("the tokens differ")
 }
 
@@ -156,6 +161,11 @@ impl Service {
   }
 
   /// A client with `token`.
+  /// A client with the token of the caller that supervises the work.
+  pub fn supervisor(&self) -> JobClient {
+    self.client_with(SUPERVISOR_TOKEN)
+  }
+
   pub fn client_with(&self, token: &str) -> JobClient {
     JobClient::new(&self.url, token).expect("the client takes the address")
   }

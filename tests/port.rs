@@ -5,7 +5,7 @@ use crate::support;
 
 use bmo_job_client::{
   ApprovalGiven, EventQuery, Item, ItemChange, ItemState, JobClient, NewItem, NewQuestion, NewReply,
-  QuestionChange, QuestionRecommendation, QuestionState,
+  QuestionAddressee, QuestionChange, QuestionRecommendation, QuestionState,
 };
 use reqwest::Method;
 use serde_json::{Value, json};
@@ -394,4 +394,76 @@ async fn the_queue_moved_is_put_into_the_stream() {
   assert_eq!(events.len(), 2);
   assert_eq!(events[0].data["detail"], "runner-b");
   assert!(events[1].data.get("detail").is_none(), "a moved with no detail carries none");
+}
+
+#[tokio::test]
+async fn a_question_the_supervisor_holds_is_neither_listed_settled_nor_talked_over_until_put_to_the_owner()
+{
+  let service = Service::start().await;
+  let held = service
+    .client()
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      scope: Some("7".into()),
+      addressee: Some(QuestionAddressee::Supervisor),
+      text: "Which way?".into(),
+      choices: vec!["a".into(), "b".into()],
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+  let open = || async {
+    service
+      .raw(Method::GET, "/questions/open?chat=7")
+      .send()
+      .await
+      .expect("answered")
+      .json::<Value>()
+      .await
+      .expect("a list")
+  };
+  assert_eq!(open().await, json!([]));
+
+  for (path, body) in [
+    ("/question", json!({ "id": held.id, "chosen": 0 })),
+    ("/question-talk", json!({ "id": held.id, "say": "what is it for?" })),
+  ] {
+    let refused = service.raw(Method::POST, path).json(&body).send().await.expect("answered");
+    assert_eq!(refused.status(), 404, "{path}");
+    assert_eq!(
+      refused.json::<Value>().await.expect("the error shape")["code"],
+      "question_absent",
+      "{path}"
+    );
+  }
+  let holdings = service.raw(Method::GET, "/rooms/7/holdings").send().await.expect("answered");
+  assert_eq!(
+    holdings.json::<Value>().await.expect("the holdings"),
+    json!([{ "code": "room_waiting_questions", "count": 1 }]),
+    "the room holds it all the same"
+  );
+
+  service
+    .supervisor()
+    .change_question(
+      held.id,
+      &QuestionChange {
+        addressee: Some(QuestionAddressee::Person),
+        ..QuestionChange::default()
+      },
+    )
+    .await
+    .expect("put to the owner");
+  assert_eq!(
+    open().await,
+    json!([{ "id": held.id, "options": ["a", "b"], "recommendation": null, "why": null, "talks": true }])
+  );
+  let settled = service
+    .raw(Method::POST, "/question")
+    .json(&json!({ "id": held.id, "chosen": 1 }))
+    .send()
+    .await
+    .expect("answered");
+  assert_eq!(settled.status(), 204);
+  assert_eq!(service.client().question(held.id).await.expect("read").state, QuestionState::Answered);
 }

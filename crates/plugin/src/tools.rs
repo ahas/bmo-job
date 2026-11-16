@@ -8,9 +8,8 @@ use std::sync::Arc;
 
 use bmo_job_client::{
   ClientFailure, Item, ItemChange, ItemQuery, Lease, LeaseAsk, LeaseRenewal, LeaseWait, NewItem, NewNote,
-  NewQuestion, NewReply, NewReport, NewSubscription, Note, Page, Question, QuestionChange, Queue, QueueQuery, Reply,
-  Report, Review,
-  ReviewQuery, Subscription, Task, TaskQuery, WaitQuery, WorkOrder,
+  NewQuestion, NewReply, NewReport, NewSubscription, Note, Page, Question, QuestionChange, Queue,
+  QueueQuery, Reply, Report, Review, ReviewQuery, Subscription, Task, TaskQuery, WaitQuery, WorkOrder,
 };
 use schemars::generate::SchemaGenerator;
 use schemars::{JsonSchema, Schema};

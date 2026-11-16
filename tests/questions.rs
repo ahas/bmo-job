@@ -3,8 +3,8 @@
 use crate::support;
 
 use bmo_job_client::{
-  EventQuery, NewItem, NewQuestion, NewReply, QuestionQuery, QuestionRecommendation, QuestionState,
-  ReplySource, WaitQuery,
+  EventQuery, NewItem, NewQuestion, NewReply, QuestionAddressee, QuestionChange, QuestionQuery,
+  QuestionRecommendation, QuestionState, ReplySource, WaitQuery,
 };
 
 use support::{START, Service};
@@ -518,4 +518,187 @@ async fn an_asker_tracking_what_it_heard_does_not_tell_the_due_time_again() {
     .expect("the events");
 
   assert_eq!(told.items.len(), 1, "the due time is told once");
+}
+
+fn put_to_the_supervisor(item_id: Option<i64>) -> NewQuestion {
+  NewQuestion {
+    item_id,
+    asker_name: "builder".into(),
+    addressee: Some(QuestionAddressee::Supervisor),
+    text: "Run the read-only probe on the build node.".into(),
+    wait_ms: Some(30_000),
+    ..NewQuestion::default()
+  }
+}
+
+fn settling(text: &str) -> NewReply {
+  NewReply {
+    choice: None,
+    text: text.to_owned(),
+    actor_name: "lead".to_owned(),
+    settles: Some(true),
+  }
+}
+
+#[tokio::test]
+async fn a_question_is_a_persons_where_the_ask_names_no_addressee() {
+  let service = Service::start().await;
+  let question = service
+    .client()
+    .ask(&NewQuestion {
+      asker_name: "rehearsal".into(),
+      text: "Which way?".into(),
+      choices: vec!["one".into(), "two".into()],
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+
+  assert_eq!(question.addressee, QuestionAddressee::Person);
+  assert_eq!(question.due_at, Some(START + 60_000), "a person's clock runs from the ask");
+  assert_eq!((question.readdressed_by, question.readdressed_at), (None, None));
+}
+
+#[tokio::test]
+async fn a_question_the_supervisor_holds_has_no_clock_and_is_never_told_due() {
+  let service = Service::start().await;
+  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+  assert_eq!((question.addressee, question.due_at), (QuestionAddressee::Supervisor, None));
+
+  service.pass(86_400_000).await;
+  let due = EventQuery {
+    kinds: Some("question.due".into()),
+    ..EventQuery::default()
+  };
+  assert!(service.client().events_page(&due).await.expect("read").items.is_empty());
+}
+
+#[tokio::test]
+async fn the_list_filters_by_addressee() {
+  let service = Service::start().await;
+  let client = service.client();
+  let held = client.ask(&put_to_the_supervisor(None)).await.expect("asked");
+  let owned = client
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      text: "Which way?".into(),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+  let listed = |addressee: &str| QuestionQuery {
+    addressee: Some(addressee.to_owned()),
+    ..QuestionQuery::default()
+  };
+  let ids = |page: bmo_job_client::Page<bmo_job_client::Question>| {
+    page.items.iter().map(|q| q.id).collect::<Vec<_>>()
+  };
+
+  assert_eq!(ids(client.questions(&listed("person")).await.expect("read")), [owned.id]);
+  assert_eq!(ids(client.questions(&listed("supervisor")).await.expect("read")), [held.id]);
+  assert_eq!(
+    ids(client.questions(&listed("person,supervisor")).await.expect("read")),
+    [held.id, owned.id]
+  );
+  let refused = client
+    .questions(&listed("nobody"))
+    .await
+    .expect_err("an addressee the service does not know");
+  assert_eq!(refused.code(), Some("bad-request"));
+}
+
+#[tokio::test]
+async fn only_the_supervising_caller_settles_a_question_the_supervisor_holds() {
+  let service = Service::start().await;
+  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+
+  for (who, client) in [("the shared token", service.client()), ("an approver", service.approver())] {
+    let refused = client.reply(question.id, &settling("done")).await.expect_err(who);
+    assert_eq!(refused.code(), Some("not-the-addressee"), "{who}");
+  }
+  let word = service
+    .client()
+    .reply(question.id, &reply(None, "which node?"))
+    .await
+    .expect("a word from anyone");
+  assert!(!word.settles);
+
+  let settled = service
+    .supervisor()
+    .reply(question.id, &settling("probe ran: all well"))
+    .await
+    .expect("settled");
+  assert!(settled.settles);
+  assert_eq!(
+    service.client().question(question.id).await.expect("read").state,
+    QuestionState::Answered
+  );
+}
+
+#[tokio::test]
+async fn the_supervisor_puts_its_question_to_a_person_in_its_own_words_and_the_clock_starts_then() {
+  let service = Service::start().await;
+  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+  let to_person = QuestionChange {
+    addressee: Some(QuestionAddressee::Person),
+    text: Some("Deploy the new unit tonight?".into()),
+    choices: Some(vec!["tonight".into(), "tomorrow".into()]),
+    recommendation: Some(QuestionRecommendation {
+      answer: "tomorrow".into(),
+      why: "nothing waits on it tonight".into(),
+    }),
+    ..QuestionChange::default()
+  };
+
+  let refused = service
+    .approver()
+    .change_question(question.id, &to_person)
+    .await
+    .expect_err("no supervisor");
+  assert_eq!(refused.code(), Some("not-the-addressee"));
+
+  service.pass(5_000).await;
+  let put = service
+    .supervisor()
+    .change_question(question.id, &to_person)
+    .await
+    .expect("put to a person");
+  assert_eq!(put.addressee, QuestionAddressee::Person);
+  assert_eq!((put.readdressed_by.as_deref(), put.readdressed_at), (Some("lead"), Some(START + 5_000)));
+  assert_eq!(put.due_at, Some(START + 5_000 + 30_000), "the clock takes the ask's wait from the move");
+  assert_eq!((put.text.as_str(), put.choices.len()), ("Deploy the new unit tonight?", 2));
+
+  let back = QuestionChange {
+    addressee: Some(QuestionAddressee::Supervisor),
+    ..QuestionChange::default()
+  };
+  let refused = service.supervisor().change_question(question.id, &back).await.expect_err("never back");
+  assert_eq!(refused.code(), Some("conflict"));
+  let again = service
+    .supervisor()
+    .change_question(question.id, &to_person)
+    .await
+    .expect_err("already a person's");
+  assert_eq!(again.code(), Some("conflict"));
+
+  let answered = service.approver().reply(question.id, &reply(Some("tomorrow"), "tomorrow")).await;
+  assert!(answered.expect("a person answers it now").settles);
+}
+
+#[tokio::test]
+async fn a_settled_question_is_put_to_nobody_else() {
+  let service = Service::start().await;
+  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+  service.supervisor().reply(question.id, &settling("done")).await.expect("settled");
+
+  let to_person = QuestionChange {
+    addressee: Some(QuestionAddressee::Person),
+    ..QuestionChange::default()
+  };
+  let refused = service
+    .supervisor()
+    .change_question(question.id, &to_person)
+    .await
+    .expect_err("settled");
+  assert_eq!(refused.code(), Some("conflict"));
 }

@@ -2,7 +2,8 @@
 //! recommendation and the reply's source and reason are added, a reply already standing coming from a person;
 //! from version 2, the item an item was raised from, filled from its `raised-by` label where that label is the
 //! key of another standing item, and the caller who holds a lease; from version 3, whether a question's asker
-//! tells of it and what it was handed; from version 6, what a lease holds of its item fixed (docs/schema.md).
+//! tells of it and what it was handed; from version 6, what a lease holds of its item fixed; from version 7, who a
+//! question is put to and the wait it was asked with (docs/schema.md).
 
 use bmo_job::{Clock, Store};
 use sqlx::Row;
@@ -159,4 +160,26 @@ async fn a_version_two_store_fills_raised_by_from_a_label_naming_a_standing_item
     .await
     .expect("the lease");
   assert_eq!(frozen, None, "a lease standing then holds nothing of its item fixed");
+}
+
+#[tokio::test]
+async fn a_question_standing_before_the_addressee_is_a_persons_with_the_wait_it_was_asked_with() {
+  let directory = tempfile::tempdir().expect("a scratch directory");
+  let schema = format!(
+    "{ITEMS_AND_LEASES_V1} {QUESTIONS_AND_REPLIES_V1}
+     INSERT INTO questions (asker_name, text, choices, state, due_at, due_told, created_at)
+       VALUES ('builder', 'timed', '[]', 'open', 10500, 0, 500);
+     INSERT INTO questions (asker_name, text, choices, state, due_at, remaining_ms, due_told, created_at)
+       VALUES ('builder', 'paused', '[]', 'paused', NULL, 4000, 0, 500);"
+  );
+  let pool = migrated(&directory, &schema, 1).await;
+
+  let kept: Vec<(String, i64)> = sqlx::query("SELECT addressee, wait_ms FROM questions ORDER BY id")
+    .fetch_all(&pool)
+    .await
+    .expect("the questions")
+    .iter()
+    .map(|row| (row.try_get("addressee").expect("a column"), row.try_get("wait_ms").expect("a column")))
+    .collect();
+  assert_eq!(kept, [("person".to_owned(), 10_000), ("person".to_owned(), 60_000)]);
 }
