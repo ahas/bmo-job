@@ -178,7 +178,7 @@ async fn the_server_lists_exactly_the_drafts_tools() {
     .map(|tool| tool["name"].as_str().expect("a name").to_owned())
     .collect();
   assert_eq!(names, documented);
-  assert_eq!(names.len(), 19);
+  assert_eq!(names.len(), 21);
   for tool in tools {
     assert_eq!(tool["inputSchema"]["type"], "object", "{} takes an object", tool["name"]);
     assert_eq!(tool["outputSchema"]["type"], "object", "{} answers an object", tool["name"]);
@@ -423,7 +423,7 @@ async fn a_tool_left_out_at_the_start_is_neither_listed_nor_called() {
     .map(|tool| tool["name"].as_str().unwrap())
     .collect();
 
-  assert_eq!(names.len(), 17);
+  assert_eq!(names.len(), 19);
   assert!(!names.contains(&"job_item_create") && !names.contains(&"job_queues"));
   assert!(names.contains(&"job_item_update"));
 
