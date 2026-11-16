@@ -16,6 +16,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::again::{Halt, Rests, Unanswered, until_answered};
+use crate::ask_words::{say_refusal, words_refusal};
 use crate::outside::outside_refusal;
 
 /// The exit of a call that comes back with talk instead of an answer: the question is still open.
@@ -496,6 +497,10 @@ pub async fn ask(
     return Err(refused(&refusal));
   }
 
+  if let Some(refusal) = words_refusal(&asked.question, &asked.options, &asked.why) {
+    return Err(refused(&refusal));
+  }
+
   let mut stop = std::pin::pin!(stop);
   let mut opening = NewQuestion {
     item_id: Some(item),
@@ -595,6 +600,10 @@ pub async fn talk(
     return Err(refused(&refusal));
   }
 
+  if let Some(refusal) = say_refusal(&asked.say) {
+    return Err(refused(&refusal));
+  }
+
   let mut stop = std::pin::pin!(stop);
   let question = match until_answered("ask", stop.as_mut(), || client.question(asked.question)).await {
     Ok(question) => question,
@@ -644,6 +653,10 @@ pub async fn talk(
     texts.extend(asked.options.iter().map(String::as_str));
 
     if let Some(refusal) = outside_refusal(&texts) {
+      return Err(refused(&refusal));
+    }
+
+    if let Some(refusal) = words_refusal(&text, &asked.options, &why) {
       return Err(refused(&refusal));
     }
 

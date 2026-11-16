@@ -142,6 +142,13 @@ no clock is among it.
   | The question was withdrawn, or the run was told to stop, which withdraws a question already opened | Nothing | Why | 1 |
   | The words were refused; no question opened | Nothing | Why, and the usage | 1 |
 
+- **A question is a choice of direction, read at a glance.** It asks the owner which way the work goes, never for
+  something to be carried out by him or by the supervisor: what someone else has to run, install, measure or
+  check goes into the job's report. So its words are refused, and no question opened, where any of them carries a
+  fenced block of code or a token of more than 80 characters with no space — a command, a script, an encoded
+  payload, a hash or a long address — or where the question runs past 500 characters or 5 lines, an option past
+  160 characters, or the reason past 240. A long reading goes into the archive and its address into the question.
+  The job's answer to his talk is refused on code the same way, its length its own.
 - **A recommendation is shown and never answers.** It is printed only where a person settled the question with
   it. A settling reply no person gave is refused: the verb ends 1 and prints no option.
 - **Putting the question.** The verb reads the owner's private room from the receiver's `GET /owner`, opens the
