@@ -181,6 +181,8 @@ it to the owner in its own words, and from then on it is the owner's question as
   job's own words put to a person, hands that to the room's supervisor as `question-awaits-answer` and waits on it
   as on any of his, saying on the standard error which question went where. A notice whose turn ended while the
   question still waits is left to the supervisor, since work it started, a deployment among it, can end later.
+  An ask that stands on a question asked before, or waits again after a talk, holds no notice of its own and
+  reads none.
 - **Once it is the owner's,** put to him by the supervisor or by the verb as above, the verb says so on the
   standard error once and waits on his answer: the due time the service counts from that moment, a minute where
   the ask named none, paces the one notice `question.due` tells and settles nothing.
