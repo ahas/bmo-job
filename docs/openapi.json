@@ -772,6 +772,17 @@
         "additionalProperties": false,
         "description": "A question asked.",
         "properties": {
+          "addressee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionAddressee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who it is put to; a person where left out."
+          },
           "askerName": {
             "type": "string"
           },
@@ -814,7 +825,7 @@
             "type": "boolean"
           },
           "waitMs": {
-            "description": "How long the question goes unanswered before it is told of as due, 1 000 to 86 400 000 milliseconds;\n60 000 where left out. It paces that notice alone: the question waits for its answer.",
+            "description": "How long the question goes unanswered by a person before it is told of as due, 1 000 to 86 400 000\nmilliseconds; 60 000 where left out. It counts from the ask, or for a question put to the supervisor from\nthe moment the supervisor puts it to a person. It paces that notice alone: the question waits for its answer.",
             "format": "int64",
             "type": [
               "integer",
@@ -1074,6 +1085,11 @@
       "Question": {
         "description": "A question, about an item or on its own.",
         "properties": {
+          "addressee": {
+            "$ref": "#/components/schemas/QuestionAddressee",
+            "default": "person",
+            "description": "Who it is put to now; a person where the ask named none."
+          },
           "askerName": {
             "type": "string"
           },
@@ -1090,7 +1106,7 @@
             "type": "integer"
           },
           "dueAt": {
-            "description": "Epoch milliseconds the asker wants an answer by; null while paused or where none was given.",
+            "description": "Epoch milliseconds the asker wants an answer by; null while paused, while the supervisor holds it, or where\nnone was given.",
             "format": "int64",
             "type": [
               "integer",
@@ -1113,6 +1129,23 @@
             "format": "int64",
             "type": [
               "integer",
+              "null"
+            ]
+          },
+          "readdressedAt": {
+            "default": null,
+            "description": "Epoch milliseconds it was put to a person in the supervisor's place; null where it was not.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "readdressedBy": {
+            "default": null,
+            "description": "The caller that put it to a person in the supervisor's place; null where nobody did.",
+            "type": [
+              "string",
               "null"
             ]
           },
@@ -1149,6 +1182,7 @@
           "itemId",
           "askerName",
           "scope",
+          "addressee",
           "text",
           "choices",
           "recommendation",
@@ -1156,14 +1190,35 @@
           "dueAt",
           "toldByAsker",
           "heardThrough",
+          "readdressedBy",
+          "readdressedAt",
           "createdAt"
         ],
         "type": "object"
       },
+      "QuestionAddressee": {
+        "description": "Who a question is put to: a person who settles it, or the supervisor of the work under its scope, which\nsettles it itself or puts it to a person.",
+        "enum": [
+          "person",
+          "supervisor"
+        ],
+        "type": "string"
+      },
       "QuestionChange": {
         "additionalProperties": false,
-        "description": "A question paused, opened again, withdrawn or closed unsent; put again in other words; or told how far its\nasker has been handed its replies.",
+        "description": "A question paused, opened again, withdrawn or closed unsent; put again in other words; told how far its asker\nhas been handed its replies; or put to a person by the supervisor that held it.",
         "properties": {
+          "addressee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionAddressee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`person` puts a question the supervisor holds to a person; only a supervising caller may."
+          },
           "choices": {
             "items": {
               "type": "string"
@@ -3471,6 +3526,15 @@
         "operationId": "listQuestions",
         "parameters": [
           {
+            "description": "One addressee, or several comma-separated.",
+            "in": "query",
+            "name": "addressee",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "The key of the last question read; the page continues past it.",
             "in": "query",
             "name": "after",
@@ -3532,7 +3596,7 @@
             "$ref": "#/components/responses/Error"
           }
         },
-        "summary": "Questions by scope, item and state.",
+        "summary": "Questions by scope, item, addressee and state.",
         "tags": [
           "questions"
         ],
@@ -3655,13 +3719,14 @@
             "$ref": "#/components/responses/Error"
           }
         },
-        "summary": "Pause or start a question's clock again, withdraw it or close it unsent, put it again in other words, or move what its asker was handed.",
+        "summary": "Pause or start a question's clock again, withdraw it or close it unsent, put it again in other words, move what its asker was handed, or put a question the supervisor holds to a person.",
         "tags": [
           "questions"
         ],
         "x-codes": [
           "unauthorized",
           "bad-request",
+          "not-the-addressee",
           "not-found",
           "conflict"
         ]
@@ -3781,6 +3846,7 @@
         "x-codes": [
           "unauthorized",
           "bad-request",
+          "not-the-addressee",
           "not-found",
           "conflict",
           "not-a-choice"
@@ -4993,6 +5059,17 @@
         "additionalProperties": false,
         "description": "A question asked.",
         "properties": {
+          "addressee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionAddressee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who it is put to; a person where left out."
+          },
           "askerName": {
             "type": "string"
           },
@@ -5035,7 +5112,7 @@
             "type": "boolean"
           },
           "waitMs": {
-            "description": "How long the question goes unanswered before it is told of as due, 1 000 to 86 400 000 milliseconds;\n60 000 where left out. It paces that notice alone: the question waits for its answer.",
+            "description": "How long the question goes unanswered by a person before it is told of as due, 1 000 to 86 400 000\nmilliseconds; 60 000 where left out. It counts from the ask, or for a question put to the supervisor from\nthe moment the supervisor puts it to a person. It paces that notice alone: the question waits for its answer.",
             "format": "int64",
             "type": [
               "integer",
@@ -5120,6 +5197,124 @@
         "$ref": "#/components/schemas/ReplyPage"
       },
       "route": "GET /questions/{questionId}/replies"
+    },
+    {
+      "description": "Reply to a question: settle it with a choice or an answer, or add a word that settles nothing. A question put to the supervisor is settled only under a caller the deployment marks as supervising the work.",
+      "input": {
+        "description": "A route's path key and the rest of its input together, as one tool's input.",
+        "properties": {
+          "actorName": {
+            "type": "string"
+          },
+          "choice": {
+            "description": "One of the question's choices.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "questionId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "settles": {
+            "description": "Whether the reply settles the question; left out, it settles where it carries a choice or the question\nhas none.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "questionId",
+          "text",
+          "actorName"
+        ],
+        "type": "object"
+      },
+      "name": "job_reply",
+      "output": {
+        "$ref": "#/components/schemas/Reply"
+      },
+      "route": "POST /questions/{questionId}/replies"
+    },
+    {
+      "description": "Change a question while it waits: its state, its words, choices and recommendation, or, with addressee person, put a question the supervisor holds to a person, in your own words in the same change; only a caller the deployment marks as supervising the work puts one to a person.",
+      "input": {
+        "description": "A route's path key and the rest of its input together, as one tool's input.",
+        "properties": {
+          "addressee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionAddressee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`person` puts a question the supervisor holds to a person; only a supervising caller may."
+          },
+          "choices": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "heardThrough": {
+            "description": "The last reply the asker was handed.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "questionId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "recommendation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionRecommendation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "questionId"
+        ],
+        "type": "object"
+      },
+      "name": "job_question_change",
+      "output": {
+        "$ref": "#/components/schemas/Question"
+      },
+      "route": "PATCH /questions/{questionId}"
     },
     {
       "description": "Subscribe to be told of work: the event kinds, queues, scope and items to hear of, a url for webhook delivery or none to be told in this session as MCP notifications, and ttlMs. The server renews it while the session lasts and deletes it when the session ends.",

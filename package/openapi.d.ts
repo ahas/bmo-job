@@ -244,7 +244,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Questions by scope, item and state. */
+        /** Questions by scope, item, addressee and state. */
         get: operations["listQuestions"];
         put?: never;
         /** Ask a question about an item, with choices or open. */
@@ -269,7 +269,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Pause or start a question's clock again, withdraw it or close it unsent, put it again in other words, or move what its asker was handed. */
+        /** Pause or start a question's clock again, withdraw it or close it unsent, put it again in other words, move what its asker was handed, or put a question the supervisor holds to a person. */
         patch: operations["changeQuestionsByQuestionId"];
         trace?: never;
     };
@@ -714,6 +714,8 @@ export interface components {
         };
         /** @description A question asked. */
         NewQuestion: {
+            /** @description Who it is put to; a person where left out. */
+            addressee?: components["schemas"]["QuestionAddressee"] | null;
             askerName: string;
             choices?: string[];
             /** Format: int64 */
@@ -727,8 +729,9 @@ export interface components {
             toldByAsker?: boolean;
             /**
              * Format: int64
-             * @description How long the question goes unanswered before it is told of as due, 1 000 to 86 400 000 milliseconds;
-             *     60 000 where left out. It paces that notice alone: the question waits for its answer.
+             * @description How long the question goes unanswered by a person before it is told of as due, 1 000 to 86 400 000
+             *     milliseconds; 60 000 where left out. It counts from the ask, or for a question put to the supervisor from
+             *     the moment the supervisor puts it to a person. It paces that notice alone: the question waits for its answer.
              */
             waitMs?: number | null;
         };
@@ -830,6 +833,11 @@ export interface components {
         Nothing: Record<string, never>;
         /** @description A question, about an item or on its own. */
         Question: {
+            /**
+             * @description Who it is put to now; a person where the ask named none.
+             * @default person
+             */
+            addressee: components["schemas"]["QuestionAddressee"];
             askerName: string;
             /** @description The answers to choose from; empty for an open question. */
             choices: string[];
@@ -840,7 +848,8 @@ export interface components {
             createdAt: number;
             /**
              * Format: int64
-             * @description Epoch milliseconds the asker wants an answer by; null while paused or where none was given.
+             * @description Epoch milliseconds the asker wants an answer by; null while paused, while the supervisor holds it, or where
+             *     none was given.
              */
             dueAt: number | null;
             /**
@@ -852,6 +861,17 @@ export interface components {
             id: number;
             /** Format: int64 */
             itemId: number | null;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds it was put to a person in the supervisor's place; null where it was not.
+             * @default null
+             */
+            readdressedAt: number | null;
+            /**
+             * @description The caller that put it to a person in the supervisor's place; null where nobody did.
+             * @default null
+             */
+            readdressedBy: string | null;
             /** @description The answer the asker would take by itself, and why; null where it would not decide alone. */
             recommendation: components["schemas"]["QuestionRecommendation"] | null;
             scope: string | null;
@@ -861,10 +881,18 @@ export interface components {
             toldByAsker: boolean;
         };
         /**
-         * @description A question paused, opened again, withdrawn or closed unsent; put again in other words; or told how far its
-         *     asker has been handed its replies.
+         * @description Who a question is put to: a person who settles it, or the supervisor of the work under its scope, which
+         *     settles it itself or puts it to a person.
+         * @enum {string}
+         */
+        QuestionAddressee: "person" | "supervisor";
+        /**
+         * @description A question paused, opened again, withdrawn or closed unsent; put again in other words; told how far its asker
+         *     has been handed its replies; or put to a person by the supervisor that held it.
          */
         QuestionChange: {
+            /** @description `person` puts a question the supervisor holds to a person; only a supervising caller may. */
+            addressee?: components["schemas"]["QuestionAddressee"] | null;
             choices?: string[] | null;
             /**
              * Format: int64
@@ -1893,6 +1921,8 @@ export interface operations {
     listQuestions: {
         parameters: {
             query?: {
+                /** @description One addressee, or several comma-separated. */
+                addressee?: string;
                 /** @description The key of the last question read; the page continues past it. */
                 after?: number;
                 itemId?: number;
