@@ -714,7 +714,10 @@ export interface components {
         };
         /** @description A question asked. */
         NewQuestion: {
-            /** @description Who it is put to; a person where left out. */
+            /**
+             * @description Who it is put to; a person where left out. A caller that does not supervise the work asks the supervisor,
+             *     whatever it names.
+             */
             addressee?: components["schemas"]["QuestionAddressee"] | null;
             askerName: string;
             choices?: string[];
@@ -897,7 +900,10 @@ export interface components {
          *     has been handed its replies; or put to a person by the supervisor that held it.
          */
         QuestionChange: {
-            /** @description `person` puts a question the supervisor holds to a person; only a supervising caller may. */
+            /**
+             * @description `person` puts a question the supervisor holds to a person, and `supervisor` takes one put to a person back
+             *     while nobody has settled it; only a supervising caller may.
+             */
             addressee?: components["schemas"]["QuestionAddressee"] | null;
             choices?: string[] | null;
             /**

@@ -781,7 +781,7 @@
                 "type": "null"
               }
             ],
-            "description": "Who it is put to; a person where left out."
+            "description": "Who it is put to; a person where left out. A caller that does not supervise the work asks the supervisor,\nwhatever it names."
           },
           "askerName": {
             "type": "string"
@@ -1226,7 +1226,7 @@
                 "type": "null"
               }
             ],
-            "description": "`person` puts a question the supervisor holds to a person; only a supervising caller may."
+            "description": "`person` puts a question the supervisor holds to a person, and `supervisor` takes one put to a person back\nwhile nobody has settled it; only a supervising caller may."
           },
           "choices": {
             "items": {
@@ -5082,7 +5082,7 @@
       "route": "DELETE /leases/{leaseId}"
     },
     {
-      "description": "Ask a question about an item, with choices or open; a recommendation shown to whoever answers, and why.",
+      "description": "Ask a question about an item, with choices or open; a recommendation shown to whoever answers, and why. Only a caller the deployment marks as supervising the work asks a person; any other caller's question goes to the supervisor.",
       "input": {
         "additionalProperties": false,
         "description": "A question asked.",
@@ -5096,7 +5096,7 @@
                 "type": "null"
               }
             ],
-            "description": "Who it is put to; a person where left out."
+            "description": "Who it is put to; a person where left out. A caller that does not supervise the work asks the supervisor,\nwhatever it names."
           },
           "askerName": {
             "type": "string"
@@ -5270,7 +5270,7 @@
       "route": "POST /questions/{questionId}/replies"
     },
     {
-      "description": "Change a question while it waits: its state, its words, choices and recommendation, or, with addressee person, put a question the supervisor holds to a person, in your own words in the same change; only a caller the deployment marks as supervising the work puts one to a person.",
+      "description": "Change a question while it waits: its state, its words, choices and recommendation; with addressee person, put a question the supervisor holds to a person, in your own words in the same change; with addressee supervisor, take a question put to a person back while nobody has settled it. Only a caller the deployment marks as supervising the work moves the addressee.",
       "input": {
         "description": "A route's path key and the rest of its input together, as one tool's input.",
         "properties": {
@@ -5283,7 +5283,7 @@
                 "type": "null"
               }
             ],
-            "description": "`person` puts a question the supervisor holds to a person; only a supervising caller may."
+            "description": "`person` puts a question the supervisor holds to a person, and `supervisor` takes one put to a person back\nwhile nobody has settled it; only a supervising caller may."
           },
           "choices": {
             "items": {

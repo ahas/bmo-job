@@ -144,6 +144,9 @@ enum JobVerb {
     /// Your answer in the talk.
     #[arg(long, value_name = "words", allow_hyphen_values = true)]
     say: Option<String>,
+    /// With --talk: the words ask nothing, an acknowledgement such as that you wait, and are handed to nobody.
+    #[arg(long)]
+    ack: bool,
     /// Reads the question by its number, or with --todo and no number every question asked about the item.
     #[arg(long, value_name = "question", num_args = 0..=1)]
     show: Option<Option<String>>,
@@ -311,6 +314,13 @@ async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
   }
 }
 
+// A talk as the verb was given it: the question's number, the job's words, and whether they ask nothing.
+struct Talking {
+  question: Option<String>,
+  say: Option<String>,
+  ack: bool,
+}
+
 // The verb asked: a new question or a talk, and how its wait ended as the job reads it.
 async fn job_ask(
   todo: Option<String>,
@@ -318,9 +328,23 @@ async fn job_ask(
   options: Vec<String>,
   recommend: Option<String>,
   why: Option<String>,
-  talk: Option<String>,
-  say: Option<String>,
+  talking: Talking,
 ) -> ExitCode {
+  let Talking {
+    question: talk,
+    say,
+    ack,
+  } = talking;
+
+  if ack && talk.is_none() {
+    eprintln!(
+      "ask: --ack acknowledges a talk: name its question with --talk <question>\n{}",
+      job_ask::USAGE
+    );
+
+    return ExitCode::FAILURE;
+  }
+
   let reached = todo_cli::client().and_then(|client| Ok((client, Receiver::of_process(&data_root())?)));
   let (client, receiver) = match reached {
     Ok(reached) => reached,
@@ -345,6 +369,7 @@ async fn job_ask(
         recommend,
         text: question,
         why,
+        ack,
       };
 
       job_ask::talk(&client, &receiver, &asked, told_to_stop()).await
@@ -515,6 +540,7 @@ async fn main() -> ExitCode {
         why,
         talk,
         say,
+        ack,
         show: Some(show),
       } => {
         let asked = question.is_some()
@@ -522,7 +548,8 @@ async fn main() -> ExitCode {
           || recommend.is_some()
           || why.is_some()
           || talk.is_some()
-          || say.is_some();
+          || say.is_some()
+          || ack;
 
         job_ask_show(todo, show, asked).await
       }
@@ -534,8 +561,17 @@ async fn main() -> ExitCode {
         why,
         talk,
         say,
+        ack,
         show: None,
-      } => job_ask(todo, question, options, recommend, why, talk, say).await,
+      } => {
+        let talking = Talking {
+          question: talk,
+          say,
+          ack,
+        };
+
+        job_ask(todo, question, options, recommend, why, talking).await
+      }
     },
     Verb::Todo {
       done,

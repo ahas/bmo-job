@@ -238,9 +238,9 @@ impl Store {
     rows.iter().map(|row| kept_from(row).map(|kept| kept.question)).collect()
   }
 
-  /// Asks a question, its scope the item's where none is given. A question put to the supervisor has no due time
-  /// while the supervisor holds it.
-  pub async fn ask(&self, new: NewQuestion) -> Result<Question, Refusal> {
+  /// Asks a question, its scope the item's where none is given. Only a caller that supervises the work asks a
+  /// person; any other caller's question goes to the supervisor, which has no due time while it holds it.
+  pub async fn ask(&self, new: NewQuestion, caller: &Caller) -> Result<Question, Refusal> {
     filled("askerName", &new.asker_name)?;
     filled("text", &new.text)?;
     judged_choices(&new.choices)?;
@@ -264,7 +264,10 @@ impl Store {
         scope = item.scope;
       }
     }
-    let addressee = new.addressee.unwrap_or_default();
+    let addressee = match new.addressee.unwrap_or_default() {
+      QuestionAddressee::Person if !caller.supervises => QuestionAddressee::Supervisor,
+      named => named,
+    };
     let due_at = (addressee == QuestionAddressee::Person).then_some(now + wait);
     let id: i64 = sqlx::query_scalar(
       "INSERT INTO questions (item_id, asker_name, scope, addressee, text, choices, recommendation, state, \
@@ -377,15 +380,15 @@ impl Store {
     if let Some(state) = state.filter(|state| *state != kept.question.state) {
       let from = kept.question.state;
       match (from, state) {
+        // A pause and an opening again keep whether the due time was told: a question is told of as due once
+        // each time it is put to a person.
         (QuestionState::Open, QuestionState::Paused) => {
           kept.remaining_ms = kept.question.due_at.map(|due| (due - now).max(0));
           kept.question.due_at = None;
-          due_told = false;
         }
         (QuestionState::Paused, QuestionState::Open) => {
           kept.question.due_at = kept.remaining_ms.map(|left| now + left);
           kept.remaining_ms = None;
-          due_told = false;
         }
         (QuestionState::Open | QuestionState::Paused, QuestionState::Withdrawn | QuestionState::Unsent) => {
           due_told = true;
@@ -451,7 +454,8 @@ impl Store {
       kept.remaining_ms = kept.question.due_at.map(|due| (due - now).max(0));
       kept.question.due_at = None;
       kept.question.state = QuestionState::Paused;
-      save_question(&mut tx, &kept, false).await?;
+      let due_told = kept.due_told;
+      save_question(&mut tx, &kept, due_told).await?;
       told_question(&mut tx, now, EventKind::QuestionChanged, &kept.question).await?;
     }
     let reply = reply_in(
@@ -487,21 +491,35 @@ fn readdressed(
       question.state
     )));
   }
-  if question.addressee != QuestionAddressee::Supervisor || addressee != QuestionAddressee::Person {
-    return Err(Refusal::conflict(format!(
-      "A question put to the {} is not put to the {addressee}.",
-      question.addressee
-    )));
+  if question.addressee == addressee {
+    return Err(Refusal::conflict(format!("The question is put to the {addressee} already.")));
   }
   if !caller.supervises {
-    return Err(not_the_addressee(question));
+    return Err(Refusal::new(
+      Code::NotTheAddressee,
+      format!(
+        "Only a caller that supervises the work puts question {} to the {addressee}.",
+        question.id
+      ),
+    ));
   }
   question.addressee = addressee;
-  question.readdressed_by = caller.name.clone();
-  question.readdressed_at = Some(now);
   question.state = QuestionState::Open;
-  question.due_at = Some(now + kept.wait_ms);
   kept.remaining_ms = None;
+  match addressee {
+    // Put to a person: his clock counts from now.
+    QuestionAddressee::Person => {
+      question.readdressed_by = caller.name.clone();
+      question.readdressed_at = Some(now);
+      question.due_at = Some(now + kept.wait_ms);
+    }
+    // Taken back while nobody settled it: the supervisor's again, with no clock.
+    QuestionAddressee::Supervisor => {
+      question.readdressed_by = None;
+      question.readdressed_at = None;
+      question.due_at = None;
+    }
+  }
   Ok(())
 }
 

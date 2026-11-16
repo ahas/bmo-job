@@ -93,7 +93,8 @@ pub struct NewQuestion {
   /// The item's scope where left out.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub scope: Option<String>,
-  /// Who it is put to; a person where left out.
+  /// Who it is put to; a person where left out. A caller that does not supervise the work asks the supervisor,
+  /// whatever it names.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub addressee: Option<QuestionAddressee>,
   pub text: String,
@@ -128,7 +129,8 @@ pub struct QuestionChange {
   /// The last reply the asker was handed.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub heard_through: Option<i64>,
-  /// `person` puts a question the supervisor holds to a person; only a supervising caller may.
+  /// `person` puts a question the supervisor holds to a person, and `supervisor` takes one put to a person back
+  /// while nobody has settled it; only a supervising caller may.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub addressee: Option<QuestionAddressee>,
   /// The asker's reference to the notice it put the question before whoever answers it with, set or replaced.

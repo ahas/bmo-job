@@ -16,7 +16,7 @@ use axum::routing::{get, post};
 use bmo_job::job_ask::settled_line;
 use bmo_job_client::{
   JobClient, NewItem, NewReply, Question, QuestionAddressee, QuestionChange, QuestionQuery, QuestionState,
-  Reply, ReplySource,
+  Reply, ReplySource, WaitQuery,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -179,6 +179,14 @@ fn asked_words(item: i64) -> Vec<String> {
 
 fn asked(service: &Service, receiver: &str, item: i64) -> Child {
   command(service, receiver, &asked_words(item)).spawn().expect("the command runs")
+}
+
+// The same ask, its first rest before waking the supervisor again `ms` milliseconds.
+fn asked_waking(service: &Service, receiver: &str, item: i64, ms: u64) -> Child {
+  command(service, receiver, &asked_words(item))
+    .env("BMO_JOB_ASK_WAKE_MS", ms.to_string())
+    .spawn()
+    .expect("the command runs")
 }
 
 // The question the running command opened, once it has handed it to the room.
@@ -582,7 +590,8 @@ async fn a_failed_talk_leaves_the_question_open_and_prints_no_option() {
   let service = Service::start().await;
   let client = service.client();
   let (address, _) = receiver(true).await;
-  let question = client
+  let question = service
+    .supervisor()
     .ask(&bmo_job_client::NewQuestion {
       asker_name: "job-7".to_owned(),
       scope: Some(ROOM.to_string()),
@@ -884,7 +893,8 @@ async fn a_talk_waits_out_a_receiver_restart_and_reaches_the_room_once() {
   let client = service.client();
   let (address, heard) = receiver(false).await;
   let receiving = support::Relay::before(&address).await;
-  let question = client
+  let question = service
+    .supervisor()
     .ask(&bmo_job_client::NewQuestion {
       asker_name: "job-7".to_owned(),
       scope: Some(ROOM.to_string()),
@@ -1152,33 +1162,38 @@ async fn the_supervisor_puts_it_to_the_owner_and_his_answer_settles_it() {
 }
 
 #[tokio::test]
-async fn a_notice_let_go_untaken_puts_the_question_to_the_owner_as_one_no_supervisor_could_take() {
+async fn a_notice_let_go_untaken_wakes_the_supervisor_again_and_the_question_stays_with_it() {
   let service = Service::start().await;
   let client = service.client();
   let (address, heard) = receiver_letting_go(false, &[1]).await;
   let item = item(&client).await;
-  let child = asked(&service, &address, item);
-  let put = opened(&client, &heard, 2).await;
+  let child = asked_waking(&service, &address, item, 50);
+  let held = opened(&client, &heard, 2).await;
 
-  assert_eq!(put.addressee, QuestionAddressee::Person);
-  assert!(put.due_at.is_some(), "his clock runs");
-  assert!(order_text(&heard, 1).starts_with(&format!("question-awaits-answer #{}", put.id)));
-
-  let rows = rows(&client, item).await;
-  assert_eq!(rows.len(), 2);
-  assert_eq!(
-    (rows[0].state, rows[0].addressee),
-    (QuestionState::Withdrawn, QuestionAddressee::Supervisor)
+  assert_eq!((held.addressee, held.due_at), (QuestionAddressee::Supervisor, None));
+  assert_eq!(rows(&client, item).await.len(), 1, "nothing is put to the owner");
+  let woken = order_text(&heard, 1);
+  assert!(woken.starts_with(&format!("question-for-supervisor #{}", held.id)), "{woken}");
+  assert!(woken.contains("woken again: 1 of 6"), "{woken}");
+  assert!(
+    held
+      .told_as
+      .as_deref()
+      .is_some_and(|kept| kept.contains("\"notice\":2") && kept.contains("\"wakes\":1")),
+    "{:?}",
+    held.told_as
   );
-  assert_eq!(rows[1].text, rows[0].text, "the job's own words");
 
-  client.reply(put.id, &person(Some("loose grammar"), "loose")).await.expect("he answers");
-
+  service
+    .supervisor()
+    .reply(held.id, &person(None, "strict grammar"))
+    .await
+    .expect("settled");
   let (code, out, err) = ended(child).await;
 
   assert_eq!(code, 0, "{err}");
-  assert_eq!(out.trim(), "loose grammar");
-  assert!(err.contains("let go untaken"), "{err}");
+  assert_eq!(out.trim(), "strict grammar");
+  assert!(err.contains("woken again, 1 of 6"), "{err}");
 }
 
 #[tokio::test]
@@ -1242,12 +1257,12 @@ fn supervisors_word(text: &str) -> NewReply {
 }
 
 #[tokio::test]
-async fn a_turn_that_ended_with_no_word_on_the_question_puts_it_to_the_owner() {
+async fn a_turn_that_ended_with_no_word_on_the_question_wakes_the_supervisor_again_never_the_owner() {
   let service = Service::start().await;
   let client = service.client();
   let (address, heard) = receiver(false).await;
   let item = item(&client).await;
-  let child = asked(&service, &address, item);
+  let child = asked_waking(&service, &address, item, 50);
   let held = opened(&client, &heard, 1).await;
 
   assert!(
@@ -1257,19 +1272,49 @@ async fn a_turn_that_ended_with_no_word_on_the_question_puts_it_to_the_owner() {
   );
   heard.delivered.lock().expect("the orders delivered").push(1);
 
-  let put = opened(&client, &heard, 2).await;
-  assert_eq!(put.addressee, QuestionAddressee::Person);
-  assert!(order_text(&heard, 1).starts_with(&format!("question-awaits-answer #{}", put.id)));
+  let woken = opened(&client, &heard, 2).await;
+  assert_eq!((woken.id, woken.addressee), (held.id, QuestionAddressee::Supervisor));
+  assert!(order_text(&heard, 1).starts_with(&format!("question-for-supervisor #{}", held.id)));
+  assert_eq!(rows(&client, item).await.len(), 1, "nothing is put to the owner");
 
-  client
-    .reply(put.id, &person(Some("strict grammar"), "strict"))
+  service
+    .supervisor()
+    .reply(held.id, &person(None, "strict grammar"))
     .await
-    .expect("he answers");
+    .expect("settled");
   let (code, out, err) = ended(child).await;
 
   assert_eq!(code, 0, "{err}");
   assert_eq!(out.trim(), "strict grammar");
-  assert!(err.contains("ended with no word on it"), "{err}");
+}
+
+#[tokio::test]
+async fn past_the_sixth_wake_nobody_is_woken_and_the_question_waits_with_the_supervisor() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let item = item(&client).await;
+
+  // Every notice the receiver takes reads delivered, and the supervisor says no word on any of them.
+  heard.delivered.lock().expect("the orders delivered").extend(1..=8);
+  let child = asked_waking(&service, &address, item, 10);
+  let held = opened(&client, &heard, 7).await;
+
+  assert_eq!(held.addressee, QuestionAddressee::Supervisor);
+  assert!(order_text(&heard, 6).contains("woken again: 6 of 6"), "{}", order_text(&heard, 6));
+
+  service
+    .supervisor()
+    .reply(held.id, &person(None, "strict grammar"))
+    .await
+    .expect("settled");
+  let (code, out, err) = ended(child).await;
+
+  assert_eq!(code, 0, "{err}");
+  assert_eq!(out.trim(), "strict grammar");
+  assert_eq!(heard.orders.lock().expect("the orders").len(), 7, "no seventh wake");
+  assert!(err.contains("nobody is woken again"), "{err}");
+  assert_eq!(rows(&client, item).await.len(), 1, "nothing is put to the owner");
 }
 
 #[tokio::test]
@@ -1294,8 +1339,8 @@ async fn a_supervisors_word_keeps_the_question_with_it_and_a_rerun_watches_the_k
   assert!(out.contains("the supervisor:\n> deploying it"), "{out}");
 
   // The rerun stands on the same question and watches the notice kept on it: delivered, yet the supervisor's word
-  // stands since, so the question stays with it.
-  let child = asked(&service, &address, item);
+  // that it settles later stands since, so the question stays with it and nobody is woken, however short the rest.
+  let child = asked_waking(&service, &address, item, 10);
   tokio::time::sleep(Duration::from_millis(1_500)).await;
   assert_eq!(heard.orders.lock().expect("the orders").len(), 1, "nobody is told again");
   assert_eq!(rows(&client, item).await.len(), 1, "nothing is put to the owner");
@@ -1311,7 +1356,7 @@ async fn a_supervisors_word_keeps_the_question_with_it_and_a_rerun_watches_the_k
 }
 
 #[tokio::test]
-async fn a_rerun_whose_kept_notice_was_let_go_puts_the_question_to_the_owner() {
+async fn a_rerun_whose_kept_notice_was_let_go_wakes_the_supervisor_again() {
   let service = Service::start().await;
   let client = service.client();
   let (address, heard) = receiver(false).await;
@@ -1321,14 +1366,135 @@ async fn a_rerun_whose_kept_notice_was_let_go_puts_the_question_to_the_owner() {
   drop(first);
 
   heard.let_go.lock().expect("the orders let go").push(1);
-  let child = asked(&service, &address, item);
-  let put = opened(&client, &heard, 2).await;
+  let child = asked_waking(&service, &address, item, 50);
+  let woken = opened(&client, &heard, 2).await;
 
-  assert_eq!((put.addressee, put.text.as_str()), (QuestionAddressee::Person, held.text.as_str()));
-  client.reply(put.id, &person(Some("loose grammar"), "loose")).await.expect("he answers");
+  assert_eq!((woken.id, woken.addressee), (held.id, QuestionAddressee::Supervisor));
+  assert_eq!(rows(&client, item).await.len(), 1, "nothing is put to the owner");
+  service
+    .supervisor()
+    .reply(held.id, &person(None, "loose grammar"))
+    .await
+    .expect("settled");
   let (code, out, err) = ended(child).await;
   assert_eq!(code, 0, "{err}");
   assert_eq!(out.trim(), "loose grammar");
+}
+
+#[tokio::test]
+async fn an_acknowledgement_wakes_nobody_and_the_question_stays_with_the_supervisor() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let item = item(&client).await;
+  let child = asked_waking(&service, &address, item, 10);
+  let held = opened(&client, &heard, 1).await;
+
+  service
+    .supervisor()
+    .reply(held.id, &supervisors_word("deploying it; I answer once it is live"))
+    .await
+    .expect("a word");
+  heard.delivered.lock().expect("the orders delivered").push(1);
+  let (code, _, err) = ended(child).await;
+  assert_eq!(code, i32::from(bmo_job::job_ask::TALK_EXIT), "{err}");
+
+  let ack = [
+    "--talk",
+    &held.id.to_string(),
+    "--say",
+    "Thank you; I wait for the deployment.",
+    "--ack",
+  ]
+  .map(str::to_owned);
+  let child = command(&service, &address, &ack)
+    .env("BMO_JOB_ASK_WAKE_MS", "10")
+    .spawn()
+    .expect("the command runs");
+
+  // The acknowledgement is written before anything else would be handed over: once it stands, a notice it handed
+  // would stand too.
+  for _ in 0..600 {
+    let replies = client.replies(held.id, &WaitQuery::default()).await.expect("the replies");
+
+    if replies.items.iter().any(|reply| reply.actor_name == "job-7") {
+      break;
+    }
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+  }
+
+  assert_eq!(
+    heard.orders.lock().expect("the orders").len(),
+    1,
+    "nobody is handed the acknowledgement"
+  );
+  assert_eq!(rows(&client, item).await.len(), 1, "nothing is put to the owner");
+
+  service
+    .supervisor()
+    .reply(held.id, &person(None, "live at the commit"))
+    .await
+    .expect("settled");
+  let (code, out, err) = ended(child).await;
+  assert_eq!(code, 0, "{err}");
+  assert_eq!(out, "live at the commit\n");
+  assert_eq!(
+    heard.orders.lock().expect("the orders").len(),
+    1,
+    "the supervisor's word stood, so nobody was woken"
+  );
+}
+
+#[tokio::test]
+async fn an_acknowledgement_changes_no_words_of_the_question() {
+  let service = Service::start().await;
+  let (address, heard) = receiver(false).await;
+  let refused =
+    ["--talk", "1", "--say", "noted", "--ack", "--option", "a", "--option", "b"].map(str::to_owned);
+  let (code, out, err) = ended(command(&service, &address, &refused).spawn().expect("runs")).await;
+
+  assert_eq!((code, out.as_str()), (1, ""), "{err}");
+  assert!(err.contains("an acknowledgement asks nothing"), "{err}");
+
+  let bare = ["--say", "noted", "--ack"].map(str::to_owned);
+  let (code, _, err) = ended(command(&service, &address, &bare).spawn().expect("runs")).await;
+
+  assert_eq!(code, 1, "{err}");
+  assert!(err.contains("--ack acknowledges a talk"), "{err}");
+  assert!(heard.orders.lock().expect("the orders").is_empty());
+}
+
+#[tokio::test]
+async fn a_question_the_supervisor_takes_back_from_the_owner_is_settled_by_the_supervisor() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let item = item(&client).await;
+  let child = asked(&service, &address, item);
+  let held = opened(&client, &heard, 1).await;
+
+  to_owner(&service, held.id).await;
+  service
+    .supervisor()
+    .change_question(
+      held.id,
+      &QuestionChange {
+        addressee: Some(QuestionAddressee::Supervisor),
+        ..QuestionChange::default()
+      },
+    )
+    .await
+    .expect("taken back");
+  service
+    .supervisor()
+    .reply(held.id, &person(None, "deployed; go on"))
+    .await
+    .expect("settled");
+
+  let (code, out, err) = ended(child).await;
+  assert_eq!(code, 0, "{err}");
+  assert_eq!(out, "deployed; go on\n");
 }
 
 #[tokio::test]

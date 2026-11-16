@@ -299,8 +299,12 @@ async fn questions(State(app): State<App>, InQuery(query): InQuery<QuestionQuery
   ok(app.store.questions(&query).await?)
 }
 
-async fn ask(State(app): State<App>, InBody(question): InBody<NewQuestion>) -> Answer {
-  created(app.store.ask(question).await?)
+async fn ask(
+  State(app): State<App>,
+  Extension(caller): Extension<Caller>,
+  InBody(question): InBody<NewQuestion>,
+) -> Answer {
+  created(app.store.ask(question, &caller).await?)
 }
 
 async fn question(State(app): State<App>, InPath(question_id): InPath<i64>) -> Answer {

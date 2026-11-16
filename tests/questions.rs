@@ -29,7 +29,8 @@ async fn a_question_with_choices_is_settled_by_a_choice_and_takes_words_beside()
   };
   new.scope = Some("project-7".into());
   let item = client.create_item(&new).await.expect("raised");
-  let question = client
+  let question = service
+    .supervisor()
     .ask(&NewQuestion {
       item_id: Some(item.id),
       asker_name: "builder".into(),
@@ -88,7 +89,8 @@ async fn a_question_with_choices_is_settled_by_a_choice_and_takes_words_beside()
 async fn the_clock_pauses_resumes_and_tells_once_when_due() {
   let service = Service::start().await;
   let client = service.client();
-  let question = client
+  let question = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "May I go ahead?".into(),
@@ -164,7 +166,8 @@ async fn the_clock_pauses_resumes_and_tells_once_when_due() {
 async fn an_open_question_is_settled_by_its_first_reply_and_a_wait_ends_on_it() {
   let service = Service::start().await;
   let client = service.client();
-  let question = client
+  let question = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "What should it be called?".into(),
@@ -195,8 +198,8 @@ async fn an_open_question_is_settled_by_its_first_reply_and_a_wait_ends_on_it() 
 #[tokio::test]
 async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_another() {
   let service = Service::start().await;
-  let client = service.client();
-  let by_default = client
+  let by_default = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "May I?".into(),
@@ -206,7 +209,8 @@ async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_another() {
     .expect("asked");
   assert_eq!(by_default.due_at, Some(START + 60_000));
 
-  let longer = client
+  let longer = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "May I?".into(),
@@ -217,7 +221,8 @@ async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_another() {
     .expect("asked");
   assert_eq!(longer.due_at, Some(START + 120_000));
 
-  let too_short = client
+  let too_short = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "May I?".into(),
@@ -233,7 +238,8 @@ async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_another() {
 async fn a_due_question_with_a_recommendation_stays_open_for_a_person_and_tells_once() {
   let service = Service::start().await;
   let client = service.client();
-  let question = client
+  let question = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "Which grammar?".into(),
@@ -277,7 +283,8 @@ async fn a_due_question_with_a_recommendation_stays_open_for_a_person_and_tells_
 async fn a_due_question_without_a_recommendation_stays_open_and_tells_once() {
   let service = Service::start().await;
   let client = service.client();
-  let question = client
+  let question = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "May I?".into(),
@@ -311,7 +318,8 @@ async fn a_due_question_without_a_recommendation_stays_open_and_tells_once() {
 async fn a_persons_reply_before_the_due_time_wins() {
   let service = Service::start().await;
   let client = service.client();
-  let question = client
+  let question = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "Which grammar?".into(),
@@ -343,8 +351,8 @@ async fn a_persons_reply_before_the_due_time_wins() {
 #[tokio::test]
 async fn a_recommendation_carries_an_answer_and_a_reason() {
   let service = Service::start().await;
-  let client = service.client();
-  let no_answer = client
+  let no_answer = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "Which?".into(),
@@ -359,7 +367,8 @@ async fn a_recommendation_carries_an_answer_and_a_reason() {
     .expect_err("no answer");
   assert_eq!(no_answer.code(), Some("bad-request"));
 
-  let no_reason = client
+  let no_reason = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "Which?".into(),
@@ -379,7 +388,8 @@ async fn a_recommendation_carries_an_answer_and_a_reason() {
 async fn a_question_closed_unsent_takes_no_answer_and_stands_with_nothing_waiting() {
   let service = Service::start().await;
   let client = service.client();
-  let question = client
+  let question = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "job-1".into(),
       scope: Some("7".into()),
@@ -420,7 +430,8 @@ async fn a_question_closed_unsent_takes_no_answer_and_stands_with_nothing_waitin
 async fn a_question_is_put_again_in_other_words_and_keeps_what_its_asker_was_handed() {
   let service = Service::start().await;
   let client = service.client();
-  let question = client
+  let question = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "job-1".into(),
       text: "which grammar?".into(),
@@ -485,7 +496,8 @@ async fn a_question_is_put_again_in_other_words_and_keeps_what_its_asker_was_han
 async fn an_asker_tracking_what_it_heard_does_not_tell_the_due_time_again() {
   let service = Service::start().await;
   let client = service.client();
-  let question = client
+  let question = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "job-1".into(),
       text: "which grammar?".into(),
@@ -541,12 +553,12 @@ fn settling(text: &str) -> NewReply {
 }
 
 #[tokio::test]
-async fn a_question_is_a_persons_where_the_ask_names_no_addressee() {
+async fn the_supervisor_asks_a_person_where_its_ask_names_no_addressee() {
   let service = Service::start().await;
   let question = service
-    .client()
+    .supervisor()
     .ask(&NewQuestion {
-      asker_name: "rehearsal".into(),
+      asker_name: "harness".into(),
       text: "Which way?".into(),
       choices: vec!["one".into(), "two".into()],
       ..NewQuestion::default()
@@ -557,6 +569,31 @@ async fn a_question_is_a_persons_where_the_ask_names_no_addressee() {
   assert_eq!(question.addressee, QuestionAddressee::Person);
   assert_eq!(question.due_at, Some(START + 60_000), "a person's clock runs from the ask");
   assert_eq!((question.readdressed_by, question.readdressed_at), (None, None));
+}
+
+#[tokio::test]
+async fn a_question_any_other_caller_asks_of_a_person_goes_to_the_supervisor_first() {
+  let service = Service::start().await;
+
+  for addressee in [None, Some(QuestionAddressee::Person)] {
+    let question = service
+      .client()
+      .ask(&NewQuestion {
+        asker_name: "job-7".into(),
+        addressee,
+        text: "Put the release live?".into(),
+        choices: vec!["now".into(), "later".into()],
+        ..NewQuestion::default()
+      })
+      .await
+      .expect("asked");
+
+    assert_eq!(
+      (question.addressee, question.due_at),
+      (QuestionAddressee::Supervisor, None),
+      "{addressee:?} from a caller that does not supervise"
+    );
+  }
 }
 
 #[tokio::test]
@@ -578,7 +615,8 @@ async fn the_list_filters_by_addressee() {
   let service = Service::start().await;
   let client = service.client();
   let held = client.ask(&put_to_the_supervisor(None)).await.expect("asked");
-  let owned = client
+  let owned = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "Which way?".into(),
@@ -674,12 +712,6 @@ async fn the_supervisor_puts_its_question_to_a_person_in_its_own_words_and_the_c
   assert_eq!(put.due_at, Some(START + 5_000 + 30_000), "the clock takes the ask's wait from the move");
   assert_eq!((put.text.as_str(), put.choices.len()), ("Deploy the new unit tonight?", 2));
 
-  let back = QuestionChange {
-    addressee: Some(QuestionAddressee::Supervisor),
-    ..QuestionChange::default()
-  };
-  let refused = service.supervisor().change_question(question.id, &back).await.expect_err("never back");
-  assert_eq!(refused.code(), Some("conflict"));
   let again = service
     .supervisor()
     .change_question(question.id, &to_person)
@@ -808,4 +840,93 @@ async fn the_asker_keeps_its_notice_on_the_question_and_a_move_to_a_person_is_to
     (last.data["id"].as_i64(), last.data["addressee"].as_str()),
     (Some(question.id), Some("person"))
   );
+}
+
+#[tokio::test]
+async fn the_supervisor_takes_back_a_question_put_to_a_person_that_nobody_settled() {
+  let service = Service::start().await;
+  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+  let put = put_to_a_person(&service, question.id).await;
+  assert_eq!(put.addressee, QuestionAddressee::Person);
+
+  // The owner talked on it, and settled nothing.
+  let word = NewReply {
+    settles: Some(false),
+    ..reply(None, "why ask me?")
+  };
+  service.approver().reply(question.id, &word).await.expect("a word");
+
+  let back = QuestionChange {
+    addressee: Some(QuestionAddressee::Supervisor),
+    ..QuestionChange::default()
+  };
+  let refused = service.client().change_question(question.id, &back).await.expect_err("no supervisor");
+  assert_eq!(refused.code(), Some("not-the-addressee"));
+
+  let taken = service.supervisor().change_question(question.id, &back).await.expect("taken back");
+  assert_eq!(
+    (taken.addressee, taken.state, taken.due_at, taken.readdressed_by),
+    (QuestionAddressee::Supervisor, QuestionState::Open, None, None)
+  );
+  let listed = service
+    .client()
+    .questions(&QuestionQuery {
+      addressee: Some("person".into()),
+      ..QuestionQuery::default()
+    })
+    .await
+    .expect("the list");
+  assert!(listed.items.is_empty(), "nothing waits on a person");
+
+  // Settled, it is taken back by nobody.
+  service
+    .supervisor()
+    .reply(question.id, &settling("deployed; live checks ran"))
+    .await
+    .expect("settled");
+  let settled = service.supervisor().change_question(question.id, &back).await.expect_err("settled");
+  assert_eq!(settled.code(), Some("conflict"));
+}
+
+#[tokio::test]
+async fn a_question_told_of_as_due_is_not_told_again_by_a_pause_and_an_opening() {
+  let service = Service::start().await;
+  let client = service.client();
+  let question = service
+    .supervisor()
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      text: "May I go ahead?".into(),
+      wait_ms: Some(10_000),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+  let due = EventQuery {
+    kinds: Some("question.due".into()),
+    ..EventQuery::default()
+  };
+  let moved = |state| bmo_job_client::QuestionChange {
+    state: Some(state),
+    ..Default::default()
+  };
+
+  service.pass(11_000).await;
+  assert_eq!(client.events_page(&due).await.expect("read").items.len(), 1);
+
+  // The owner talks and the clock stops; the job answers and it runs again, twice over.
+  for _ in 0..2 {
+    client
+      .change_question(question.id, &moved(QuestionState::Paused))
+      .await
+      .expect("paused");
+    service.pass(1_000).await;
+    client
+      .change_question(question.id, &moved(QuestionState::Open))
+      .await
+      .expect("open again");
+    service.pass(1_000).await;
+  }
+
+  assert_eq!(client.events_page(&due).await.expect("read").items.len(), 1, "told once");
 }

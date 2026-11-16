@@ -86,8 +86,8 @@ async fn a_rooms_holdings_count_what_still_belongs_to_it() {
   .await;
   let dropped = moved(&client, item_in(&client, "7", "dropped", None).await, ItemState::Dropped).await;
   item_in(&client, "8", "elsewhere", None).await;
-  let waiting = asked(&client, "7", &["yes", "no"], None).await;
-  let settled = asked(&client, "7", &["yes", "no"], None).await;
+  let waiting = asked(&service.supervisor(), "7", &["yes", "no"], None).await;
+  let settled = asked(&service.supervisor(), "7", &["yes", "no"], None).await;
   client
     .reply(
       settled.id,
@@ -139,8 +139,8 @@ async fn a_rooms_open_questions_are_read_last_asked_first() {
   let service = Service::start().await;
   let client = service.client();
 
-  let first = asked(&client, "7", &["strict", "loose"], Some(60_000)).await;
-  let paused = asked(&client, "7", &["a", "b"], Some(60_000)).await;
+  let first = asked(&service.supervisor(), "7", &["strict", "loose"], Some(60_000)).await;
+  let paused = asked(&service.supervisor(), "7", &["a", "b"], Some(60_000)).await;
   client
     .change_question(
       paused.id,
@@ -151,8 +151,8 @@ async fn a_rooms_open_questions_are_read_last_asked_first() {
     )
     .await
     .expect("paused");
-  let past = asked(&client, "7", &["x", "y"], Some(1_000)).await;
-  let answered = asked(&client, "7", &["yes", "no"], None).await;
+  let past = asked(&service.supervisor(), "7", &["x", "y"], Some(1_000)).await;
+  let answered = asked(&service.supervisor(), "7", &["yes", "no"], None).await;
   client
     .reply(
       answered.id,
@@ -165,8 +165,9 @@ async fn a_rooms_open_questions_are_read_last_asked_first() {
     )
     .await
     .expect("settled");
-  asked(&client, "8", &["p", "q"], None).await;
-  let suggested = client
+  asked(&service.supervisor(), "8", &["p", "q"], None).await;
+  let suggested = service
+    .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       scope: Some("7".into()),
@@ -256,7 +257,7 @@ async fn the_open_items_are_read_in_the_ports_shape_oldest_first() {
 async fn a_question_is_settled_by_the_number_of_its_choice() {
   let service = Service::start().await;
   let client = service.client();
-  let question = asked(&client, "7", &["strict", "loose"], None).await;
+  let question = asked(&service.supervisor(), "7", &["strict", "loose"], None).await;
 
   let settled = service
     .raw(Method::POST, "/question")
@@ -282,7 +283,7 @@ async fn a_question_is_settled_by_the_number_of_its_choice() {
     .expect("answered");
   assert_eq!(again.status(), 204, "a settled question is settled all the same");
 
-  let wrong = asked(&client, "7", &["strict", "loose"], None).await;
+  let wrong = asked(&service.supervisor(), "7", &["strict", "loose"], None).await;
   let refused = service
     .raw(Method::POST, "/question")
     .json(&json!({ "id": wrong.id, "chosen": 9 }))
@@ -306,7 +307,7 @@ async fn a_question_is_settled_by_the_number_of_its_choice() {
 async fn a_talk_is_a_word_that_stops_the_clock_and_settles_nothing() {
   let service = Service::start().await;
   let client = service.client();
-  let question = asked(&client, "7", &["strict", "loose"], Some(60_000)).await;
+  let question = asked(&service.supervisor(), "7", &["strict", "loose"], Some(60_000)).await;
 
   let talked = service
     .raw(Method::POST, "/question-talk")

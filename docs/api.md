@@ -26,7 +26,8 @@ The names it does not take from a body are the caller's the request's token name
   answers either alike but for four readings of who the caller is: the kind of an approval it gives (Items,
   "Approvals"), the `changedBy` the events of an item it writes carry (Events), the `raisedBy` an item it
   raises takes from the lease it holds (Items, "Raised from an item"), and whether it may settle a
-  question put to the supervisor or put it to a person (Questions and replies, "The addressee").
+  question put to the supervisor, ask a person, put a question to a person or take it back (Questions and
+  replies, "The addressee").
 - **A method and path no route answers** is answered 404 `no-route`.
 - **A body or query not of the route's shape** is answered 400 `bad-request`, the sentence naming what is
   wrong.
@@ -323,8 +324,9 @@ kept in the store may carry. The source is the voice a reply is heard in, whatev
   has its `dueAt` that far from when it was asked; one put to the supervisor has none while the supervisor holds
   it, and is never told of as due there, and once the supervisor puts it to a person its `dueAt` is that far from
   that moment. Pausing a question keeps the time it had left and reads `dueAt` as null; opening it again sets
-  `dueAt` that far from then. The due time paces a notice and nothing more: a question waits for its answer
-  however long that takes.
+  `dueAt` that far from then. A question is told of as due once each time it is put to a person: a pause and an
+  opening again tell nothing of a question already told of, whose due time has passed. The due time paces a
+  notice and nothing more: a question waits for its answer however long that takes.
 - **The recommendation.** `recommendation` is `{answer, why}`: `answer` is one of the question's choices or a
   free answer where the choices do not cover it, and `why` is the one line saying why that is the answer. It is
   shown to whoever answers, and taken only where a person settles the question with it. The
@@ -340,8 +342,11 @@ kept in the store may carry. The source is the voice a reply is heard in, whatev
 - **A question's scope** is the one asked with, or the item's where it is left out.
 - **The addressee.** A question is put to `person`, a person who settles it, where the ask names no other; or to
   `supervisor`, the caller that supervises the work under the question's scope, which judges it first: settles it
-  itself with what it did or found, talks it over with the asker, or puts it to a person in its own words. The
-  service reads the addressee in five places and nowhere else:
+  itself with what it did or found, talks it over with the asker, or puts it to a person in its own words. Only the
+  supervisor puts a question before a person. The service reads the addressee in six places and nowhere else:
+  - **who asks a person:** a question is opened for a person only by a caller the settings mark as supervising;
+    one any other caller asks for a person, by naming `person` or no addressee, is opened for the supervisor,
+    with no due time, as one that caller had put to the supervisor;
   - **who settles it:** a settling reply to a question put to the supervisor is taken only with the token of a
     caller the settings mark as supervising (docs/settings.md, `[callers]`), and one to a question put to a person
     only from a caller that answers for a person: the shared token or a caller the settings do not mark as
@@ -352,9 +357,13 @@ kept in the store may carry. The source is the voice a reply is heard in, whatev
     supervisor before a person, with that same token alone, any other caller's answered 403 `not-the-addressee`.
     It may carry the question in the supervisor's own words, choices and recommendation in the same change. The
     question then stands `open`, its due time counted from that moment, its `readdressedBy` the caller and its
-    `readdressedAt` the moment, and it is told as `question.changed`.
-    A question put to a person is never put to the supervisor, nor a settled one anywhere: either change, and
-    one naming the addressee the question already has, is answered 409 `conflict`;
+    `readdressedAt` the moment, and it is told as `question.changed`;
+  - **who takes it back:** a change naming `addressee` `supervisor` takes an `open` or `paused` question put to a
+    person back to the supervisor while no person has settled it, whoever put it there, with that same token
+    alone, any other caller's answered 403 `not-the-addressee`. The question then stands `open` for the
+    supervisor with no due time, its `readdressedBy` and `readdressedAt` null, and it is told as
+    `question.changed`. A settled question is put nowhere, and a change naming the addressee the question
+    already has is answered 409 `conflict`;
   - **its clock:** a question the supervisor holds has no due time (「The due time」 above);
   - **the list's filter,** `addressee`, one or several comma-separated;
   - **the bmo-receiver port,** which reads only the questions put to a person (「The bmo-receiver port」).
@@ -377,9 +386,9 @@ kept in the store may carry. The source is the voice a reply is heard in, whatev
 | Method and path | Does |
 |---|---|
 | `GET /questions` | Questions filtered by `scope`, `itemId`, `addressee` and `state` |
-| `POST /questions` | Asks: `askerName`, `text` and `choices` required, `itemId`, `scope`, `addressee`, `recommendation`, `waitMs` and `toldByAsker` optional. An `itemId` naming no item is answered 422 `unknown-item`. Answers 201 |
+| `POST /questions` | Asks: `askerName`, `text` and `choices` required, `itemId`, `scope`, `addressee`, `recommendation`, `waitMs` and `toldByAsker` optional; a caller that does not supervise asks the supervisor whatever addressee it names. An `itemId` naming no item is answered 422 `unknown-item`. Answers 201 |
 | `GET /questions/{questionId}` | One question |
-| `PATCH /questions/{questionId}` | Pauses it, opens it again, withdraws it or closes it unsent, with `state`; puts it again in other words with `text`, `choices` and `recommendation`; moves what its asker was handed with `heardThrough`; puts a question to the supervisor before a person with `addressee` |
+| `PATCH /questions/{questionId}` | Pauses it, opens it again, withdraws it or closes it unsent, with `state`; puts it again in other words with `text`, `choices` and `recommendation`; moves what its asker was handed with `heardThrough`; puts a question to the supervisor before a person, or takes one put to a person back to the supervisor, with `addressee` |
 | `GET /questions/{questionId}/replies` | Its replies in key order, past `after`; `waitMs` waits for one |
 | `POST /questions/{questionId}/replies` | Replies: `text` and `actorName` required, `choice` and `settles` optional. Answers 201 |
 

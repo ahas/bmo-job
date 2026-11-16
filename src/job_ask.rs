@@ -9,6 +9,7 @@
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use bmo_job_client::{
   ClientFailure, JobClient, NewQuestion, NewReply, Page, Question, QuestionAddressee, QuestionChange,
@@ -27,6 +28,7 @@ pub const TALK_EXIT: u8 = 3;
 /// The verb's forms, printed under every refusal of its words.
 pub const USAGE: &str = "usage: bmo job ask --todo <id> --question '<what is to be settled or done>' --why '<why you cannot settle it yourself, in one line>' [--option '<one>' --option '<another>' --recommend <n>]
        bmo job ask --talk <question> --say '<your answer>' [--option '<one>' --option '<another>' --recommend <n> [--question '<words>'] [--why '<words>']]
+       bmo job ask --talk <question> --say '<words that ask nothing>' --ack
        bmo job ask --show <question>
        bmo job ask --todo <id> --show";
 
@@ -34,6 +36,12 @@ pub const USAGE: &str = "usage: bmo job ask --todo <id> --question '<what is to 
 // watched, a read is held shorter, so a turn that ended with no word on the question is read soon after.
 const HELD_OPEN_MS: i64 = 60_000;
 const WATCHING_MS: i64 = 15_000;
+
+// How often a supervisor that did not take a question up is woken again, the first rest before a wake when the
+// run's environment names none, and the variable that names one (docs/cli.md, 「`bmo-job job ask`」).
+const MOST_WAKES: u32 = 6;
+const FIRST_WAKE_MS: u64 = 60_000;
+const WAKE_VARIABLE: &str = "BMO_JOB_ASK_WAKE_MS";
 
 // The states a question an ask stands as may be in: every one but those that will never be answered.
 const STANDING: &str = "open,paused,answered";
@@ -75,6 +83,9 @@ pub struct TalkAsk {
   pub recommend: Option<i64>,
   pub text: Option<String>,
   pub why: Option<String>,
+  /// The words ask nothing, an acknowledgement such as that the job waits: written on the question and handed to
+  /// nobody.
+  pub ack: bool,
 }
 
 /// What a call to the receiver came to short of its answer.
@@ -131,12 +142,15 @@ pub enum Notice {
   LetGo,
 }
 
-/// The notice a question was last put before the room's supervisor with, and the last reply before that notice:
-/// kept on the question as its `toldAs`, so a rerun of the same ask watches it as the first run did.
+/// The notice a question was last put before the room's supervisor with, the last reply before that notice, and how
+/// many times the supervisor was woken again on it: kept on the question as its `toldAs`, so a rerun of the same ask
+/// watches it, and counts its wakes, as the first run did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Watch {
   pub notice: i64,
   pub since: Option<i64>,
+  #[serde(default)]
+  pub wakes: u32,
 }
 
 impl Watch {
@@ -451,7 +465,7 @@ fn heard_message(id: i64, heard: &[Reply]) -> String {
     .join("\n");
 
   format!(
-    "The {who} talked on question #{id} instead of settling it, and it is still open:\n{quoted}\n\nAnswer, and wait on it again, with:\n  bmo job ask --talk {id} --say '<your answer>'\nWhere the talk changed the choice, put it again in the same call: --option for every option anew and --recommend, with --question or --why where those changed.\nWhere the supervisor only says it is still at work and asks nothing, run the same ask again: it waits on the question as it stands."
+    "The {who} talked on question #{id} instead of settling it, and it is still open:\n{quoted}\n\nAnswer, and wait on it again, with:\n  bmo job ask --talk {id} --say '<your answer>'\nWhere the talk changed the choice, put it again in the same call: --option for every option anew and --recommend, with --question or --why where those changed.\nWhere the supervisor only says it is still at work and asks nothing, run the same ask again, or say that you wait with --talk {id} --say '<words>' --ack, which wakes nobody: either waits on the question as it stands."
   )
 }
 
@@ -725,6 +739,7 @@ async fn put(
       let watch = told.map(|notice| Watch {
         notice,
         since: None,
+        wakes: 0,
       });
 
       kept_watch(client, &question, watch, stop).await?;
@@ -816,31 +831,44 @@ async fn not_taken_up(
   }
 }
 
-// A question its supervisor did not take up, put to the owner as one no supervisor took: withdrawn on the
-// condition that the supervisor still holds it, and opened again in the job's own words for a person (docs/cli.md,
-// 「`bmo-job job ask`」). None where it could not be withdrawn because it was settled or put elsewhere meanwhile,
-// which the wait then reads.
-async fn untaken(
+// The rest before the supervisor is woken again on a question it has been woken on `wakes` times: the first rest
+// the run's environment names, or a minute, doubled for each wake before.
+fn wake_rest(wakes: u32) -> Duration {
+  let first = std::env::var(WAKE_VARIABLE)
+    .ok()
+    .and_then(|named| named.trim().parse::<u64>().ok())
+    .filter(|ms| *ms > 0)
+    .unwrap_or(FIRST_WAKE_MS);
+
+  Duration::from_millis(first.saturating_mul(1 << wakes.min(16)))
+}
+
+// A question its supervisor did not take up, handed to the room's supervisor anew as `question-for-supervisor`, never
+// to the owner (docs/cli.md, 「`bmo-job job ask`」): the watch on the new notice, its count of wakes one more. A
+// receiver that refuses the order counts the wake as made, so the next rest is longer.
+async fn woken(
   client: &JobClient,
   receiver: &Receiver,
   question: &Question,
+  watched: Watch,
+  heard_through: Option<i64>,
   mut stop: std::pin::Pin<&mut impl Future<Output = ()>>,
-) -> Result<Option<(Question, Option<Watch>)>, String> {
-  let room = question.scope.as_deref().and_then(|scope| scope.parse::<i64>().ok()).ok_or_else(|| {
-    format!("ask: question #{} stands in no room, so it cannot go to the owner", question.id)
-  })?;
-  let withdrawing = QuestionChange {
-    state: Some(QuestionState::Withdrawn),
-    if_addressee: Some(QuestionAddressee::Supervisor),
-    ..QuestionChange::default()
+) -> Result<Watch, String> {
+  let id = question.id;
+  let wakes = watched.wakes + 1;
+  let room = question
+    .scope
+    .as_deref()
+    .and_then(|scope| scope.parse::<i64>().ok())
+    .ok_or_else(|| format!("ask: question #{id} stands in no room, so its supervisor cannot be woken"))?;
+  let item = question.item_id.unwrap_or_default();
+  let title = match item > 0 {
+    true => match title_of(client, item, stop.as_mut()).await {
+      Ok(title) => title,
+      Err(()) => return Err(withdrawn(client, receiver, id, None).await),
+    },
+    false => None,
   };
-
-  match until_answered("ask", stop.as_mut(), || client.change_question(question.id, &withdrawing)).await {
-    Ok(_) => {}
-    Err(Halt::Answered(_)) => return Ok(None),
-    Err(Halt::Stopped) => return Err(withdrawn(client, receiver, question.id, None).await),
-  }
-
   let recommend = question
     .recommendation
     .as_ref()
@@ -848,25 +876,39 @@ async fn untaken(
     .and_then(|at| i64::try_from(at + 1).ok())
     .unwrap_or(0);
   let why = question.recommendation.as_ref().map(|kept| kept.why.clone()).unwrap_or_default();
-  let opening = NewQuestion {
-    item_id: question.item_id,
-    asker_name: question.asker_name.clone(),
-    scope: question.scope.clone(),
-    addressee: Some(QuestionAddressee::Person),
-    text: question.text.clone(),
-    choices: question.choices.clone(),
-    recommendation: question.recommendation.clone(),
-    wait_ms: None,
-    told_by_asker: true,
-  };
-  let (put_to_owner, watch) = put(client, receiver, &opening, room, recommend, &why, stop).await?;
-
-  eprintln!(
-    "ask: the supervisor did not take up question #{} (its notice was let go untaken, or the turn that took it ended with no word on it), so it is withdrawn and put to the owner as question #{}",
-    question.id, put_to_owner.id
+  let order = format!(
+    "{}\n\nwoken again: {wakes} of {MOST_WAKES}, as the question was not taken up",
+    question_order(item, title.as_deref(), question, recommend, &why)
   );
+  let summary = format!("Question #{id} still awaits the supervisor");
+  let kind = order_kind(QuestionAddressee::Supervisor);
+  let ordered =
+    until_answered("ask", stop.as_mut(), || receiver.order(room, kind, id, &summary, &order)).await;
+  let since = heard_through.max(watched.since);
 
-  Ok(Some((put_to_owner, watch)))
+  match ordered {
+    Ok(Some(notice)) => {
+      let watch = Watch {
+        notice,
+        since,
+        wakes,
+      };
+
+      kept_watch(client, question, Some(watch), stop).await?;
+      eprintln!(
+        "ask: the supervisor did not take up question #{id} (its notice was let go untaken, or the turn that took it ended with no word on it), so it is woken again, {wakes} of {MOST_WAKES}; the question stays with it"
+      );
+
+      Ok(watch)
+    }
+    Ok(None) => Ok(Watch { wakes, ..watched }),
+    Err(Halt::Answered(why)) => {
+      eprintln!("ask: the supervisor could not be woken again on question #{id}: {why}");
+
+      Ok(Watch { wakes, ..watched })
+    }
+    Err(Halt::Stopped) => Err(withdrawn(client, receiver, id, None).await),
+  }
 }
 
 /// The job's answer in a talk put in the owner's room, the question put again where the answer changed it, and
@@ -891,6 +933,12 @@ pub async fn talk(
     return Err(refused(&refusal));
   }
 
+  if asked.ack && (!asked.options.is_empty() || asked.text.is_some() || asked.why.is_some()) {
+    return Err(refused(
+      "an acknowledgement asks nothing and leaves the question's words as they stand: leave out --option, --recommend, --question and --why.",
+    ));
+  }
+
   let mut stop = std::pin::pin!(stop);
   let question = match until_answered("ask", stop.as_mut(), || client.question(asked.question)).await {
     Ok(question) => question,
@@ -900,6 +948,10 @@ pub async fn talk(
 
   if !matches!(question.state, QuestionState::Open | QuestionState::Paused) {
     return wait_on(client, receiver, question, None, stop).await;
+  }
+
+  if asked.ack {
+    return acknowledged(client, receiver, question, &asked.say, stop).await;
   }
 
   let room = question
@@ -999,11 +1051,39 @@ pub async fn talk(
   let watch = told.map(|notice| Watch {
     notice,
     since: Some(reply.id),
+    wakes: 0,
   });
 
   kept_watch(client, &question, watch, stop.as_mut()).await?;
 
   let watch = watch.filter(|_| question.addressee == QuestionAddressee::Supervisor);
+
+  wait_on(client, receiver, question, watch, stop).await
+}
+
+// The job's words that ask nothing, written on the question and handed to nobody, and the same question waited on
+// again: the notice kept on it is watched as it stood, so the acknowledgement wakes nobody and asks no word.
+async fn acknowledged(
+  client: &JobClient,
+  receiver: &Receiver,
+  question: Question,
+  say: &str,
+  mut stop: std::pin::Pin<&mut impl Future<Output = ()>>,
+) -> Result<Ending, String> {
+  let said = NewReply {
+    choice: None,
+    text: say.to_owned(),
+    actor_name: question.asker_name.clone(),
+    settles: Some(false),
+  };
+
+  match until_answered("ask", stop.as_mut(), || client.reply(question.id, &said)).await {
+    Ok(_) => {}
+    Err(Halt::Answered(why)) => return Err(format!("ask: {why}")),
+    Err(Halt::Stopped) => return stopped(client, receiver, question.id, None).await,
+  }
+
+  let watch = Watch::kept(&question).filter(|_| question.addressee == QuestionAddressee::Supervisor);
 
   wait_on(client, receiver, question, watch, stop).await
 }
@@ -1034,9 +1114,10 @@ async fn withdrawn(client: &JobClient, receiver: &Receiver, id: i64, told: Optio
 }
 
 // The question and its replies read until the supervisor or a person settles it, or one of them talks. A stop
-// withdraws it. While the supervisor holds it, its notice is read too: one the supervisor did not take up puts the
-// question to the owner instead. A service that does not answer is asked again, since a restart is no answer, and
-// so is keeping where the job heard through; a service that no longer holds the question ends the wait.
+// withdraws it. While the supervisor holds it, its notice is read too: a supervisor that did not take it up is woken
+// again after a rest that doubles with each wake, and past the last wake nobody is; the question stays with the
+// supervisor either way. A service that does not answer is asked again, since a restart is no answer, and so is
+// keeping where the job heard through; a service that no longer holds the question ends the wait.
 async fn wait_on(
   client: &JobClient,
   receiver: &Receiver,
@@ -1049,6 +1130,8 @@ async fn wait_on(
   let mut after = question.heard_through;
   let mut stop = std::pin::pin!(stop);
   let mut rests = Rests::default();
+  // When the supervisor that did not take the question up is woken again, once a rest has passed.
+  let mut wake_at: Option<tokio::time::Instant> = None;
 
   loop {
     let id = question.id;
@@ -1063,14 +1146,21 @@ async fn wait_on(
       };
 
       match read {
-        Ok(false) => {}
+        Ok(false) => wake_at = None,
+        Ok(true) if watched.wakes >= MOST_WAKES => {
+          eprintln!(
+            "ask: the supervisor was woken {MOST_WAKES} times on question #{id} and has not taken it up; it stays with the supervisor, and nobody is woken again"
+          );
+          watch = None;
+
+          continue;
+        }
         Ok(true) => {
-          if let Some((put_to_owner, put_watch)) =
-            untaken(client, receiver, &question, stop.as_mut()).await?
-          {
-            question = put_to_owner;
-            watch = put_watch;
-            after = None;
+          let at = *wake_at.get_or_insert_with(|| tokio::time::Instant::now() + wake_rest(watched.wakes));
+
+          if tokio::time::Instant::now() >= at {
+            watch = Some(woken(client, receiver, &question, watched, after, stop.as_mut()).await?);
+            wake_at = None;
 
             continue;
           }
@@ -1087,9 +1177,19 @@ async fn wait_on(
       }
     }
 
+    // A read is held shorter while the notice is watched, and no longer than until a wake is due.
+    let hold = match (watch.is_some(), wake_at) {
+      (false, _) => HELD_OPEN_MS,
+      (true, None) => WATCHING_MS,
+      (true, Some(at)) => {
+        let left = at.saturating_duration_since(tokio::time::Instant::now()).as_millis();
+
+        i64::try_from(left).unwrap_or(WATCHING_MS).clamp(1, WATCHING_MS)
+      }
+    };
     let looked = tokio::select! {
       () = &mut stop => return stopped(client, receiver, id, told).await,
-      looked = look(client, id, after, question.addressee, watch.is_some()) => looked,
+      looked = look(client, id, after, question.addressee, hold) => looked,
     };
     let (current, page) = match looked {
       Ok(Some(looked)) => {
@@ -1121,6 +1221,12 @@ async fn wait_on(
       }
 
       eprintln!("ask: the supervisor put question #{id} to the owner; waiting on his answer");
+    }
+
+    // The supervisor took it back from the owner: it holds it itself, so there is no notice to watch.
+    if question.addressee == QuestionAddressee::Person && current.addressee == QuestionAddressee::Supervisor
+    {
+      eprintln!("ask: the supervisor took question #{id} back from the owner; waiting on it");
     }
 
     let asker = question.asker_name.clone();
@@ -1168,7 +1274,7 @@ async fn look(
   id: i64,
   after: Option<i64>,
   holding: QuestionAddressee,
-  watching: bool,
+  hold_ms: i64,
 ) -> Result<Option<(Question, Page<Reply>)>, ClientFailure> {
   let current = client.question(id).await?;
 
@@ -1177,7 +1283,7 @@ async fn look(
   }
 
   let query = WaitQuery {
-    wait_ms: (current.addressee == holding).then_some(if watching { WATCHING_MS } else { HELD_OPEN_MS }),
+    wait_ms: (current.addressee == holding).then_some(hold_ms),
     after,
     limit: None,
   };

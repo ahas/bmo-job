@@ -69,13 +69,17 @@ that would give any of them another value is refused 409 `item-frozen` with that
    the `text` and the `choices` (empty for an open question), then `job_replies` with a `waitMs` until a reply
    settles it. Keep the lease meanwhile. Give `recommendation` as `{answer, why}` only where you can make the
    case for that answer on the merits of the work and the rules; never the safe or timid answer by default.
-   Leave it out where you cannot make the case. Either way the question waits for a person's answer however
-   long that takes; `waitMs` only says when it is told of as due, a minute where left out.
+   Leave it out where you cannot make the case. Where your token is not a caller the deployment marks as
+   supervising the work, the question goes to the supervisor, which settles it or puts it to a person; either
+   way it waits for its answer however long that takes, and `waitMs` only says when a question put to a person
+   is told of as due, a minute where left out.
 6. Holding a question put to the supervisor (`addressee` `supervisor`), where your token is a caller the
    deployment marks as supervising the work: do or find what it asks and settle it with `job_reply`, what you did
    or found as its `text`; talk it over with its asker by a `job_reply` that settles nothing; or, where the
    choice is a person's to make, put it to a person with `job_question_change`, `addressee` `person`, and the
-   `text`, `choices` and `recommendation` in your own words. Its clock starts then.
+   `text`, `choices` and `recommendation` in your own words. Its clock starts then. A question put to a person
+   that nobody has settled, which you would rather settle yourself, you take back with `job_question_change`,
+   `addressee` `supervisor`; its clock stops, and it is yours again.
 
 ## A base library missing a part
 
@@ -118,4 +122,4 @@ each one is.
 A refused call comes back as a tool error whose text is the service's `status`, `code` and `error` sentence.
 `not-found` names nothing at that key; `conflict` is a move the member's state does not allow; `gone` is a
 lease or subscription that has ended; `queue-not-open` is a queue paused or under a hold; `not-the-addressee` is a
-question put to the supervisor that your token may not settle or put elsewhere.
+question whose addressee your token may not settle or move.
