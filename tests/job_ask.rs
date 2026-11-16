@@ -210,6 +210,23 @@ async fn opened(client: &JobClient, heard: &Heard, orders: usize) -> Question {
   panic!("the question was never handed to the room");
 }
 
+// The question once the notice numbered `notice` is kept on it, which the command writes after handing it over.
+async fn kept_notice(client: &JobClient, id: i64, notice: i64) -> Question {
+  let mark = format!("\"notice\":{notice}");
+
+  for _ in 0..600 {
+    let question = client.question(id).await.expect("the question");
+
+    if question.told_as.as_deref().is_some_and(|kept| kept.contains(&mark)) {
+      return question;
+    }
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+  }
+
+  panic!("notice {notice} was never kept on question #{id}");
+}
+
 async fn ended(child: Child) -> (i32, String, String) {
   let output = tokio::time::timeout(Duration::from_secs(60), child.wait_with_output())
     .await
@@ -1169,6 +1186,7 @@ async fn a_notice_let_go_untaken_wakes_the_supervisor_again_and_the_question_sta
   let item = item(&client).await;
   let child = asked_waking(&service, &address, item, 50);
   let held = opened(&client, &heard, 2).await;
+  let held = kept_notice(&client, held.id, 2).await;
 
   assert_eq!((held.addressee, held.due_at), (QuestionAddressee::Supervisor, None));
   assert_eq!(rows(&client, item).await.len(), 1, "nothing is put to the owner");
@@ -1176,10 +1194,7 @@ async fn a_notice_let_go_untaken_wakes_the_supervisor_again_and_the_question_sta
   assert!(woken.starts_with(&format!("question-for-supervisor #{}", held.id)), "{woken}");
   assert!(woken.contains("woken again: 1 of 6"), "{woken}");
   assert!(
-    held
-      .told_as
-      .as_deref()
-      .is_some_and(|kept| kept.contains("\"notice\":2") && kept.contains("\"wakes\":1")),
+    held.told_as.as_deref().is_some_and(|kept| kept.contains("\"wakes\":1")),
     "{:?}",
     held.told_as
   );
@@ -1265,11 +1280,7 @@ async fn a_turn_that_ended_with_no_word_on_the_question_wakes_the_supervisor_aga
   let child = asked_waking(&service, &address, item, 50);
   let held = opened(&client, &heard, 1).await;
 
-  assert!(
-    held.told_as.as_deref().is_some_and(|kept| kept.contains("\"notice\":1")),
-    "{:?}",
-    held.told_as
-  );
+  kept_notice(&client, held.id, 1).await;
   heard.delivered.lock().expect("the orders delivered").push(1);
 
   let woken = opened(&client, &heard, 2).await;
@@ -1363,6 +1374,7 @@ async fn a_rerun_whose_kept_notice_was_let_go_wakes_the_supervisor_again() {
   let item = item(&client).await;
   let first = asked(&service, &address, item);
   let held = opened(&client, &heard, 1).await;
+  kept_notice(&client, held.id, 1).await;
   drop(first);
 
   heard.let_go.lock().expect("the orders let go").push(1);
