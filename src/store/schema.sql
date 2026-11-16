@@ -121,7 +121,8 @@ CREATE TABLE questions (
   addressee TEXT NOT NULL DEFAULT 'person',
   wait_ms INTEGER NOT NULL DEFAULT 60000,
   readdressed_by TEXT,
-  readdressed_at INTEGER
+  readdressed_at INTEGER,
+  told_as TEXT
 );
 CREATE INDEX questions_by_item ON questions (item_id);
 CREATE INDEX questions_by_scope ON questions (scope);

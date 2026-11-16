@@ -143,7 +143,7 @@ it to the owner in its own words, and from then on it is the owner's question as
   | The supervisor settled it | Its answer, as it wrote it | | 0 |
   | A person settled it, once the supervisor put it to him | One line: the option's words, or his own | | 0 |
   | Somebody settled the same question before this run | The same answer | `ask: question #<n> was settled before; its answer stands` | 0 |
-  | The supervisor or the owner talked instead of settling; the question stays open | Their words and the call that answers them | | 3 |
+  | The supervisor or the owner talked instead of settling; the question stays open | Their words, each under the voice that said it, and the call that answers them | | 3 |
   | The question could not be put, the receiver refusing it; it is closed `unsent` | Nothing | Why | 1 |
   | The question was withdrawn, or the run was told to stop, which withdraws a question already opened | Nothing | Why | 1 |
   | The words were refused; no question opened | Nothing | Why, and the usage | 1 |
@@ -157,8 +157,9 @@ it to the owner in its own words, and from then on it is the owner's question as
   hash or a long address — or where the question runs past 500 characters or 5 lines, an option past 160
   characters, or the reason past 240. A long reading goes into the archive and its address into the question.
   The job's answer to a talk is refused on code the same way, its length its own.
-- **An answer comes back as it was given.** The supervisor's is printed as it wrote it, a result of several
-  lines among it; a person's is one line, the option he took or his own words. A recommendation is shown and
+- **An answer comes back as it was given,** read by the voice the service heard it in (docs/api.md, "Questions
+  and replies"). The supervisor's is printed as it wrote it, a result of several lines among it; a person's is one
+  line, the option he took or his own words. A recommendation is shown and
   never answers: it is printed only where a person settled the question with it. A settling reply no person or
   supervisor gave is refused: the verb ends 1 and prints no answer.
 - **Putting the question.** The verb reads the owner's private room from the receiver's `GET /owner`, opens the
@@ -173,16 +174,25 @@ it to the owner in its own words, and from then on it is the owner's question as
   owner (docs/api.md, 「The tools」). It carries no other instruction, since how a notice is read stands in the
   receiving session's own instructions.
 - **While the supervisor holds it,** the question has no due time and no clock bounds the wait; the supervisor's
-  notice does. The receiver keeps a notice with no expiry and holds it while the supervisor's session cannot be
-  reached, so a supervisor that is busy or down delays the answer and loses nothing. The verb reads the notice as
-  it waits. One the receiver let go before the supervisor settled the question, talked on it or put it to the
-  owner — its round stopped, its session reset, no turn able to take it — will never be taken, and the question
-  then goes to the owner as one no supervisor could take: the verb withdraws it, opens a new question in the
-  job's own words put to a person, hands that to the room's supervisor as `question-awaits-answer` and waits on it
-  as on any of his, saying on the standard error which question went where. A notice whose turn ended while the
-  question still waits is left to the supervisor, since work it started, a deployment among it, can end later.
-  An ask that stands on a question asked before, or waits again after a talk, holds no notice of its own and
-  reads none.
+  notice does, read through the receiver's `GET /instructions/{id}` as the verb waits. The receiver keeps a notice
+  with no expiry and holds it while the supervisor's session cannot be reached, so a supervisor that is busy or
+  down delays the answer and loses nothing. The question goes to the owner as one its supervisor did not take up
+  in two cases, both events the receiver states:
+  - the notice was let go untaken — its round stopped, its session reset, no turn able to take it — which the
+    receiver answers as gone;
+  - the notice reads `delivered`, which the receiver writes only once the round that carried it ended after its
+    turn ended, and since the notice the supervisor said no word on the question: it did not settle it, talk on
+    it or put it to the owner.
+
+  The verb then withdraws the question, on the condition that the supervisor still holds it, opens a new
+  question in the job's own words put to a person, hands that to the room's supervisor as
+  `question-awaits-answer` and waits on it as on any of his, saying on the standard error which question went
+  where. A supervisor whose work ends outside its turn, a deployment among it, says so in a word on the question
+  before its turn ends, and the question stays with it.
+- **The notice is kept on the question,** as its `toldAs`: the notice's number and the last reply before it. An ask
+  that stands on a question asked before reads the notice kept there, so a rerun job watches it as the first run
+  did. The job's answer to a talk on a question the supervisor holds is a notice of its own, `question-talk`, kept
+  the same way, and the rule above holds for the turn it wakes.
 - **Once it is the owner's,** put to him by the supervisor or by the verb as above, the verb says so on the
   standard error once and waits on his answer: the due time the service counts from that moment, a minute where
   the ask named none, paces the one notice `question.due` tells and settles nothing.

@@ -877,6 +877,12 @@ export interface components {
             scope: string | null;
             state: components["schemas"]["QuestionState"];
             text: string;
+            /**
+             * @description The asker's own reference to the notice it put the question before whoever answers it with, opaque to the
+             *     service; null where it keeps none.
+             * @default null
+             */
+            toldAs: string | null;
             /** @description Whether the asker puts it before whoever answers it itself, so no consumer of the events tells of it. */
             toldByAsker: boolean;
         };
@@ -899,9 +905,16 @@ export interface components {
              * @description The last reply the asker was handed.
              */
             heardThrough?: number | null;
+            /**
+             * @description Makes the whole change conditional on the question being put to this addressee; nothing is changed and the
+             *     change is refused `conflict` otherwise.
+             */
+            ifAddressee?: components["schemas"]["QuestionAddressee"] | null;
             recommendation?: components["schemas"]["QuestionRecommendation"] | null;
             state?: components["schemas"]["QuestionState"] | null;
             text?: string | null;
+            /** @description The asker's reference to the notice it put the question before whoever answers it with, set or replaced. */
+            toldAs?: string | null;
         };
         /** @description One page of a list, and whether anything stands past its last member. */
         QuestionPage: {
@@ -966,7 +979,10 @@ export interface components {
             questionId: number;
             /** @description Whether the reply settled the question, or is a word on it. */
             settles: boolean;
-            /** @description Who gave it: a person for every reply written; a reply kept in the store may read `recommendation`. */
+            /**
+             * @description The voice it was given in: `supervisor` from a caller that supervises the work, `person` from any other; a
+             *     reply kept in the store may read `recommendation`.
+             */
             source: components["schemas"]["ReplySource"];
             text: string;
             /** @description The recommendation's reason on a reply whose source is the recommendation; null for a person's reply. */
@@ -978,10 +994,11 @@ export interface components {
             more: boolean;
         };
         /**
-         * @description Who gave a reply.
+         * @description Who gave a reply: a caller that answers for a person, a caller that supervises the work, or, on a reply kept
+         *     in the store, a recommendation.
          * @enum {string}
          */
-        ReplySource: "person" | "recommendation";
+        ReplySource: "person" | "supervisor" | "recommendation";
         /** @description A report on an item. */
         Report: {
             actorName: string;

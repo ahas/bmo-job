@@ -35,6 +35,7 @@ struct Heard {
   orders: Arc<Mutex<Vec<Value>>>,
   withdrawn: Arc<Mutex<Vec<i64>>>,
   let_go: Arc<Mutex<Vec<i64>>>,
+  delivered: Arc<Mutex<Vec<i64>>>,
   owner_unavailable: Arc<AtomicUsize>,
   orders_unavailable: Arc<AtomicUsize>,
 }
@@ -76,13 +77,20 @@ async fn instruct(
   (StatusCode::CREATED, axum::Json(json!({ "id": orders.len() })))
 }
 
-// An order as the receiver reads it back: standing, or gone once let go untaken.
+// An order as the receiver reads it back: pending, delivered once the turn that took it ended, or gone once let go
+// untaken.
 async fn order_state(State(heard): State<Heard>, Path(id): Path<i64>) -> (StatusCode, axum::Json<Value>) {
   if heard.let_go.lock().expect("the orders let go").contains(&id) {
     return (StatusCode::NOT_FOUND, axum::Json(json!({ "code": "not_found", "error": "let go" })));
   }
 
-  (StatusCode::OK, axum::Json(json!({ "id": id, "state": "pending" })))
+  let state = if heard.delivered.lock().expect("the orders delivered").contains(&id) {
+    "delivered"
+  } else {
+    "pending"
+  };
+
+  (StatusCode::OK, axum::Json(json!({ "id": id, "state": state })))
 }
 
 async fn withdraw(State(heard): State<Heard>, Path(id): Path<i64>) -> StatusCode {
@@ -1222,4 +1230,128 @@ async fn an_open_question_puts_no_options_and_the_supervisor_answers_it_in_its_o
   .await;
   assert_eq!(code, 1);
   assert!(err.contains("an open question puts none"), "{err}");
+}
+
+fn supervisors_word(text: &str) -> NewReply {
+  NewReply {
+    choice: None,
+    text: text.to_owned(),
+    actor_name: "lead".to_owned(),
+    settles: Some(false),
+  }
+}
+
+#[tokio::test]
+async fn a_turn_that_ended_with_no_word_on_the_question_puts_it_to_the_owner() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let item = item(&client).await;
+  let child = asked(&service, &address, item);
+  let held = opened(&client, &heard, 1).await;
+
+  assert!(
+    held.told_as.as_deref().is_some_and(|kept| kept.contains("\"notice\":1")),
+    "{:?}",
+    held.told_as
+  );
+  heard.delivered.lock().expect("the orders delivered").push(1);
+
+  let put = opened(&client, &heard, 2).await;
+  assert_eq!(put.addressee, QuestionAddressee::Person);
+  assert!(order_text(&heard, 1).starts_with(&format!("question-awaits-answer #{}", put.id)));
+
+  client
+    .reply(put.id, &person(Some("strict grammar"), "strict"))
+    .await
+    .expect("he answers");
+  let (code, out, err) = ended(child).await;
+
+  assert_eq!(code, 0, "{err}");
+  assert_eq!(out.trim(), "strict grammar");
+  assert!(err.contains("ended with no word on it"), "{err}");
+}
+
+#[tokio::test]
+async fn a_supervisors_word_keeps_the_question_with_it_and_a_rerun_watches_the_kept_notice() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let item = item(&client).await;
+  let child = asked(&service, &address, item);
+  let held = opened(&client, &heard, 1).await;
+
+  service
+    .supervisor()
+    .reply(held.id, &supervisors_word("deploying it; I answer once it is live"))
+    .await
+    .expect("a word");
+  heard.delivered.lock().expect("the orders delivered").push(1);
+
+  let (code, out, err) = ended(child).await;
+  assert_eq!(code, i32::from(bmo_job::job_ask::TALK_EXIT), "{err}");
+  assert!(out.starts_with(&format!("The supervisor talked on question #{}", held.id)), "{out}");
+  assert!(out.contains("the supervisor:\n> deploying it"), "{out}");
+
+  // The rerun stands on the same question and watches the notice kept on it: delivered, yet the supervisor's word
+  // stands since, so the question stays with it.
+  let child = asked(&service, &address, item);
+  tokio::time::sleep(Duration::from_millis(1_500)).await;
+  assert_eq!(heard.orders.lock().expect("the orders").len(), 1, "nobody is told again");
+  assert_eq!(rows(&client, item).await.len(), 1, "nothing is put to the owner");
+
+  service
+    .supervisor()
+    .reply(held.id, &person(None, "live at the commit"))
+    .await
+    .expect("settled");
+  let (code, out, err) = ended(child).await;
+  assert_eq!(code, 0, "{err}");
+  assert_eq!(out, "live at the commit\n");
+}
+
+#[tokio::test]
+async fn a_rerun_whose_kept_notice_was_let_go_puts_the_question_to_the_owner() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let item = item(&client).await;
+  let first = asked(&service, &address, item);
+  let held = opened(&client, &heard, 1).await;
+  drop(first);
+
+  heard.let_go.lock().expect("the orders let go").push(1);
+  let child = asked(&service, &address, item);
+  let put = opened(&client, &heard, 2).await;
+
+  assert_eq!((put.addressee, put.text.as_str()), (QuestionAddressee::Person, held.text.as_str()));
+  client.reply(put.id, &person(Some("loose grammar"), "loose")).await.expect("he answers");
+  let (code, out, err) = ended(child).await;
+  assert_eq!(code, 0, "{err}");
+  assert_eq!(out.trim(), "loose grammar");
+}
+
+#[tokio::test]
+async fn the_supervisor_cannot_answer_what_it_put_to_the_owner_and_its_word_there_is_told_as_its_own() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let item = item(&client).await;
+  let child = asked(&service, &address, item);
+  let held = opened(&client, &heard, 1).await;
+
+  to_owner(&service, held.id).await;
+  let refused = service.supervisor().reply(held.id, &person(Some("strict grammar"), "strict")).await;
+  assert_eq!(refused.expect_err("not its to settle").code(), Some("not-the-addressee"));
+
+  service
+    .supervisor()
+    .reply(held.id, &supervisors_word("he asked me which grammar the parser takes"))
+    .await
+    .expect("a word");
+  let (code, out, err) = ended(child).await;
+
+  assert_eq!(code, i32::from(bmo_job::job_ask::TALK_EXIT), "{err}");
+  assert!(out.starts_with("The supervisor talked"), "{out}");
+  assert!(!out.contains("The owner"), "the word is the supervisor's, not the owner's: {out}");
 }

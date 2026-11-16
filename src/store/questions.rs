@@ -16,7 +16,8 @@ use crate::access::Caller;
 use crate::refusal::Refusal;
 
 const QUESTION_COLUMNS: &str = "id, item_id, asker_name, scope, addressee, text, choices, recommendation, state, \
-  due_at, remaining_ms, due_told, told_by_asker, heard_through, wait_ms, readdressed_by, readdressed_at, created_at";
+  due_at, remaining_ms, due_told, told_by_asker, heard_through, wait_ms, readdressed_by, readdressed_at, told_as, \
+  created_at";
 
 /// The wait a question gets where the asker names none, and the least and longest it may name.
 const DEFAULT_ASK_WAIT_MS: i64 = 60_000;
@@ -49,6 +50,7 @@ fn kept_from(row: &SqliteRow) -> Result<Kept, Refusal> {
       state: stored(row.try_get("state")?, QuestionState::parse)?,
       due_at: row.try_get("due_at")?,
       told_by_asker: row.try_get::<i64, _>("told_by_asker")? != 0,
+      told_as: row.try_get("told_as")?,
       heard_through: row.try_get("heard_through")?,
       readdressed_by: row.try_get("readdressed_by")?,
       readdressed_at: row.try_get("readdressed_at")?,
@@ -99,8 +101,8 @@ pub(crate) async fn question_keys(tx: &mut Tx, question: &Question) -> Result<Ev
 async fn save_question(tx: &mut Tx, kept: &Kept, due_told: bool) -> Result<(), Refusal> {
   sqlx::query(
     "UPDATE questions SET state = $1, due_at = $2, remaining_ms = $3, due_told = $4, recommendation = $5, \
-     text = $6, choices = $7, heard_through = $8, addressee = $9, readdressed_by = $10, readdressed_at = $11 \
-     WHERE id = $12",
+     text = $6, choices = $7, heard_through = $8, addressee = $9, readdressed_by = $10, readdressed_at = $11, \
+     told_as = $12 WHERE id = $13",
   )
   .bind(kept.question.state.as_str())
   .bind(kept.question.due_at)
@@ -113,6 +115,7 @@ async fn save_question(tx: &mut Tx, kept: &Kept, due_told: bool) -> Result<(), R
   .bind(kept.question.addressee.as_str())
   .bind(&kept.question.readdressed_by)
   .bind(kept.question.readdressed_at)
+  .bind(&kept.question.told_as)
   .bind(kept.question.id)
   .execute(&mut **tx)
   .await?;
@@ -310,6 +313,8 @@ impl Store {
       recommendation,
       heard_through,
       addressee,
+      told_as,
+      if_addressee,
     } = change;
     if state.is_none()
       && text.is_none()
@@ -317,14 +322,27 @@ impl Store {
       && recommendation.is_none()
       && heard_through.is_none()
       && addressee.is_none()
+      && told_as.is_none()
     {
       return Err(Refusal::bad_request(
-        "A change names a state, words, what the asker was handed, or who the question is put to.",
+        "A change names a state, words, what the asker was handed, who the question is put to, or how it was told.",
       ));
     }
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut kept = kept_at(&mut tx, id).await?;
+    if let Some(expected) = if_addressee
+      && kept.question.addressee != expected
+    {
+      return Err(Refusal::conflict(format!(
+        "Question {id} is put to the {}, not to the {expected}, and is left as it stands.",
+        kept.question.addressee
+      )));
+    }
+    if let Some(told_as) = told_as {
+      filled("toldAs", &told_as)?;
+      kept.question.told_as = Some(told_as);
+    }
     let mut due_told = kept.due_told;
     let mut moved = false;
     if let Some(addressee) = addressee {
@@ -476,7 +494,7 @@ fn readdressed(
     )));
   }
   if !caller.supervises {
-    return Err(not_the_addressee(question.id));
+    return Err(not_the_addressee(question));
   }
   question.addressee = addressee;
   question.readdressed_by = caller.name.clone();
@@ -487,13 +505,17 @@ fn readdressed(
   Ok(())
 }
 
-fn not_the_addressee(id: i64) -> Refusal {
-  Refusal::new(
-    Code::NotTheAddressee,
-    format!(
+fn not_the_addressee(question: &Question) -> Refusal {
+  let id = question.id;
+  let sentence = match question.addressee {
+    QuestionAddressee::Supervisor => format!(
       "Question {id} is put to the supervisor, and only a caller that supervises the work settles it or puts it elsewhere."
     ),
-  )
+    QuestionAddressee::Person => {
+      format!("Question {id} is put to a person, and a caller that supervises the work does not settle it.")
+    }
+  };
+  Refusal::new(Code::NotTheAddressee, sentence)
 }
 
 /// Writes a reply to a question in the transaction given: a settling reply answers it, a word is added in any
@@ -524,21 +546,11 @@ async fn reply_in(
       kept.question.state
     )));
   }
-  if settles && kept.question.addressee == QuestionAddressee::Supervisor && !caller.supervises {
-    return Err(not_the_addressee(question_id));
+  if settles && (kept.question.addressee == QuestionAddressee::Supervisor) != caller.supervises {
+    return Err(not_the_addressee(&kept.question));
   }
-  write_reply(
-    tx,
-    &mut kept,
-    new.choice,
-    new.text,
-    new.actor_name,
-    settles,
-    ReplySource::Person,
-    None,
-    now,
-  )
-  .await
+  let source = if caller.supervises { ReplySource::Supervisor } else { ReplySource::Person };
+  write_reply(tx, &mut kept, new.choice, new.text, new.actor_name, settles, source, None, now).await
 }
 
 /// Writes a reply to a question in the transaction given, telling it and answering the question where it

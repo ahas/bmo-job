@@ -708,3 +708,104 @@ async fn a_settled_question_is_put_to_nobody_else() {
     .expect_err("settled");
   assert_eq!(refused.code(), Some("conflict"));
 }
+
+async fn put_to_a_person(service: &Service, id: i64) -> bmo_job_client::Question {
+  service
+    .supervisor()
+    .change_question(
+      id,
+      &QuestionChange {
+        addressee: Some(QuestionAddressee::Person),
+        ..QuestionChange::default()
+      },
+    )
+    .await
+    .expect("put to a person")
+}
+
+#[tokio::test]
+async fn the_supervisor_never_settles_what_it_put_to_a_person_and_its_word_there_is_its_own() {
+  let service = Service::start().await;
+  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+  put_to_a_person(&service, question.id).await;
+
+  let refused = service
+    .supervisor()
+    .reply(question.id, &settling("done"))
+    .await
+    .expect_err("not its to settle");
+  assert_eq!(refused.code(), Some("not-the-addressee"));
+
+  let word = service
+    .supervisor()
+    .reply(
+      question.id,
+      &NewReply {
+        settles: Some(false),
+        ..settling("the node is the one in the rack")
+      },
+    )
+    .await
+    .expect("a word for context");
+  assert_eq!((word.settles, word.source), (false, ReplySource::Supervisor));
+
+  let answer = service
+    .approver()
+    .reply(question.id, &reply(None, "the rack one"))
+    .await
+    .expect("the console answers");
+  assert_eq!((answer.settles, answer.source), (true, ReplySource::Person));
+}
+
+#[tokio::test]
+async fn a_change_on_the_condition_of_an_addressee_changes_nothing_where_it_no_longer_holds() {
+  let service = Service::start().await;
+  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+  put_to_a_person(&service, question.id).await;
+
+  let refused = service
+    .client()
+    .change_question(
+      question.id,
+      &QuestionChange {
+        state: Some(QuestionState::Withdrawn),
+        if_addressee: Some(QuestionAddressee::Supervisor),
+        ..QuestionChange::default()
+      },
+    )
+    .await
+    .expect_err("no longer the supervisor's");
+  assert_eq!(refused.code(), Some("conflict"));
+  let standing = service.client().question(question.id).await.expect("read");
+  assert_eq!((standing.state, standing.addressee), (QuestionState::Open, QuestionAddressee::Person));
+}
+
+#[tokio::test]
+async fn the_asker_keeps_its_notice_on_the_question_and_a_move_to_a_person_is_told_as_changed() {
+  let service = Service::start().await;
+  let client = service.client();
+  let question = client.ask(&put_to_the_supervisor(None)).await.expect("asked");
+  let kept = client
+    .change_question(
+      question.id,
+      &QuestionChange {
+        told_as: Some(r#"{"notice":7,"since":null}"#.into()),
+        ..QuestionChange::default()
+      },
+    )
+    .await
+    .expect("kept");
+  assert_eq!(kept.told_as.as_deref(), Some(r#"{"notice":7,"since":null}"#));
+
+  put_to_a_person(&service, question.id).await;
+  let changed = EventQuery {
+    kinds: Some("question.changed".into()),
+    ..EventQuery::default()
+  };
+  let told = client.events_page(&changed).await.expect("read").items;
+  let last = told.last().expect("the move is told");
+  assert_eq!(
+    (last.data["id"].as_i64(), last.data["addressee"].as_str()),
+    (Some(question.id), Some("person"))
+  );
+}

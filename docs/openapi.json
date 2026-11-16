@@ -1172,6 +1172,14 @@
           "text": {
             "type": "string"
           },
+          "toldAs": {
+            "default": null,
+            "description": "The asker's own reference to the notice it put the question before whoever answers it with, opaque to the\nservice; null where it keeps none.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "toldByAsker": {
             "description": "Whether the asker puts it before whoever answers it itself, so no consumer of the events tells of it.",
             "type": "boolean"
@@ -1189,6 +1197,7 @@
           "state",
           "dueAt",
           "toldByAsker",
+          "toldAs",
           "heardThrough",
           "readdressedBy",
           "readdressedAt",
@@ -1236,6 +1245,17 @@
               "null"
             ]
           },
+          "ifAddressee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionAddressee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Makes the whole change conditional on the question being put to this addressee; nothing is changed and the\nchange is refused `conflict` otherwise."
+          },
           "recommendation": {
             "anyOf": [
               {
@@ -1257,6 +1277,13 @@
             ]
           },
           "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toldAs": {
+            "description": "The asker's reference to the notice it put the question before whoever answers it with, set or replaced.",
             "type": [
               "string",
               "null"
@@ -1438,7 +1465,7 @@
           },
           "source": {
             "$ref": "#/components/schemas/ReplySource",
-            "description": "Who gave it: a person for every reply written; a reply kept in the store may read `recommendation`."
+            "description": "The voice it was given in: `supervisor` from a caller that supervises the work, `person` from any other; a\nreply kept in the store may read `recommendation`."
           },
           "text": {
             "type": "string"
@@ -1484,9 +1511,10 @@
         "type": "object"
       },
       "ReplySource": {
-        "description": "Who gave a reply.",
+        "description": "Who gave a reply: a caller that answers for a person, a caller that supervises the work, or, on a reply kept\nin the store, a recommendation.",
         "enum": [
           "person",
+          "supervisor",
           "recommendation"
         ],
         "type": "string"
@@ -5274,6 +5302,17 @@
               "null"
             ]
           },
+          "ifAddressee": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionAddressee"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Makes the whole change conditional on the question being put to this addressee; nothing is changed and the\nchange is refused `conflict` otherwise."
+          },
           "questionId": {
             "format": "int64",
             "type": "integer"
@@ -5299,6 +5338,13 @@
             ]
           },
           "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toldAs": {
+            "description": "The asker's reference to the notice it put the question before whoever answers it with, set or replaced.",
             "type": [
               "string",
               "null"

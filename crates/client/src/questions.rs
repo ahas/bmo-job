@@ -26,9 +26,11 @@ wire_enum! {
 }
 
 wire_enum! {
-  /// Who gave a reply.
+  /// Who gave a reply: a caller that answers for a person, a caller that supervises the work, or, on a reply kept
+  /// in the store, a recommendation.
   ReplySource {
     Person = "person",
+    Supervisor = "supervisor",
     Recommendation = "recommendation",
   }
 }
@@ -65,6 +67,10 @@ pub struct Question {
   pub due_at: Option<i64>,
   /// Whether the asker puts it before whoever answers it itself, so no consumer of the events tells of it.
   pub told_by_asker: bool,
+  /// The asker's own reference to the notice it put the question before whoever answers it with, opaque to the
+  /// service; null where it keeps none.
+  #[serde(default)]
+  pub told_as: Option<String>,
   /// The last reply its asker has been handed; null where it has been handed none.
   pub heard_through: Option<i64>,
   /// The caller that put it to a person in the supervisor's place; null where nobody did.
@@ -125,6 +131,13 @@ pub struct QuestionChange {
   /// `person` puts a question the supervisor holds to a person; only a supervising caller may.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub addressee: Option<QuestionAddressee>,
+  /// The asker's reference to the notice it put the question before whoever answers it with, set or replaced.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub told_as: Option<String>,
+  /// Makes the whole change conditional on the question being put to this addressee; nothing is changed and the
+  /// change is refused `conflict` otherwise.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub if_addressee: Option<QuestionAddressee>,
 }
 
 /// The filters of the question list.
@@ -161,7 +174,8 @@ pub struct Reply {
   pub actor_name: String,
   /// Whether the reply settled the question, or is a word on it.
   pub settles: bool,
-  /// Who gave it: a person for every reply written; a reply kept in the store may read `recommendation`.
+  /// The voice it was given in: `supervisor` from a caller that supervises the work, `person` from any other; a
+  /// reply kept in the store may read `recommendation`.
   pub source: ReplySource,
   /// The recommendation's reason on a reply whose source is the recommendation; null for a person's reply.
   pub why: Option<String>,

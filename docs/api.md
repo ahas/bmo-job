@@ -305,10 +305,13 @@ given back, run out or ended by its item's move, is answered 410 `gone` from the
 A question is asked about an item or on its own: `id`, `itemId`, `askerName`, `scope`, `addressee` (who it is
 put to, below), `text`, `choices` (empty for an open question), `recommendation` (the answer the asker would take
 by itself, and why, or null), `state`, `dueAt`, `toldByAsker` (whether the asker puts it before whoever answers it
-itself), `heardThrough` (the last reply its asker has been handed, or null), `readdressedBy` and `readdressedAt`
-(the caller that put it to a person in the supervisor's place, and when, or null) and `createdAt`. A reply is `id`, `questionId`, `choice`, `text`, `actorName`, `settles`, `source`
-and `why` and `createdAt`. Every reply is written with `source` `person` and `why` null; the type also reads
-`recommendation` with that recommendation's reason, which a reply kept in the store may carry.
+itself), `toldAs` (the asker's own reference to the notice it put the question before whoever answers it with,
+opaque to the service, or null), `heardThrough` (the last reply its asker has been handed, or null), `readdressedBy`
+and `readdressedAt` (the caller that put it to a person in the supervisor's place, and when, or null) and
+`createdAt`. A reply is `id`, `questionId`, `choice`, `text`, `actorName`, `settles`, `source` and `why` and
+`createdAt`. A reply is written with `source` `supervisor` where the caller supervises the work and `person`
+otherwise, and `why` null; the type also reads `recommendation` with that recommendation's reason, which a reply
+kept in the store may carry. The source is the voice a reply is heard in, whatever `actorName` says.
 
 - **States:** `open`, `paused`, `answered`, `withdrawn`, `unsent`. `open` and `paused` move to each other, to
   `withdrawn` and to `unsent` by a change; a settling reply moves `open` or `paused` to `answered`. Any other
@@ -340,8 +343,11 @@ and `why` and `createdAt`. Every reply is written with `source` `person` and `wh
   itself with what it did or found, talks it over with the asker, or puts it to a person in its own words. The
   service reads the addressee in five places and nowhere else:
   - **who settles it:** a settling reply to a question put to the supervisor is taken only with the token of a
-    caller the settings mark as supervising (docs/settings.md, `[callers]`); any other caller's is answered 403
-    `not-the-addressee`. A word that settles nothing is taken from anyone, as on every question;
+    caller the settings mark as supervising (docs/settings.md, `[callers]`), and one to a question put to a person
+    only from a caller that answers for a person: the shared token or a caller the settings do not mark as
+    supervising. Any other is answered 403 `not-the-addressee`, so the supervisor never answers what it put to a
+    person. A word that settles nothing is taken from anyone, as on every question, and is heard in its caller's
+    voice: a supervisor's word on a question put to a person is the supervisor's, never the person's;
   - **who puts it to a person:** a change naming `addressee` `person` puts an `open` or `paused` question from the
     supervisor before a person, with that same token alone, any other caller's answered 403 `not-the-addressee`.
     It may carry the question in the supervisor's own words, choices and recommendation in the same change. The
@@ -358,7 +364,11 @@ and `why` and `createdAt`. Every reply is written with `source` `person` and `wh
 - **A change while it waits.** `text`, `choices` and `recommendation` put an `open` or `paused` question again in
   other words, judged as an ask is, and answered 409 `conflict` on any other. `heardThrough` moves on the last
   reply the asker was handed, so a reply said after it is not lost between one wait and the next; it never moves
-  back. `addressee` is stated under 「The addressee」 above. A change holding none of the five is `bad-request`.
+  back. `addressee` is stated under 「The addressee」 above. `toldAs` is set or replaced as the asker gives it.
+  `ifAddressee` makes the whole change conditional: where the question is no longer put to the addressee it
+  names, nothing is changed and the change is answered 409 `conflict`, so an asker never withdraws a question
+  the supervisor has just put to a person. A change holding none of `state`, `text`, `choices`, `recommendation`,
+  `heardThrough`, `addressee` and `toldAs` is `bad-request`.
 - **A reply settles the question** when its `settles` says so; left out, a reply settles when it carries a
   `choice` or the question has no choices, and is a word on the question otherwise. A `choice` is one of the
   question's choices or is answered 422 `not-a-choice`. A settling reply to a question already answered or
