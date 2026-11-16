@@ -5,12 +5,13 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use bmo_job_client::{ApprovalKind, Code, ErrorBody, NewReply, QuestionState};
+use bmo_job_client::{ApprovalKind, Code, ErrorBody, NewReply, QuestionAddressee, QuestionState};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::App;
 use super::extract::{InBody, InPath, InQuery};
+use crate::access::Caller;
 use crate::refusal::Refusal;
 
 /// Who the owner's answer and talk are written as: the port speaks for him.
@@ -172,6 +173,10 @@ pub(super) async fn settle(
     Err(refusal) if refusal.code == Code::NotFound => return Err(absent(chosen.id)),
     Err(refusal) => return Err(refusal.into()),
   };
+  // A question the supervisor holds is not the owner's to answer, and the port does not know it.
+  if question.addressee != QuestionAddressee::Person {
+    return Err(absent(chosen.id));
+  }
   if matches!(
     question.state,
     QuestionState::Answered | QuestionState::Withdrawn | QuestionState::Unsent
@@ -195,7 +200,7 @@ pub(super) async fn settle(
     actor_name: OWNER.to_owned(),
     settles: Some(true),
   };
-  match app.store.reply(chosen.id, answer).await {
+  match app.store.reply(chosen.id, answer, &Caller::shared()).await {
     // A question another answer settled between the read and the write is settled all the same.
     Ok(_) => Ok(StatusCode::NO_CONTENT.into_response()),
     Err(refusal) if refusal.code == Code::Conflict => Ok(StatusCode::NO_CONTENT.into_response()),
@@ -221,6 +226,12 @@ pub(super) async fn talk(
       "question_talk_say",
       "The talk has no words of its own.",
     ));
+  }
+  match app.store.question(talked.id).await {
+    Ok(question) if question.addressee == QuestionAddressee::Person => {}
+    Ok(_) => return Err(absent(talked.id)),
+    Err(refusal) if refusal.code == Code::NotFound => return Err(absent(talked.id)),
+    Err(refusal) => return Err(refusal.into()),
   }
   match app.store.talk(talked.id, say.to_owned(), OWNER.to_owned()).await {
     Ok(_) => Ok(StatusCode::NO_CONTENT.into_response()),

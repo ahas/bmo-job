@@ -14,6 +14,12 @@ approves = true
 [callers.tester]
 token_file = "/srv/job/tester.token"
 
+# The caller whose token the supervisors of the work carry: it alone settles a question put to the supervisor, or
+# puts one to a person.
+[callers.lead]
+token_file = "/srv/job/lead.token"
+supervises = true
+
 # The labels whose items open by themselves, with no approval, and carry a note saying so.
 [unattended]
 labels = ["lane=pr-review"]

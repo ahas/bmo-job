@@ -309,10 +309,11 @@ async fn question(State(app): State<App>, InPath(question_id): InPath<i64>) -> A
 
 async fn change_question(
   State(app): State<App>,
+  Extension(caller): Extension<Caller>,
   InPath(question_id): InPath<i64>,
   InBody(change): InBody<QuestionChange>,
 ) -> Answer {
-  ok(app.store.change_question(question_id, change).await?)
+  ok(app.store.change_question(question_id, change, &caller).await?)
 }
 
 async fn replies(
@@ -327,10 +328,11 @@ async fn replies(
 
 async fn reply(
   State(app): State<App>,
+  Extension(caller): Extension<Caller>,
   InPath(question_id): InPath<i64>,
   InBody(reply): InBody<NewReply>,
 ) -> Answer {
-  created(app.store.reply(question_id, reply).await?)
+  created(app.store.reply(question_id, reply, &caller).await?)
 }
 
 async fn subscriptions(State(app): State<App>, InQuery(query): InQuery<SubscriptionQuery>) -> Answer {

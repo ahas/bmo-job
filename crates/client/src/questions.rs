@@ -15,6 +15,17 @@ wire_enum! {
 }
 
 wire_enum! {
+  /// Who a question is put to: a person who settles it, or the supervisor of the work under its scope, which
+  /// settles it itself or puts it to a person.
+  #[derive(Default)]
+  QuestionAddressee {
+    #[default]
+    Person = "person",
+    Supervisor = "supervisor",
+  }
+}
+
+wire_enum! {
   /// Who gave a reply.
   ReplySource {
     Person = "person",
@@ -40,18 +51,28 @@ pub struct Question {
   pub item_id: Option<i64>,
   pub asker_name: String,
   pub scope: Option<String>,
+  /// Who it is put to now; a person where the ask named none.
+  #[serde(default)]
+  pub addressee: QuestionAddressee,
   pub text: String,
   /// The answers to choose from; empty for an open question.
   pub choices: Vec<String>,
   /// The answer the asker would take by itself, and why; null where it would not decide alone.
   pub recommendation: Option<QuestionRecommendation>,
   pub state: QuestionState,
-  /// Epoch milliseconds the asker wants an answer by; null while paused or where none was given.
+  /// Epoch milliseconds the asker wants an answer by; null while paused, while the supervisor holds it, or where
+  /// none was given.
   pub due_at: Option<i64>,
   /// Whether the asker puts it before whoever answers it itself, so no consumer of the events tells of it.
   pub told_by_asker: bool,
   /// The last reply its asker has been handed; null where it has been handed none.
   pub heard_through: Option<i64>,
+  /// The caller that put it to a person in the supervisor's place; null where nobody did.
+  #[serde(default)]
+  pub readdressed_by: Option<String>,
+  /// Epoch milliseconds it was put to a person in the supervisor's place; null where it was not.
+  #[serde(default)]
+  pub readdressed_at: Option<i64>,
   /// Epoch milliseconds.
   pub created_at: i64,
 }
@@ -66,14 +87,18 @@ pub struct NewQuestion {
   /// The item's scope where left out.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub scope: Option<String>,
+  /// Who it is put to; a person where left out.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub addressee: Option<QuestionAddressee>,
   pub text: String,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub choices: Vec<String>,
   /// The answer the asker would take by itself, and why; left out where it cannot make the case.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub recommendation: Option<QuestionRecommendation>,
-  /// How long the question goes unanswered before it is told of as due, 1 000 to 86 400 000 milliseconds;
-  /// 60 000 where left out. It paces that notice alone: the question waits for its answer.
+  /// How long the question goes unanswered by a person before it is told of as due, 1 000 to 86 400 000
+  /// milliseconds; 60 000 where left out. It counts from the ask, or for a question put to the supervisor from
+  /// the moment the supervisor puts it to a person. It paces that notice alone: the question waits for its answer.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub wait_ms: Option<i64>,
   /// Whether the asker puts it before whoever answers it itself; false where left out.
@@ -81,8 +106,8 @@ pub struct NewQuestion {
   pub told_by_asker: bool,
 }
 
-/// A question paused, opened again, withdrawn or closed unsent; put again in other words; or told how far its
-/// asker has been handed its replies.
+/// A question paused, opened again, withdrawn or closed unsent; put again in other words; told how far its asker
+/// has been handed its replies; or put to a person by the supervisor that held it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QuestionChange {
@@ -97,6 +122,9 @@ pub struct QuestionChange {
   /// The last reply the asker was handed.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub heard_through: Option<i64>,
+  /// `person` puts a question the supervisor holds to a person; only a supervising caller may.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub addressee: Option<QuestionAddressee>,
 }
 
 /// The filters of the question list.
@@ -107,6 +135,9 @@ pub struct QuestionQuery {
   pub scope: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub item_id: Option<i64>,
+  /// One addressee, or several comma-separated.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub addressee: Option<String>,
   /// One state, or several comma-separated.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub state: Option<String>,

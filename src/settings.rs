@@ -65,6 +65,9 @@ pub struct CallerSettings {
   /// Whether the caller is an approver, whose approval opens a draft.
   #[serde(default)]
   pub approves: bool,
+  /// Whether the caller supervises the work, settling a question put to the supervisor or putting it to a person.
+  #[serde(default)]
+  pub supervises: bool,
 }
 
 /// Where the service keeps what it holds.
@@ -122,7 +125,9 @@ impl Settings {
   pub fn access(&self) -> Result<Access, String> {
     let mut access = Access::shared(&self.token()?);
     for (name, caller) in &self.callers {
-      access = access.with(&read_token(&caller.token_file)?, Caller::named(name, caller.approves))?;
+      let named = Caller::named(name, caller.approves);
+      let named = if caller.supervises { named.supervising() } else { named };
+      access = access.with(&read_token(&caller.token_file)?, named)?;
     }
     Ok(access)
   }

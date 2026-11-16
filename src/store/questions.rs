@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use bmo_job_client::{
-  Code, EventKind, NewQuestion, NewReply, Page, Question, QuestionChange, QuestionQuery,
+  Code, EventKind, NewQuestion, NewReply, Page, Question, QuestionAddressee, QuestionChange, QuestionQuery,
   QuestionRecommendation, QuestionState, Reply, ReplySource,
 };
 use sqlx::Row;
@@ -12,21 +12,24 @@ use sqlx::sqlite::SqliteRow;
 use super::events::{EventKeys, emit, key_alone};
 use super::items::find_item;
 use super::{Store, Tx, filled, from_json, listed, page_limit, paged, stored, to_json};
+use crate::access::Caller;
 use crate::refusal::Refusal;
 
-const QUESTION_COLUMNS: &str = "id, item_id, asker_name, scope, text, choices, recommendation, state, due_at, \
-  remaining_ms, due_told, told_by_asker, heard_through, created_at";
+const QUESTION_COLUMNS: &str = "id, item_id, asker_name, scope, addressee, text, choices, recommendation, state, \
+  due_at, remaining_ms, due_told, told_by_asker, heard_through, wait_ms, readdressed_by, readdressed_at, created_at";
 
 /// The wait a question gets where the asker names none, and the least and longest it may name.
 const DEFAULT_ASK_WAIT_MS: i64 = 60_000;
 const LEAST_ASK_WAIT_MS: i64 = 1_000;
 const LONGEST_ASK_WAIT_MS: i64 = 86_400_000;
 
-/// A question as it is kept: the member, and the time its clock had left when it was paused.
+/// A question as it is kept: the member, the time its clock had left when it was paused, and the wait it was
+/// asked with, which its clock takes when the supervisor puts it to a person.
 struct Kept {
   question: Question,
   remaining_ms: Option<i64>,
   due_told: bool,
+  wait_ms: i64,
 }
 
 fn kept_from(row: &SqliteRow) -> Result<Kept, Refusal> {
@@ -36,6 +39,7 @@ fn kept_from(row: &SqliteRow) -> Result<Kept, Refusal> {
       item_id: row.try_get("item_id")?,
       asker_name: row.try_get("asker_name")?,
       scope: row.try_get("scope")?,
+      addressee: stored(row.try_get("addressee")?, QuestionAddressee::parse)?,
       text: row.try_get("text")?,
       choices: from_json(row.try_get::<&str, _>("choices")?)?,
       recommendation: match row.try_get::<Option<&str>, _>("recommendation")? {
@@ -46,10 +50,13 @@ fn kept_from(row: &SqliteRow) -> Result<Kept, Refusal> {
       due_at: row.try_get("due_at")?,
       told_by_asker: row.try_get::<i64, _>("told_by_asker")? != 0,
       heard_through: row.try_get("heard_through")?,
+      readdressed_by: row.try_get("readdressed_by")?,
+      readdressed_at: row.try_get("readdressed_at")?,
       created_at: row.try_get("created_at")?,
     },
     remaining_ms: row.try_get("remaining_ms")?,
     due_told: row.try_get::<i64, _>("due_told")? != 0,
+    wait_ms: row.try_get("wait_ms")?,
   })
 }
 
@@ -92,7 +99,8 @@ pub(crate) async fn question_keys(tx: &mut Tx, question: &Question) -> Result<Ev
 async fn save_question(tx: &mut Tx, kept: &Kept, due_told: bool) -> Result<(), Refusal> {
   sqlx::query(
     "UPDATE questions SET state = $1, due_at = $2, remaining_ms = $3, due_told = $4, recommendation = $5, \
-     text = $6, choices = $7, heard_through = $8 WHERE id = $9",
+     text = $6, choices = $7, heard_through = $8, addressee = $9, readdressed_by = $10, readdressed_at = $11 \
+     WHERE id = $12",
   )
   .bind(kept.question.state.as_str())
   .bind(kept.question.due_at)
@@ -102,6 +110,9 @@ async fn save_question(tx: &mut Tx, kept: &Kept, due_told: bool) -> Result<(), R
   .bind(&kept.question.text)
   .bind(to_json(&kept.question.choices))
   .bind(kept.question.heard_through)
+  .bind(kept.question.addressee.as_str())
+  .bind(&kept.question.readdressed_by)
+  .bind(kept.question.readdressed_at)
   .bind(kept.question.id)
   .execute(&mut **tx)
   .await?;
@@ -169,16 +180,19 @@ impl Store {
     let limit = page_limit(query.limit)?;
     let states = listed("state", query.state.as_deref(), QuestionState::parse)?;
     let states: Vec<&str> = states.iter().map(|state| state.as_str()).collect();
+    let addressees = listed("addressee", query.addressee.as_deref(), QuestionAddressee::parse)?;
+    let addressees: Vec<&str> = addressees.iter().map(|addressee| addressee.as_str()).collect();
     let mut tx = self.begin().await?;
     let rows = sqlx::query(&format!(
       "SELECT {QUESTION_COLUMNS} FROM questions WHERE id > $1 AND ($2 IS NULL OR scope = $2) \
        AND ($3 IS NULL OR item_id = $3) AND ($4 = '[]' OR state IN (SELECT value FROM json_each($4))) \
-       ORDER BY id LIMIT $5"
+       AND ($5 = '[]' OR addressee IN (SELECT value FROM json_each($5))) ORDER BY id LIMIT $6"
     ))
     .bind(query.after.unwrap_or(0))
     .bind(&query.scope)
     .bind(query.item_id)
     .bind(to_json(&states))
+    .bind(to_json(&addressees))
     .bind(limit + 1)
     .fetch_all(&mut *tx)
     .await?;
@@ -203,23 +217,26 @@ impl Store {
     Ok(count)
   }
 
-  /// The questions under `scope` still waiting, the one asked last first: those open, whether or not their due
-  /// time has passed, and those paused.
+  /// The questions under `scope` put to a person and still waiting, the one asked last first: those open, whether
+  /// or not their due time has passed, and those paused.
   pub async fn open_questions_in(&self, scope: &str) -> Result<Vec<Question>, Refusal> {
     let mut tx = self.begin().await?;
     let rows = sqlx::query(&format!(
-      "SELECT {QUESTION_COLUMNS} FROM questions WHERE scope = $1 AND state IN ($2, $3) ORDER BY id DESC"
+      "SELECT {QUESTION_COLUMNS} FROM questions WHERE scope = $1 AND state IN ($2, $3) AND addressee = $4 \
+       ORDER BY id DESC"
     ))
     .bind(scope)
     .bind(QuestionState::Paused.as_str())
     .bind(QuestionState::Open.as_str())
+    .bind(QuestionAddressee::Person.as_str())
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     rows.iter().map(|row| kept_from(row).map(|kept| kept.question)).collect()
   }
 
-  /// Asks a question, its scope the item's where none is given.
+  /// Asks a question, its scope the item's where none is given. A question put to the supervisor has no due time
+  /// while the supervisor holds it.
   pub async fn ask(&self, new: NewQuestion) -> Result<Question, Refusal> {
     filled("askerName", &new.asker_name)?;
     filled("text", &new.text)?;
@@ -244,18 +261,23 @@ impl Store {
         scope = item.scope;
       }
     }
+    let addressee = new.addressee.unwrap_or_default();
+    let due_at = (addressee == QuestionAddressee::Person).then_some(now + wait);
     let id: i64 = sqlx::query_scalar(
-      "INSERT INTO questions (item_id, asker_name, scope, text, choices, recommendation, state, due_at, \
-       due_told, told_by_asker, created_at) VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, 0, $8, $9) RETURNING id",
+      "INSERT INTO questions (item_id, asker_name, scope, addressee, text, choices, recommendation, state, \
+       due_at, due_told, told_by_asker, wait_ms, created_at) \
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'open', $8, 0, $9, $10, $11) RETURNING id",
     )
     .bind(new.item_id)
     .bind(&new.asker_name)
     .bind(&scope)
+    .bind(addressee.as_str())
     .bind(&new.text)
     .bind(to_json(&new.choices))
     .bind(new.recommendation.as_ref().map(to_json))
-    .bind(now + wait)
+    .bind(due_at)
     .bind(i64::from(new.told_by_asker))
+    .bind(wait)
     .bind(now)
     .fetch_one(&mut *tx)
     .await?;
@@ -273,28 +295,38 @@ impl Store {
   }
 
   /// Pauses a question's clock, starts it again, withdraws the question or closes it unsent; puts it again in
-  /// other words; moves what its asker was handed.
-  pub async fn change_question(&self, id: i64, change: QuestionChange) -> Result<Question, Refusal> {
+  /// other words; moves what its asker was handed; puts a question the supervisor holds to a person, where the
+  /// caller supervises the work.
+  pub async fn change_question(&self, id: i64, change: QuestionChange, caller: &Caller) -> Result<Question, Refusal> {
     let QuestionChange {
       state,
       text,
       choices,
       recommendation,
       heard_through,
+      addressee,
     } = change;
     if state.is_none()
       && text.is_none()
       && choices.is_none()
       && recommendation.is_none()
       && heard_through.is_none()
+      && addressee.is_none()
     {
-      return Err(Refusal::bad_request("A change names a state, words, or what the asker was handed."));
+      return Err(Refusal::bad_request(
+        "A change names a state, words, what the asker was handed, or who the question is put to.",
+      ));
     }
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut kept = kept_at(&mut tx, id).await?;
     let mut due_told = kept.due_told;
     let mut moved = false;
+    if let Some(addressee) = addressee {
+      readdressed(&mut kept, addressee, caller, now)?;
+      due_told = false;
+      moved = true;
+    }
     if text.is_some() || choices.is_some() || recommendation.is_some() {
       if !matches!(kept.question.state, QuestionState::Open | QuestionState::Paused) {
         return Err(Refusal::conflict(format!(
@@ -372,11 +404,12 @@ impl Store {
     Ok(paged(replies, limit))
   }
 
-  /// Replies to a question: a settling reply answers it, a word is added in any state.
-  pub async fn reply(&self, question_id: i64, new: NewReply) -> Result<Reply, Refusal> {
+  /// Replies to a question: a settling reply answers it, a word is added in any state. Only a caller that
+  /// supervises the work settles a question the supervisor holds.
+  pub async fn reply(&self, question_id: i64, new: NewReply, caller: &Caller) -> Result<Reply, Refusal> {
     let now = self.now();
     let mut tx = self.begin().await?;
-    let reply = reply_in(&mut tx, question_id, new, now).await?;
+    let reply = reply_in(&mut tx, question_id, new, caller, now).await?;
     self.commit(tx).await?;
     Ok(reply)
   }
@@ -407,6 +440,7 @@ impl Store {
         actor_name,
         settles: Some(false),
       },
+      &Caller::shared(),
       now,
     )
     .await?;
@@ -415,9 +449,48 @@ impl Store {
   }
 }
 
+/// Puts a question the supervisor holds to a person: only a caller that supervises the work may, only while it
+/// waits, and never back to the supervisor. Its clock starts then with the wait it was asked with.
+fn readdressed(kept: &mut Kept, addressee: QuestionAddressee, caller: &Caller, now: i64) -> Result<(), Refusal> {
+  let question = &mut kept.question;
+  if !matches!(question.state, QuestionState::Open | QuestionState::Paused) {
+    return Err(Refusal::conflict(format!("The question is {} and is put to nobody else.", question.state)));
+  }
+  if question.addressee != QuestionAddressee::Supervisor || addressee != QuestionAddressee::Person {
+    return Err(Refusal::conflict(format!(
+      "A question put to the {} is not put to the {addressee}.",
+      question.addressee
+    )));
+  }
+  if !caller.supervises {
+    return Err(not_the_addressee(question.id));
+  }
+  question.addressee = addressee;
+  question.readdressed_by = caller.name.clone();
+  question.readdressed_at = Some(now);
+  question.state = QuestionState::Open;
+  question.due_at = Some(now + kept.wait_ms);
+  kept.remaining_ms = None;
+  Ok(())
+}
+
+fn not_the_addressee(id: i64) -> Refusal {
+  Refusal::new(
+    Code::NotTheAddressee,
+    format!("Question {id} is put to the supervisor, and only a caller that supervises the work settles it or puts it elsewhere."),
+  )
+}
+
 /// Writes a reply to a question in the transaction given: a settling reply answers it, a word is added in any
-/// state.
-async fn reply_in(tx: &mut Tx, question_id: i64, new: NewReply, now: i64) -> Result<Reply, Refusal> {
+/// state. A settling reply to a question the supervisor holds is taken from a caller that supervises the work
+/// alone.
+async fn reply_in(
+  tx: &mut Tx,
+  question_id: i64,
+  new: NewReply,
+  caller: &Caller,
+  now: i64,
+) -> Result<Reply, Refusal> {
   filled("text", &new.text)?;
   filled("actorName", &new.actor_name)?;
   let mut kept = kept_at(tx, question_id).await?;
@@ -435,6 +508,9 @@ async fn reply_in(tx: &mut Tx, question_id: i64, new: NewReply, now: i64) -> Res
       "The question is {} and takes no answer.",
       kept.question.state
     )));
+  }
+  if settles && kept.question.addressee == QuestionAddressee::Supervisor && !caller.supervises {
+    return Err(not_the_addressee(question_id));
   }
   write_reply(
     tx,

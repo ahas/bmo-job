@@ -117,7 +117,11 @@ CREATE TABLE questions (
   due_told INTEGER NOT NULL,
   told_by_asker INTEGER NOT NULL DEFAULT 0,
   heard_through INTEGER,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  addressee TEXT NOT NULL DEFAULT 'person',
+  wait_ms INTEGER NOT NULL DEFAULT 60000,
+  readdressed_by TEXT,
+  readdressed_at INTEGER
 );
 CREATE INDEX questions_by_item ON questions (item_id);
 CREATE INDEX questions_by_scope ON questions (scope);

@@ -1,7 +1,7 @@
-//! What a question put to the owner may hold (docs/cli.md, 「`bmo-job job ask`」): a choice of direction he settles
-//! by reading it once, in a few lines, with options of one short line each. A command, a script, a block of code or
-//! a long unbroken token — an encoded payload, a hash, a long address — is work for someone to carry out, not a
-//! direction to choose, and is refused, as is a question too long to read at a glance.
+//! What a job's question may hold (docs/cli.md, 「`bmo-job job ask`」): what the job cannot settle or do itself,
+//! said in words read at a glance, in a few lines, with options of one short line each. A script, a block of code or
+//! a long unbroken token — an encoded payload, a hash, a long address — is no such words and is refused, as is a
+//! question too long to read at a glance.
 
 /// The most characters the question's own words may run to.
 pub const QUESTION_MOST: usize = 500;
@@ -20,16 +20,16 @@ fn carries_code(text: &str) -> bool {
   text.contains("```") || text.split_whitespace().any(|word| word.chars().count() > WORD_MOST)
 }
 
-/// The refusal of a question's words, or none where they are a question the owner can read and settle at once.
+/// The refusal of a question's words, or none where they are a question read and settled at a glance.
 pub fn words_refusal(question: &str, options: &[String], why: &str) -> Option<String> {
   let texts = std::iter::once(question)
     .chain(options.iter().map(String::as_str))
     .chain(std::iter::once(why));
   if texts.into_iter().any(carries_code) {
     return Some(
-      "a question is a choice of direction for the owner, never work for him or the supervisor to carry out: a \
-       command, a script, code or a long token does not go into it. What someone else has to run, install or \
-       check goes into the job's report."
+      "a question is words read at a glance: a script, a block of code or a long token does not go into it. Say in \
+       words what the supervisor is to settle or do, and put a long reading into the archive (bmo archive doc) \
+       with its address in the question."
         .to_owned(),
     );
   }
@@ -53,7 +53,7 @@ pub fn words_refusal(question: &str, options: &[String], why: &str) -> Option<St
 /// the job's to judge, since it explains what each option would do.
 pub fn say_refusal(say: &str) -> Option<String> {
   carries_code(say).then(|| {
-    "an answer to the owner is words: a command, a script, code or a long token does not go into it."
+    "an answer in a talk is words: a script, a block of code or a long token does not go into it."
       .to_owned()
   })
 }

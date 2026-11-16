@@ -23,9 +23,10 @@ The names it does not take from a body are the caller's the request's token name
   `unauthorized`.
 - **The token names the caller.** A request with a caller's own token is that caller's, known to the service
   by the caller's name in the settings; a request with the shared token is no named caller's. Every route
-  answers either alike but for three readings of who the caller is: the kind of an approval it gives (Items,
-  "Approvals"), the `changedBy` the events of an item it writes carry (Events), and the `raisedBy` an item it
-  raises takes from the lease it holds (Items, "Raised from an item").
+  answers either alike but for four readings of who the caller is: the kind of an approval it gives (Items,
+  "Approvals"), the `changedBy` the events of an item it writes carry (Events), the `raisedBy` an item it
+  raises takes from the lease it holds (Items, "Raised from an item"), and whether it may settle a
+  question put to the supervisor or put it to a person (Questions and replies, "The addressee").
 - **A method and path no route answers** is answered 404 `no-route`.
 - **A body or query not of the route's shape** is answered 400 `bad-request`, the sentence naming what is
   wrong.
@@ -301,10 +302,11 @@ given back, run out or ended by its item's move, is answered 410 `gone` from the
 
 ## Questions and replies
 
-A question is asked about an item or on its own: `id`, `itemId`, `askerName`, `scope`, `text`, `choices` (empty
-for an open question), `recommendation` (the answer the asker would take by itself, and why, or null), `state`,
-`dueAt`, `toldByAsker` (whether the asker puts it before whoever answers it itself), `heardThrough` (the last
-reply its asker has been handed, or null) and `createdAt`. A reply is `id`, `questionId`, `choice`, `text`, `actorName`, `settles`, `source`
+A question is asked about an item or on its own: `id`, `itemId`, `askerName`, `scope`, `addressee` (who it is
+put to, below), `text`, `choices` (empty for an open question), `recommendation` (the answer the asker would take
+by itself, and why, or null), `state`, `dueAt`, `toldByAsker` (whether the asker puts it before whoever answers it
+itself), `heardThrough` (the last reply its asker has been handed, or null), `readdressedBy` and `readdressedAt`
+(the caller that put it to a person in the supervisor's place, and when, or null) and `createdAt`. A reply is `id`, `questionId`, `choice`, `text`, `actorName`, `settles`, `source`
 and `why` and `createdAt`. Every reply is written with `source` `person` and `why` null; the type also reads
 `recommendation` with that recommendation's reason, which a reply kept in the store may carry.
 
@@ -313,10 +315,12 @@ and `why` and `createdAt`. Every reply is written with `source` `person` and `wh
   move is answered 409 `conflict`. `withdrawn` is a question its asker took back or stopped waiting on; `unsent`
   is one that never reached anybody, because putting it to them failed. Neither waits for an answer, and neither
   is ever answered.
-- **The due time.** `waitMs` is how long the asker lets the question go unanswered before it is told of as
-  due, from 1 000 to 86 400 000 milliseconds, and 60 000 where left out. A question's `dueAt` is that far from
-  when it was asked. Pausing a question keeps the time it had left and reads `dueAt` as null; opening it again
-  sets `dueAt` that far from then. The due time paces a notice and nothing more: a question waits for its answer
+- **The due time.** `waitMs` is how long the asker lets the question go unanswered by a person before it is told
+  of as due, from 1 000 to 86 400 000 milliseconds, and 60 000 where left out. A question put to a person
+  has its `dueAt` that far from when it was asked; one put to the supervisor has none while the supervisor holds
+  it, and is never told of as due there, and once the supervisor puts it to a person its `dueAt` is that far from
+  that moment. Pausing a question keeps the time it had left and reads `dueAt` as null; opening it again sets
+  `dueAt` that far from then. The due time paces a notice and nothing more: a question waits for its answer
   however long that takes.
 - **The recommendation.** `recommendation` is `{answer, why}`: `answer` is one of the question's choices or a
   free answer where the choices do not cover it, and `why` is the one line saying why that is the answer. It is
@@ -331,13 +335,30 @@ and `why` and `createdAt`. Every reply is written with `source` `person` and `wh
   state: it waits on one `open` or `paused`, answers with the line one `answered` was settled with, and opens
   a new row only where every one it finds stands `withdrawn` or `unsent` (docs/cli.md, 「`bmo-job job ask`」).
 - **A question's scope** is the one asked with, or the item's where it is left out.
+- **The addressee.** A question is put to `person`, a person who settles it, where the ask names no other; or to
+  `supervisor`, the caller that supervises the work under the question's scope, which judges it first: settles it
+  itself with what it did or found, talks it over with the asker, or puts it to a person in its own words. The
+  service reads the addressee in five places and nowhere else:
+  - **who settles it:** a settling reply to a question put to the supervisor is taken only with the token of a
+    caller the settings mark as supervising (docs/settings.md, `[callers]`); any other caller's is answered 403
+    `not-the-addressee`. A word that settles nothing is taken from anyone, as on every question;
+  - **who puts it to a person:** a change naming `addressee` `person` puts an `open` or `paused` question from the
+    supervisor before a person, with that same token alone, any other caller's answered 403 `not-the-addressee`.
+    It may carry the question in the supervisor's own words, choices and recommendation in the same change. The
+    question then stands `open`, its due time counted from that moment, its `readdressedBy` the caller and its
+    `readdressedAt` the moment, and it is told as `question.changed`.
+    A question put to a person is never put to the supervisor, nor a settled one anywhere: either change, and
+    one naming the addressee the question already has, is answered 409 `conflict`;
+  - **its clock:** a question the supervisor holds has no due time (「The due time」 above);
+  - **the list's filter,** `addressee`, one or several comma-separated;
+  - **the bmo-receiver port,** which reads only the questions put to a person (「The bmo-receiver port」).
 - **Who tells of it.** A consumer that watches the events tells of a new question, except one asked with
   `toldByAsker`: that asker puts it before whoever answers it itself, so it can see the failure and close the
   question `unsent`.
 - **A change while it waits.** `text`, `choices` and `recommendation` put an `open` or `paused` question again in
   other words, judged as an ask is, and answered 409 `conflict` on any other. `heardThrough` moves on the last
   reply the asker was handed, so a reply said after it is not lost between one wait and the next; it never moves
-  back. A change holding none of the four is `bad-request`.
+  back. `addressee` is stated under 「The addressee」 above. A change holding none of the five is `bad-request`.
 - **A reply settles the question** when its `settles` says so; left out, a reply settles when it carries a
   `choice` or the question has no choices, and is a word on the question otherwise. A `choice` is one of the
   question's choices or is answered 422 `not-a-choice`. A settling reply to a question already answered or
@@ -345,10 +366,10 @@ and `why` and `createdAt`. Every reply is written with `source` `person` and `wh
 
 | Method and path | Does |
 |---|---|
-| `GET /questions` | Questions filtered by `scope`, `itemId` and `state` |
-| `POST /questions` | Asks: `askerName`, `text` and `choices` required, `itemId`, `scope`, `recommendation`, `waitMs` and `toldByAsker` optional. An `itemId` naming no item is answered 422 `unknown-item`. Answers 201 |
+| `GET /questions` | Questions filtered by `scope`, `itemId`, `addressee` and `state` |
+| `POST /questions` | Asks: `askerName`, `text` and `choices` required, `itemId`, `scope`, `addressee`, `recommendation`, `waitMs` and `toldByAsker` optional. An `itemId` naming no item is answered 422 `unknown-item`. Answers 201 |
 | `GET /questions/{questionId}` | One question |
-| `PATCH /questions/{questionId}` | Pauses it, opens it again, withdraws it or closes it unsent, with `state`; puts it again in other words with `text`, `choices` and `recommendation`; moves what its asker was handed with `heardThrough` |
+| `PATCH /questions/{questionId}` | Pauses it, opens it again, withdraws it or closes it unsent, with `state`; puts it again in other words with `text`, `choices` and `recommendation`; moves what its asker was handed with `heardThrough`; puts a question to the supervisor before a person with `addressee` |
 | `GET /questions/{questionId}/replies` | Its replies in key order, past `after`; `waitMs` waits for one |
 | `POST /questions/{questionId}/replies` | Replies: `text` and `actorName` required, `choice` and `settles` optional. Answers 201 |
 
@@ -455,14 +476,16 @@ its `scope`. Every route takes the bearer token as the others do.
 | Method and path | Does |
 |---|---|
 | `GET /rooms/{chat}/holdings` | What the service holds of the room: `{code, count}` for `room_open_items`, its items not `done`, `dropped` or `merged`, and for `room_waiting_questions`, its questions `open` or `paused`; each only where its count is not zero, in that order |
-| `GET /questions/open?chat=` | The room's questions still waiting, the one asked last first: `id`, `options` (its `choices`, in order), `recommendation` (the recommendation's answer, or null), `why` (its reason, or null) and `talks` |
+| `GET /questions/open?chat=` | The room's questions put to a person and still waiting, the one asked last first: `id`, `options` (its `choices`, in order), `recommendation` (the recommendation's answer, or null), `why` (its reason, or null) and `talks` |
 | `GET /items?open=1` | The open items in the port's shape: `{"items": [...]}`, each `id`, `approved` (whether it has an approval of the kind `approval`), `status` (its state), `title`, and `worker` (its `assigneeName`, or null). The items are those not `done`, `dropped`, `merged` or `held`, oldest first |
 | `POST /question` | Settles a question with one of its choices by its number counted from zero: `id` and `chosen`. Answers 204 |
 | `POST /question-talk` | Writes a line of talk on an open question and stops its clock: `id` and `say`. Answers 204 |
 | `POST /queue/moved` | Puts a `queue.moved` event into the stream, its data `detail?` where one is given. Answers 204 |
 
-- **The open questions** are the room's questions in `open`, whether or not their due time has passed, and its
-  `paused` ones, the one asked last first: every question still waiting for an answer. The port reads `talks` as true: any question may be talked over, which is how far the service's own
+- **The open questions** are the room's questions put to a person in `open`, whether or not their due time has
+  passed, and its `paused` ones, the one asked last first: every question still waiting for his answer. A
+  question put to the supervisor is not his to answer, and the port neither lists it nor takes a settle or a
+  talk on it: either answers `question_absent` (404). The holdings count it, since the room holds it all the same. The port reads `talks` as true: any question may be talked over, which is how far the service's own
   questions go.
 - **A talk is a reply that does not settle,** from the actor `owner`, its `source` a person, and the asker hears
   it as a `reply.created` event. Stopping the clock is the question moving to `paused` with what it had left.
@@ -540,6 +563,8 @@ sentence. The OpenAPI document states each under `x-tools`.
 | `job_question_ask` | `POST /questions` |
 | `job_question` | `GET /questions/{questionId}` |
 | `job_replies` | `GET /questions/{questionId}/replies` |
+| `job_reply` | `POST /questions/{questionId}/replies` |
+| `job_question_change` | `PATCH /questions/{questionId}` |
 | `job_subscribe` | `POST /subscriptions` |
 | `job_unsubscribe` | `DELETE /subscriptions/{subscriptionId}` |
 

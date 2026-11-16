@@ -119,19 +119,20 @@ enum JobVerb {
     #[arg(long, value_name = "item")]
     todo: Option<i64>,
   },
-  /// Puts a choice to the owner in the middle of a job and waits for a person to settle it, with --talk answers
-  /// his talk over the question and waits on it again, or with --show reads a question or an item's questions.
+  /// Puts a question to the job's supervisor in the middle of a job, which settles it or puts it to the owner, and
+  /// waits for it to be settled; with --talk answers the talk over the question and waits on it again, or with
+  /// --show reads a question or an item's questions.
   Ask {
     /// The item it is asked about.
     #[arg(long, value_name = "item")]
     todo: Option<String>,
-    /// What is to be settled.
+    /// What is to be settled or done.
     #[arg(long, value_name = "words", allow_hyphen_values = true)]
     question: Option<String>,
-    /// One option apiece, in the order the room numbers them.
+    /// One option apiece, in the order the room numbers them; none for an open question.
     #[arg(long = "option", value_name = "words", allow_hyphen_values = true)]
     options: Vec<String>,
-    /// The option you would take, by its number.
+    /// The option you would take, by its number, where there are options.
     #[arg(long, value_name = "n", allow_hyphen_values = true)]
     recommend: Option<String>,
     /// Why you cannot settle it yourself, in one line.

@@ -8,7 +8,8 @@ use std::sync::Arc;
 
 use bmo_job_client::{
   ClientFailure, Item, ItemChange, ItemQuery, Lease, LeaseAsk, LeaseRenewal, LeaseWait, NewItem, NewNote,
-  NewQuestion, NewReport, NewSubscription, Note, Page, Question, Queue, QueueQuery, Reply, Report, Review,
+  NewQuestion, NewReply, NewReport, NewSubscription, Note, Page, Question, QuestionChange, Queue, QueueQuery, Reply,
+  Report, Review,
   ReviewQuery, Subscription, Task, TaskQuery, WaitQuery, WorkOrder,
 };
 use schemars::generate::SchemaGenerator;
@@ -295,6 +296,21 @@ pub fn tools() -> Vec<JobTool> {
       "A question's replies; waitMs holds the answer open until one comes.",
       "GET /questions/{questionId}/replies",
       |harness, input| async move { harness.client.replies(input.key.question_id, &input.rest).await },
+    ),
+    tool::<Keyed<QuestionKey, NewReply>, Reply, _, _>(
+      "job_reply",
+      "Reply to a question: settle it with a choice or an answer, or add a word that settles nothing. A question \
+       put to the supervisor is settled only under a caller the deployment marks as supervising the work.",
+      "POST /questions/{questionId}/replies",
+      |harness, input| async move { harness.client.reply(input.key.question_id, &input.rest).await },
+    ),
+    tool::<Keyed<QuestionKey, QuestionChange>, Question, _, _>(
+      "job_question_change",
+      "Change a question while it waits: its state, its words, choices and recommendation, or, with addressee \
+       person, put a question the supervisor holds to a person, in your own words in the same change; only a \
+       caller the deployment marks as supervising the work puts one to a person.",
+      "PATCH /questions/{questionId}",
+      |harness, input| async move { harness.client.change_question(input.key.question_id, &input.rest).await },
     ),
     tool::<NewSubscription, Subscription, _, _>(
       "job_subscribe",

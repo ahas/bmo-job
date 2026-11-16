@@ -1,5 +1,6 @@
-//! Who a request is made by: the tokens the service takes, each naming its caller, and whether a caller's
-//! approval opens a draft (docs/api.md, "Access" and "Approvals"; docs/settings.md, `[callers]`).
+//! Who a request is made by: the tokens the service takes, each naming its caller, whether a caller's approval
+//! opens a draft, and whether it supervises the work (docs/api.md, "Access", "Approvals" and 「The addressee」;
+//! docs/settings.md, `[callers]`).
 
 use bmo_job_client::ApprovalKind;
 use subtle::ConstantTimeEq;
@@ -11,6 +12,9 @@ pub struct Caller {
   pub name: Option<String>,
   /// Whether the caller is an approver, whose approval opens a draft.
   pub approves: bool,
+  /// Whether the caller supervises the work: it alone settles a question put to the supervisor, or puts one to a
+  /// person.
+  pub supervises: bool,
 }
 
 impl Caller {
@@ -19,6 +23,7 @@ impl Caller {
     Self {
       name: None,
       approves: false,
+      supervises: false,
     }
   }
 
@@ -27,6 +32,15 @@ impl Caller {
     Self {
       name: Some(name.to_owned()),
       approves,
+      supervises: false,
+    }
+  }
+
+  /// The same caller marked as supervising the work.
+  pub fn supervising(self) -> Self {
+    Self {
+      supervises: true,
+      ..self
     }
   }
 

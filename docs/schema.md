@@ -6,7 +6,9 @@ version in the database's own user version; a database of an older version is br
 one of a later version is refused. Bringing a database up to the version that keeps the item an item was raised
 from fills it, for each item standing then, from the item's `raised-by` label where that label is the key of
 another standing item, and leaves it null otherwise; a lease standing then is held by no named caller, and
-holds nothing of its item fixed.
+holds nothing of its item fixed. Bringing it up to the version that keeps who a question is put to makes every
+question standing then a person's, its wait the span between its asking and its due time, or a minute where it
+has none.
 
 ## The rules of every table
 
@@ -31,7 +33,7 @@ holds nothing of its item fixed.
 | `tasks` | A task of a work order: its stage, title, state and assignee |
 | `queues` | A queue by its name: its state and holds |
 | `leases` | A lease, standing or ended, the caller whose token took it, and what of its item it holds fixed; an ended one is kept so its key is answered `gone` |
-| `questions` | A question: its words and choices, the recommendation it carries and why, its state, its due time, the time its clock had left when paused, whether its due time was told, whether its asker tells of it itself, and the last reply its asker was handed |
+| `questions` | A question: its words and choices, the recommendation it carries and why, who it is put to, its state, the wait it was asked with, its due time, the time its clock had left when paused, whether its due time was told, whether its asker tells of it itself, the last reply its asker was handed, and who put it to a person in the supervisor's place and when |
 | `replies` | A reply to a question: its choice and words, who gave it, whether it settled, and where the recommendation gave it, that source and its reason |
 | `subscriptions` | A subscription, standing or ended: what it matches, where it posts and its secret, its state, span, failures, and the events it starts after and has handed over |
 | `events` | An event told, with the queue, scope and item it is narrowed by, kept for the window |

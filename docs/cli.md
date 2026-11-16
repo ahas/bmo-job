@@ -8,7 +8,7 @@ The binary `bmo-job` carries these commands.
 | `bmo-job serve` | Serves the API by the settings file (docs/settings.md) until it is told to stop by an interrupt or a termination signal; every open event stream ends then, so the stop is not held |
 | `bmo-job mcp --service <url>` | Serves the harness plugin's MCP server on standard input and output, reaching the service at the address (docs/api.md, "The harness plugin") |
 | `bmo-job job close` | Checks what the job changed, merges its commits onto the remote's main and leaves the item waiting for its repository's batch deployment (「`bmo-job job close`」) |
-| `bmo-job job ask` | Puts a choice to the owner in the middle of a job and waits for a person to settle it (「`bmo-job job ask`」) |
+| `bmo-job job ask` | Puts a question to the job's supervisor in the middle of a job, which settles it or puts it to the owner, and waits for it to be settled (「`bmo-job job ask`」) |
 | `bmo-job todo` | Closes an item, holds it with the run's account on it, or raises a new one, each through the service's own routes (「`bmo-job todo`」) |
 | `bmo-job openapi` | Prints the OpenAPI document, the one committed as `docs/openapi.json` |
 
@@ -123,10 +123,15 @@ flowchart TD
 `bmo job ask` runs this. It is what a job's own run waits on: nothing ends the wait but what is listed here, and
 no clock is among it.
 
+A job asks its supervisor, never the owner directly. The question is opened in the owner's private room as the
+supervisor's (docs/api.md, 「The addressee」) and handed to that room's supervisor at once, which judges what it
+is: it does or finds what is asked and settles the question with the result, talks it over with the job, or puts
+it to the owner in its own words, and from then on it is the owner's question as any other.
+
 | Form | What it does |
 |---|---|
-| `--todo <item> --question <words> --option <words> --option <words> --recommend <n> --why <words>` | Opens the question in the owner's private room, puts it to him and waits |
-| `--talk <question> --say <words>` | Puts the job's answer to his talk in the same room, then waits on the same question |
+| `--todo <item> --question <words> --why <words> [--option <words> --option <words> --recommend <n>]` | Opens the question for the supervisor of the owner's private room, hands it to that supervisor and waits |
+| `--talk <question> --say <words>` | Puts the job's answer to the supervisor's or the owner's talk in the same room, then waits on the same question |
 | `--talk <question> --say <words> --option <words> --option <words> --recommend <n> [--question <words>] [--why <words>]` | The same, with the question put again in other words |
 | `--show <question>` | Reads one question by its number and waits on nothing |
 | `--todo <item> --show` | Reads every question asked about the item and waits on nothing |
@@ -135,54 +140,71 @@ no clock is among it.
 
   | What happened | Standard output | Standard error | Exit |
   |---|---|---|---|
-  | A person settled it | One line: the option's words, or his own | | 0 |
-  | A person settled the same question before this run | The same one line | `ask: question #<n> was settled before; its answer stands` | 0 |
-  | He talked instead of choosing; the question stays open | His words and the call that answers him | | 3 |
+  | The supervisor settled it | Its answer, as it wrote it | | 0 |
+  | A person settled it, once the supervisor put it to him | One line: the option's words, or his own | | 0 |
+  | Somebody settled the same question before this run | The same answer | `ask: question #<n> was settled before; its answer stands` | 0 |
+  | The supervisor or the owner talked instead of settling; the question stays open | Their words and the call that answers them | | 3 |
   | The question could not be put, the receiver refusing it; it is closed `unsent` | Nothing | Why | 1 |
   | The question was withdrawn, or the run was told to stop, which withdraws a question already opened | Nothing | Why | 1 |
   | The words were refused; no question opened | Nothing | Why, and the usage | 1 |
 
-- **A question is a choice of direction, read at a glance.** It asks the owner which way the work goes, never for
-  something to be carried out by him or by the supervisor: what someone else has to run, install, measure or
-  check goes into the job's report. So its words are refused, and no question opened, where any of them carries a
-  fenced block of code or a token of more than 80 characters with no space — a command, a script, an encoded
-  payload, a hash or a long address — or where the question runs past 500 characters or 5 lines, an option past
-  160 characters, or the reason past 240. A long reading goes into the archive and its address into the question.
-  The job's answer to his talk is refused on code the same way, its length its own.
-- **A recommendation is shown and never answers.** It is printed only where a person settled the question with
-  it. A settling reply no person gave is refused: the verb ends 1 and prints no option.
+- **A question asks for what the job cannot settle or do itself,** said in words read at a glance: a decision
+  that is not the job's, or something only the supervisor's reach grants, such as a command on a node the job's
+  account does not reach or a deployment the work cannot go on without. A choice puts two options or more with
+  the one the job would take; a request the supervisor answers in its own words puts none. Either way it says
+  why the job cannot settle it itself. Its words are refused, and no question opened, where any of them carries
+  a fenced block of code or a token of more than 80 characters with no space — a script, an encoded payload, a
+  hash or a long address — or where the question runs past 500 characters or 5 lines, an option past 160
+  characters, or the reason past 240. A long reading goes into the archive and its address into the question.
+  The job's answer to a talk is refused on code the same way, its length its own.
+- **An answer comes back as it was given.** The supervisor's is printed as it wrote it, a result of several
+  lines among it; a person's is one line, the option he took or his own words. A recommendation is shown and
+  never answers: it is printed only where a person settled the question with it. A settling reply no person or
+  supervisor gave is refused: the verb ends 1 and prints no answer.
 - **Putting the question.** The verb reads the owner's private room from the receiver's `GET /owner`, opens the
-  question there with `toldByAsker` (docs/api.md, "Questions and replies"), and hands it to the room's supervisor
-  through the receiver's `POST /instructions`, an order under the sort `job` of the kind
-  `question-awaits-answer`. An answer other than a queued instruction is a failed send. A question that is settled or
-  stopped has its instruction withdrawn where it has not reached the supervisor yet.
+  question there for the supervisor with `toldByAsker` (docs/api.md, "Questions and replies"), and hands it to the
+  room's supervisor through the receiver's `POST /instructions`, an order under the sort `job` of the kind
+  `question-for-supervisor`. An answer other than a queued instruction is a failed send. A question that is
+  settled, put to the owner or stopped has its instruction withdrawn where it has not reached the supervisor yet.
 - **What a turn carries.** An order carries the notice's kind and number, the item's number and title, and the data
-  it is about: the question and its options numbered with the recommended one marked, or the job's words in a talk,
-  with the question's words and options again where the talk changed it. It carries no instruction, since how a
-  notice is read stands in the receiving session's own instructions.
+  it is about: the question, its options numbered with the recommended one marked or the word that it is open, and
+  why it is asked; or the job's words in a talk, with the question's words and options again where the talk changed
+  it. An order for the supervisor also names the tools that settle the question, talk on it and put it to the
+  owner (docs/api.md, 「The tools」). It carries no other instruction, since how a notice is read stands in the
+  receiving session's own instructions.
+- **While the supervisor holds it,** the question has no due time and no clock bounds the wait; the supervisor's
+  notice does. The receiver keeps a notice with no expiry and holds it while the supervisor's session cannot be
+  reached, so a supervisor that is busy or down delays the answer and loses nothing. The verb reads the notice as
+  it waits. One the receiver let go before the supervisor settled the question, talked on it or put it to the
+  owner — its round stopped, its session reset, no turn able to take it — will never be taken, and the question
+  then goes to the owner as one no supervisor could take: the verb withdraws it, opens a new question in the
+  job's own words put to a person, hands that to the room's supervisor as `question-awaits-answer` and waits on it
+  as on any of his, saying on the standard error which question went where. A notice whose turn ended while the
+  question still waits is left to the supervisor, since work it started, a deployment among it, can end later.
+- **Once it is the owner's,** put to him by the supervisor or by the verb as above, the verb says so on the
+  standard error once and waits on his answer: the due time the service counts from that moment, a minute where
+  the ask named none, paces the one notice `question.due` tells and settles nothing.
 - **A restart is no answer.** Every call the verb makes, reading the item's questions and the answer one was
   settled with, reading the owner's room, opening the question, reading the item's title, handing the order or
-  the talk over, keeping the job's words and where it heard through, closing the question, and every read while
-  it waits, is made again while the service or the receiver does not answer: nothing at its address, a connection cut, or a 5xx. It is made again after a
-  quarter of a second at first and every five seconds at most. The run told to stop ends it as above. Only an
-  answer ends a call: while the question is put, a refusal closes it `unsent`; while it is waited on, only a
-  question the service no longer holds ends the wait, with 1.
+  the talk over, reading the order, keeping the job's words and where it heard through, closing the question, and
+  every read while it waits, is made again while the service or the receiver does not answer: nothing at its
+  address, a connection cut, or a 5xx. It is made again after a quarter of a second at first and every five
+  seconds at most. The run told to stop ends it as above. Only an answer ends a call: while the question is put, a
+  refusal closes it `unsent`; while it is waited on, only a question the service no longer holds ends the wait,
+  with 1.
 - **One question, one row, told once.** Before anything is opened, the item's questions are read, and the last
   one of the same asker, words and options that is not `withdrawn` or `unsent` is the question this ask
   stands as. One `open` or `paused` is waited on as it stands, told to nobody again, and the standard error
-  says so with its number. One `answered` comes back with the line it was settled with, its number on the
+  says so with its number. One `answered` comes back with the answer it was settled with, its number on the
   standard error, and nothing is opened or told. Only where every such question stands `withdrawn` or
-  `unsent`, or none was asked, is a new question opened and put to the owner.
+  `unsent`, or none was asked, is a new question opened and handed to the supervisor.
 - **At least once.** A call cut after its peer took it is made again, so an order or the job's words in a talk
   can reach the room twice. A question is opened once: where opening it was cut, the item's open questions
   are read before it is opened again, and one of the same asker, words and options is taken as the one opened.
 - **Reading a question.** `--show` prints each question as JSON, one a line: the question as the service keeps
-  it (docs/api.md, "Questions and replies") with `answer`, the line a person settled it with, or null. It reads
+  it (docs/api.md, "Questions and replies") with `answer`, the answer it was settled with, or null. It reads
   the service once, opens nothing and tells nobody; a question or an item the service does not hold ends it 1
   with why on the standard error.
-- **The due time.** The question is asked with the service's own due time, a minute where the service names no
-  other, which paces the one notice
-  `question.due` tells and settles nothing.
 - **Pages hosted elsewhere are refused:** an address of a claude.ai artifact, a published Claude page, a gist or a
   paste in the question, an option, the reason or the words of a talk.
 - **Where it reaches the receiver:** `BMO_RECEIVER_URL` with `BMO_RECEIVER_TOKEN` or `BMO_RECEIVER_TOKEN_FILE` in

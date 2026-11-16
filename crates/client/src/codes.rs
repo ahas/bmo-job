@@ -24,6 +24,7 @@ pub enum Code {
   UnknownItem,
   NotAChoice,
   QueueNotOpen,
+  NotTheAddressee,
   Failed,
 }
 
@@ -41,6 +42,7 @@ impl Code {
       Self::UnknownItem => "unknown-item",
       Self::NotAChoice => "not-a-choice",
       Self::QueueNotOpen => "queue-not-open",
+      Self::NotTheAddressee => "not-the-addressee",
       Self::Failed => "failed",
     }
   }
@@ -50,6 +52,7 @@ impl Code {
     match self {
       Self::BadRequest => 400,
       Self::Unauthorized => 401,
+      Self::NotTheAddressee => 403,
       Self::NoRoute | Self::NotFound => 404,
       Self::Conflict | Self::ItemFrozen => 409,
       Self::Gone => 410,

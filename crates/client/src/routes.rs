@@ -414,7 +414,7 @@ pub fn routes() -> Vec<Route> {
       "Give a lease back; the item is open again.",
     )
     .with(None, None, vec![empty("The lease is given back.")], &[NotFound, Gone]),
-    route(Get, "/questions", "listQuestions", "questions", "Questions by scope, item and state.").with(
+    route(Get, "/questions", "listQuestions", "questions", "Questions by scope, item, addressee and state.").with(
       Some(object::<QuestionQuery>),
       None,
       vec![json::<Page<Question>>(200, "A page of questions.")],
@@ -446,13 +446,13 @@ pub fn routes() -> Vec<Route> {
       "/questions/{questionId}",
       "changeQuestionsByQuestionId",
       "questions",
-      "Pause or start a question's clock again, withdraw it or close it unsent, put it again in other words, or move what its asker was handed.",
+      "Pause or start a question's clock again, withdraw it or close it unsent, put it again in other words, move what its asker was handed, or put a question the supervisor holds to a person.",
     )
     .with(
       None,
       Some(referred::<QuestionChange>),
       vec![json::<Question>(200, "The question changed.")],
-      &[BadRequest, NotFound, Conflict],
+      &[BadRequest, NotTheAddressee, NotFound, Conflict],
     ),
     route(
       Get,
@@ -478,7 +478,7 @@ pub fn routes() -> Vec<Route> {
       None,
       Some(referred::<NewReply>),
       vec![json::<Reply>(201, "The reply given.")],
-      &[BadRequest, NotFound, Conflict, NotAChoice],
+      &[BadRequest, NotTheAddressee, NotFound, Conflict, NotAChoice],
     ),
     route(Get, "/subscriptions", "listSubscriptions", "subscriptions", "Subscriptions, by holder or state.").with(
       Some(object::<SubscriptionQuery>),

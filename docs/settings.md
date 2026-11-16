@@ -33,12 +33,17 @@ recorded under that name (docs/api.md, "Approvals").
 |---|---|
 | `token_file` | The file holding the caller's bearer token, read as `[server] token_file` is; a token that is the shared one or another caller's is refused |
 | `approves` | Whether the caller's approval opens a draft: `true` makes it an approver, whose approval is of the kind `approval`; left out it is `false`, and the caller's approval is a recommendation |
+| `supervises` | Whether the caller supervises the work: `true` lets it settle a question put to the supervisor and put such a question to a person instead (docs/api.md, 「The addressee」); left out it is `false` |
 
 A deployment marks as an approver the caller whose word alone puts work into a queue, and gives its token only to
 what acts on that word. A deployment that marks none opens no draft by an approval. Where a deployment marks the
 caller a chat agent's own token names, the agent's approval opens the draft it has read and judged sound; the rule
 for when to give it stands in the agent's own instructions, not here. A caller the deployment does not mark, and
 the shared token, record only a recommendation, which opens no draft.
+
+A deployment marks as supervising the caller whose token the supervisors of its work carry, and no other. A
+deployment that marks none has no caller that settles a question put to the supervisor, so such a question waits
+until it is withdrawn.
 
 ### `[unattended]`
 

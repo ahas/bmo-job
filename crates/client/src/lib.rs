@@ -77,8 +77,8 @@ pub use leases::{Frozen, ItemField, Lease, LeaseAsk, LeaseQuery, LeaseRenewal, L
 pub use notes::{NewNote, Note, WaitQuery};
 pub use page::{Page, PageQuery};
 pub use questions::{
-  NewQuestion, NewReply, Question, QuestionChange, QuestionQuery, QuestionRecommendation, QuestionState,
-  Reply, ReplySource,
+  NewQuestion, NewReply, Question, QuestionAddressee, QuestionChange, QuestionQuery, QuestionRecommendation,
+  QuestionState, Reply, ReplySource,
 };
 pub use queues::{Hold, Queue, QueueChange, QueueQuery, QueueState};
 pub use reports::{NewReport, Report, ReportKind};

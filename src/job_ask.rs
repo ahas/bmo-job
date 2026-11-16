@@ -1,16 +1,18 @@
-//! `bmo job ask` from a job's own shell (docs/cli.md): a choice put to the owner in the middle of a job, and its
-//! run waiting for a person to settle it. Its run is what waits, holding its checkout, so nothing else is held up.
+//! `bmo job ask` from a job's own shell (docs/cli.md): a question put to the job's supervisor in the middle of a
+//! job, which settles it itself or puts it to the owner, and the job's run waiting for it to be settled. Its run is
+//! what waits, holding its checkout, so nothing else is held up.
 //!
-//! The wait ends on an event and on nothing else: a settling reply a person gave, the question withdrawn, the
-//! run told to stop, or the owner talking instead of choosing. No clock settles it. A recommendation is shown to
-//! whoever answers and comes back only where a person settled the question with it.
+//! The wait ends on an event and on nothing else: a settling reply the supervisor or a person gave, the question
+//! withdrawn, the run told to stop, or the supervisor or the owner talking instead of settling. No clock settles
+//! it. A recommendation is shown to whoever answers and comes back only where a person settled the question with
+//! it. A supervisor's notice the receiver lets go untaken puts the question to the owner instead.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
 use bmo_job_client::{
-  ClientFailure, JobClient, NewQuestion, NewReply, Page, Question, QuestionChange, QuestionQuery,
-  QuestionRecommendation, QuestionState, Reply, ReplySource, WaitQuery,
+  ClientFailure, JobClient, NewQuestion, NewReply, Page, Question, QuestionAddressee, QuestionChange,
+  QuestionQuery, QuestionRecommendation, QuestionState, Reply, ReplySource, WaitQuery,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -23,7 +25,7 @@ use crate::outside::outside_refusal;
 pub const TALK_EXIT: u8 = 3;
 
 /// The verb's forms, printed under every refusal of its words.
-pub const USAGE: &str = "usage: bmo job ask --todo <id> --question '<what is to be settled>' --option '<one>' --option '<another>' --recommend <n> --why '<why you ask, in one line>'
+pub const USAGE: &str = "usage: bmo job ask --todo <id> --question '<what is to be settled or done>' --why '<why you cannot settle it yourself, in one line>' [--option '<one>' --option '<another>' --recommend <n>]
        bmo job ask --talk <question> --say '<your answer>' [--option '<one>' --option '<another>' --recommend <n> [--question '<words>'] [--why '<words>']]
        bmo job ask --show <question>
        bmo job ask --todo <id> --show";
@@ -224,14 +226,49 @@ impl Receiver {
       .send()
       .await;
   }
+
+  /// Whether an order still stands for the supervisor, pending, handed or delivered; false once the receiver let it
+  /// go untaken, which it answers as gone.
+  pub async fn held(&self, id: i64) -> Result<bool, ReceiverFailure> {
+    let answer = self
+      .http
+      .get(format!("{}/instructions/{id}", self.url))
+      .bearer_auth(&self.token)
+      .send()
+      .await
+      .map_err(|why| ReceiverFailure::Unanswered(why.to_string()))?;
+    let status = answer.status();
+
+    if status == reqwest::StatusCode::NOT_FOUND {
+      return Ok(false);
+    }
+
+    if status.is_server_error() {
+      return Err(ReceiverFailure::Unanswered(format!("it answered {} to GET /instructions", status.as_u16())));
+    }
+
+    if !status.is_success() {
+      return Err(ReceiverFailure::Answered(format!(
+        "the receiver answered {} to GET /instructions",
+        status.as_u16()
+      )));
+    }
+
+    Ok(true)
+  }
 }
 
 fn refused(reason: &str) -> String {
   format!("ask: {reason}\n{USAGE}")
 }
 
-// What a set of options must hold: at least two, each one line and said, the recommendation one of them.
+// What a set of options must hold: none, for an open question, which takes no recommendation; or at least two, each
+// one line and said, the recommendation one of them.
 fn options_refusal(options: &[String], recommend: Option<i64>) -> Option<String> {
+  if options.is_empty() {
+    return recommend.map(|_| "--recommend names one of the options, and an open question puts none.".to_owned());
+  }
+
   if options.len() < 2 {
     return Some("a question puts two options or more: --option '<one>' --option '<another>'.".to_owned());
   }
@@ -274,8 +311,13 @@ fn item_line(item: i64, title: Option<&str>) -> String {
   }
 }
 
-// The question as data: its words, its options numbered as the owner answers them, and why it is asked.
+// The question as data: its words, its options numbered as the owner answers them or the word that it is open, and
+// why it is asked.
 fn question_data(text: &str, options: &[String], recommend: i64, why: &str) -> String {
+  if options.is_empty() {
+    return format!("{text}\n\nchoices: an open answer\n\nwhy: {why}");
+  }
+
   let lines: Vec<String> = options
     .iter()
     .enumerate()
@@ -289,22 +331,42 @@ fn question_data(text: &str, options: &[String], recommend: i64, why: &str) -> S
   format!("{text}\n\n{}\n\nwhy: {why}", lines.join("\n"))
 }
 
-// The question as the room's supervisor is handed it: the notice, the item it is about and the question's data.
-fn question_order(
-  item: i64,
-  title: Option<&str>,
-  id: i64,
-  text: &str,
-  options: &[String],
-  recommend: i64,
-  why: &str,
-) -> String {
+// The tools a supervisor's order names: the ones that settle the question, talk on it and put it to the owner
+// (docs/api.md, 「The tools」).
+const SUPERVISOR_TOOLS: &str = "settle: job_reply with settles true; talk: job_reply with settles false; \
+  to the owner: job_question_change with addressee person";
+
+// The kind of order a question is handed to the room's supervisor under: one it holds itself, or one put to the
+// owner that it puts before him.
+fn order_kind(addressee: QuestionAddressee) -> &'static str {
+  match addressee {
+    QuestionAddressee::Supervisor => "question-for-supervisor",
+    QuestionAddressee::Person => "question-awaits-answer",
+  }
+}
+
+// The question as the room's supervisor is handed it: the notice, the item it is about and the question's data,
+// and for one it holds itself the tools that answer it.
+fn question_order(item: i64, title: Option<&str>, question: &Question, recommend: i64, why: &str) -> String {
+  let tools = match question.addressee {
+    QuestionAddressee::Supervisor => format!("\n\n{SUPERVISOR_TOOLS}"),
+    QuestionAddressee::Person => String::new(),
+  };
+
   format!(
-    "{}\n{}\n\n{}",
-    notice("question-awaits-answer", id),
+    "{}\n{}\n\n{}{tools}",
+    notice(order_kind(question.addressee), question.id),
     item_line(item, title),
-    question_data(text, options, recommend, why),
+    question_data(&question.text, &question.choices, recommend, why),
   )
+}
+
+// Who answers a question as the job is told of it.
+fn answerer(addressee: QuestionAddressee) -> &'static str {
+  match addressee {
+    QuestionAddressee::Supervisor => "supervisor",
+    QuestionAddressee::Person => "owner",
+  }
 }
 
 // The job's answer in a talk, as the room's supervisor is handed it: the notice, the item and the words, with the
@@ -315,8 +377,10 @@ fn talk_order(item: i64, title: Option<&str>, id: i64, say: &str, put_again: Opt
   format!("{}\n{}\n\n{say}{again}", notice("question-talk", id), item_line(item, title))
 }
 
-// What the waiting job is handed when the owner talks: his words as he wrote them, and the call that answers him.
-fn heard_message(id: i64, heard: &[Reply]) -> String {
+// What the waiting job is handed when the supervisor or the owner talks: the words as written, and the call that
+// answers them.
+fn heard_message(id: i64, heard: &[Reply], addressee: QuestionAddressee) -> String {
+  let who = answerer(addressee);
   let quoted = heard
     .iter()
     .map(|line| line.text.split('\n').map(|part| format!("> {part}")).collect::<Vec<_>>().join("\n"))
@@ -324,12 +388,12 @@ fn heard_message(id: i64, heard: &[Reply]) -> String {
     .join("\n");
 
   format!(
-    "The owner talked on question #{id} instead of choosing, and it is still open:\n{quoted}\n\nAnswer him, and wait on it again, with:\n  bmo job ask --talk {id} --say '<your answer>'\nWhere the talk changed the choice, put it again in the same call: --option for every option anew and --recommend, with --question or --why where those changed."
+    "The {who} talked on question #{id} instead of settling it, and it is still open:\n{quoted}\n\nAnswer, and wait on it again, with:\n  bmo job ask --talk {id} --say '<your answer>'\nWhere the talk changed the choice, put it again in the same call: --option for every option anew and --recommend, with --question or --why where those changed."
   )
 }
 
-/// The one line a settling reply comes back as, the option taken or the person's own words, and a refusal of one
-/// no person gave: only a person's answer is ever printed as an answer.
+/// The one line a person's settling reply comes back as, the option taken or the person's own words, and a refusal
+/// of one no person gave: only a person's answer is ever printed as an answer.
 pub fn settled_line(reply: &Reply) -> Result<String, String> {
   if reply.source != ReplySource::Person {
     return Err(format!(
@@ -341,6 +405,17 @@ pub fn settled_line(reply: &Reply) -> Result<String, String> {
   let said = reply.choice.as_deref().unwrap_or(&reply.text);
 
   Ok(said.split_whitespace().collect::<Vec<_>>().join(" "))
+}
+
+/// What a settling reply comes back as: the supervisor's answer as it wrote it, a result of several lines among it,
+/// where the supervisor held the question when it was settled, and a person's one line otherwise.
+pub fn settled_answer(reply: &Reply, addressee: QuestionAddressee) -> Result<String, String> {
+  let line = settled_line(reply)?;
+
+  Ok(match addressee {
+    QuestionAddressee::Supervisor => reply.choice.as_deref().unwrap_or(&reply.text).trim().to_owned(),
+    QuestionAddressee::Person => line,
+  })
 }
 
 // Whether a failure says the service no longer holds the question, rather than that it did not answer now.
@@ -441,7 +516,7 @@ async fn stood(
   let mut stop = std::pin::pin!(stop);
 
   match until_answered("ask", stop.as_mut(), || settling_reply(client, id)).await {
-    Ok(Some(reply)) => settled_line(&reply).map(|line| Ending::SettledBefore { question: id, line }),
+    Ok(Some(reply)) => settled_answer(&reply, question.addressee).map(|line| Ending::SettledBefore { question: id, line }),
     Ok(None) => Err(format!("ask: question #{id} reads answered, yet no reply settled it")),
     Err(Halt::Answered(why)) => {
       Err(format!("ask: question #{id} was settled before, and its answer was not read: {why}"))
@@ -465,8 +540,9 @@ async fn title_of(
   }
 }
 
-/// A new question opened in the owner's private room, handed to its supervisor and waited on. A question that
-/// could not be handed over is closed `unsent` and comes back as a failure: no option goes out with it.
+/// A new question opened in the owner's private room for its supervisor, handed to that supervisor and waited on.
+/// A question that could not be handed over is closed `unsent` and comes back as a failure: no option goes out with
+/// it.
 pub async fn ask(
   client: &JobClient,
   receiver: &Receiver,
@@ -474,7 +550,7 @@ pub async fn ask(
   stop: impl Future<Output = ()>,
 ) -> Result<Ending, String> {
   if asked.question.trim().is_empty() {
-    return Err(refused("say what is to be settled: --question '<what is to be settled>'."));
+    return Err(refused("say what is to be settled or done: --question '<what is to be settled or done>'."));
   }
 
   if let Some(refusal) = options_refusal(&asked.options, asked.recommend) {
@@ -482,7 +558,9 @@ pub async fn ask(
   }
 
   if asked.why.trim().is_empty() {
-    return Err(refused("say why you cannot settle it yourself: --why '<why you ask, in one line>'."));
+    return Err(refused(
+      "say why you cannot settle it yourself: --why '<why you cannot settle it yourself, in one line>'.",
+    ));
   }
 
   let Some(item) = asked.item.filter(|item| *item > 0) else {
@@ -506,11 +584,13 @@ pub async fn ask(
     item_id: Some(item),
     asker_name: asked.by.clone(),
     scope: None,
+    // A job asks its supervisor, which settles it or puts it to the owner (docs/cli.md, 「`bmo-job job ask`」).
+    addressee: Some(QuestionAddressee::Supervisor),
     text: asked.question.clone(),
     choices: asked.options.clone(),
     recommendation: recommendation(&asked.options, recommend, &asked.why),
-    // The service's own due time stands (docs/api.md, 「Questions and replies」): it paces the one notice of a
-    // question left unanswered and settles nothing.
+    // The service's own due time stands (docs/api.md, 「Questions and replies」): it counts once the question is
+    // put to a person, paces the one notice of a question left unanswered and settles nothing.
     wait_ms: None,
     told_by_asker: true,
   };
@@ -538,48 +618,108 @@ pub async fn ask(
       })?;
   opening.scope = Some(room.to_string());
 
-  let question = opened_once(client, &opening, stop.as_mut()).await.map_err(|halt| match halt {
+  let (question, told) = put(client, receiver, &opening, room, recommend, &asked.why, stop.as_mut()).await?;
+
+  wait_on(client, receiver, question, told, stop).await
+}
+
+// The question opened and handed to the room's supervisor under the order its addressee takes: the question and
+// the order's number where the receiver answered one. A question that could not be handed over is closed `unsent`.
+async fn put(
+  client: &JobClient,
+  receiver: &Receiver,
+  opening: &NewQuestion,
+  room: i64,
+  recommend: i64,
+  why: &str,
+  mut stop: std::pin::Pin<&mut impl Future<Output = ()>>,
+) -> Result<(Question, Option<i64>), String> {
+  let question = opened_once(client, opening, stop.as_mut()).await.map_err(|halt| match halt {
     Halt::Answered(why) => format!("ask: the question was not opened: {why}"),
     Halt::Stopped => "ask: the run was told to stop, and nothing was opened".to_owned(),
   })?;
-  let Ok(title) = title_of(client, item, stop.as_mut()).await else {
-    return stopped(client, receiver, question.id, None).await;
+  let item = question.item_id.unwrap_or_default();
+  let title = match item > 0 {
+    true => match title_of(client, item, stop.as_mut()).await {
+      Ok(title) => title,
+      Err(()) => return Err(withdrawn(client, receiver, question.id, None).await),
+    },
+    false => None,
   };
-  let order = question_order(
-    item,
-    title.as_deref(),
-    question.id,
-    &asked.question,
-    &asked.options,
-    recommend,
-    &asked.why,
-  );
-  let summary = format!("Question #{} awaits the owner", question.id);
-  let ordered = until_answered("ask", stop.as_mut(), || {
-    receiver.order(room, "question-awaits-answer", question.id, &summary, &order)
-  })
-  .await;
-  let told = match ordered {
-    Ok(told) => told,
-    Err(Halt::Stopped) => return stopped(client, receiver, question.id, None).await,
+  let order = question_order(item, title.as_deref(), &question, recommend, why);
+  let summary = format!("Question #{} awaits the {}", question.id, answerer(question.addressee));
+  let kind = order_kind(question.addressee);
+  let ordered = until_answered("ask", stop.as_mut(), || receiver.order(room, kind, question.id, &summary, &order)).await;
+
+  match ordered {
+    Ok(told) => Ok((question, told)),
+    Err(Halt::Stopped) => Err(withdrawn(client, receiver, question.id, None).await),
     Err(Halt::Answered(why)) => {
       let left =
         match until_answered("ask", stop.as_mut(), || closed(client, question.id, QuestionState::Unsent))
           .await
         {
           Ok(()) => String::new(),
-          Err(Halt::Stopped) => return stopped(client, receiver, question.id, None).await,
+          Err(Halt::Stopped) => return Err(withdrawn(client, receiver, question.id, None).await),
           Err(Halt::Answered(failed)) => format!("; closing it failed too: {failed}"),
         };
 
-      return Err(format!(
-        "ask: question #{} could not be put to the owner, so nothing will ever answer it, and it is closed unsent: {why}{left}",
-        question.id
-      ));
+      Err(format!(
+        "ask: question #{} could not be put to the {}, so nothing will ever answer it, and it is closed unsent: {why}{left}",
+        question.id,
+        answerer(question.addressee)
+      ))
     }
-  };
+  }
+}
 
-  wait_on(client, receiver, question, told, stop).await
+// A question the supervisor's notice was let go untaken for, put to the owner as one no supervisor could take:
+// withdrawn, and opened again in the job's own words for a person (docs/cli.md, 「`bmo-job job ask`」). None where
+// it could not be withdrawn because it was settled or put elsewhere meanwhile, which the wait then reads.
+async fn untaken(
+  client: &JobClient,
+  receiver: &Receiver,
+  question: &Question,
+  mut stop: std::pin::Pin<&mut impl Future<Output = ()>>,
+) -> Result<Option<(Question, Option<i64>)>, String> {
+  let room = question
+    .scope
+    .as_deref()
+    .and_then(|scope| scope.parse::<i64>().ok())
+    .ok_or_else(|| format!("ask: question #{} stands in no room, so it cannot go to the owner", question.id))?;
+
+  match until_answered("ask", stop.as_mut(), || closed(client, question.id, QuestionState::Withdrawn)).await {
+    Ok(()) => {}
+    Err(Halt::Answered(_)) => return Ok(None),
+    Err(Halt::Stopped) => return Err(withdrawn(client, receiver, question.id, None).await),
+  }
+
+  let recommend = question
+    .recommendation
+    .as_ref()
+    .and_then(|kept| question.choices.iter().position(|choice| *choice == kept.answer))
+    .and_then(|at| i64::try_from(at + 1).ok())
+    .unwrap_or(0);
+  let why = question.recommendation.as_ref().map(|kept| kept.why.clone()).unwrap_or_default();
+  let opening = NewQuestion {
+    item_id: question.item_id,
+    asker_name: question.asker_name.clone(),
+    scope: question.scope.clone(),
+    addressee: Some(QuestionAddressee::Person),
+    text: question.text.clone(),
+    choices: question.choices.clone(),
+    recommendation: question.recommendation.clone(),
+    wait_ms: None,
+    told_by_asker: true,
+  };
+  let (put_to_owner, told) = put(client, receiver, &opening, room, recommend, &why, stop).await?;
+
+  eprintln!(
+    "ask: the supervisor's notice of question #{} was let go untaken, so it is withdrawn and put to the owner as question #{}",
+    question.id, put_to_owner.id
+  );
+
+  Ok(Some((put_to_owner, told)))
 }
 
 /// The job's answer in a talk put in the owner's room, the question put again where the answer changed it, and
@@ -718,6 +858,11 @@ async fn stopped(
   id: i64,
   told: Option<i64>,
 ) -> Result<Ending, String> {
+  Err(withdrawn(client, receiver, id, told).await)
+}
+
+// The question withdrawn as the run was told to stop, what was queued for it taken back, and what the job is told.
+async fn withdrawn(client: &JobClient, receiver: &Receiver, id: i64, told: Option<i64>) -> String {
   let closing = closed(client, id, QuestionState::Withdrawn).await;
 
   if let Some(told) = told {
@@ -728,14 +873,13 @@ async fn stopped(
     .err()
     .map_or_else(String::new, |failed| format!("; withdrawing it failed: {failed}"));
 
-  Err(format!(
-    "ask: the run was told to stop, and question #{id} is withdrawn unanswered{left}"
-  ))
+  format!("ask: the run was told to stop, and question #{id} is withdrawn unanswered{left}")
 }
 
-// The question and its replies read until a person settles it or the owner talks. A stop withdraws it. A service
-// that does not answer is asked again, since a restart is no answer, and so is keeping where the job heard
-// through; a service that no longer holds the question ends the wait.
+// The question and its replies read until the supervisor or a person settles it, or one of them talks. A stop
+// withdraws it. While the supervisor holds it, its notice is read too: one the receiver let go untaken puts the
+// question to the owner instead. A service that does not answer is asked again, since a restart is no answer, and
+// so is keeping where the job heard through; a service that no longer holds the question ends the wait.
 async fn wait_on(
   client: &JobClient,
   receiver: &Receiver,
@@ -743,22 +887,48 @@ async fn wait_on(
   told: Option<i64>,
   stop: impl Future<Output = ()>,
 ) -> Result<Ending, String> {
-  let id = question.id;
-  let asker = question.asker_name.clone();
+  let mut question = question;
+  let mut told = told;
   let mut after = question.heard_through;
   let mut stop = std::pin::pin!(stop);
   let mut rests = Rests::default();
 
   loop {
+    let id = question.id;
+
+    if question.addressee == QuestionAddressee::Supervisor
+      && let Some(notice) = told
+    {
+      let held = tokio::select! {
+        () = &mut stop => return stopped(client, receiver, id, told).await,
+        held = receiver.held(notice) => held,
+      };
+
+      match held {
+        Ok(true) => {}
+        Ok(false) => {
+          if let Some((put_to_owner, put_told)) = untaken(client, receiver, &question, stop.as_mut()).await? {
+            question = put_to_owner;
+            told = put_told;
+            after = None;
+
+            continue;
+          }
+        }
+        Err(failure) => eprintln!("ask: the supervisor's notice of question #{id} was not read: {failure}"),
+      }
+    }
+
     let looked = tokio::select! {
       () = &mut stop => return stopped(client, receiver, id, told).await,
       looked = look(client, id, after) => looked,
     };
-    let page = match looked {
-      Ok(page) => {
+    let (current, page) = match looked {
+      Ok(Some(looked)) => {
         rests = Rests::default();
-        page
+        looked
       }
+      Ok(None) => return Err(format!("ask: question #{id} was closed unanswered, and no answer is coming")),
       Err(failure) if gone(&failure) => {
         return Err(format!("ask: the service no longer holds question #{id}"));
       }
@@ -772,9 +942,19 @@ async fn wait_on(
         continue;
       }
     };
-    let Some(page) = page else {
-      return Err(format!("ask: question #{id} was closed unanswered, and no answer is coming"));
-    };
+
+    // The supervisor put it to the owner: its notice is done with, and his answer is waited on.
+    if question.addressee == QuestionAddressee::Supervisor && current.addressee == QuestionAddressee::Person {
+      eprintln!("ask: the supervisor put question #{id} to the owner; waiting on his answer");
+
+      if let Some(notice) = told.take() {
+        receiver.withdraw(notice).await;
+      }
+    }
+
+    let asker = question.asker_name.clone();
+    question = current;
+
     let mut heard = vec![];
 
     for reply in page.items {
@@ -785,7 +965,7 @@ async fn wait_on(
           receiver.withdraw(told).await;
         }
 
-        return settled_line(&reply).map(Ending::Settled);
+        return settled_answer(&reply, question.addressee).map(Ending::Settled);
       }
 
       if reply.actor_name != asker {
@@ -800,7 +980,7 @@ async fn wait_on(
       };
 
       return match until_answered("ask", stop.as_mut(), || client.change_question(id, &change)).await {
-        Ok(_) => Ok(Ending::Talk(heard_message(id, &heard))),
+        Ok(_) => Ok(Ending::Talk(heard_message(id, &heard, question.addressee))),
         Err(Halt::Answered(why)) => Err(format!("ask: {why}")),
         Err(Halt::Stopped) => stopped(client, receiver, id, told).await,
       };
@@ -808,13 +988,13 @@ async fn wait_on(
   }
 }
 
-// One look at the question: none where it was closed unanswered, else the replies past the cursor, the read held
-// open for a while where none stands yet.
+// One look at the question: none where it was closed unanswered, else the question as it stands and the replies
+// past the cursor, the read held open for a while where none stands yet.
 async fn look(
   client: &JobClient,
   id: i64,
   after: Option<i64>,
-) -> Result<Option<Page<Reply>>, ClientFailure> {
+) -> Result<Option<(Question, Page<Reply>)>, ClientFailure> {
   let current = client.question(id).await?;
 
   if matches!(current.state, QuestionState::Withdrawn | QuestionState::Unsent) {
@@ -827,7 +1007,7 @@ async fn look(
     limit: None,
   };
 
-  client.replies(id, &query).await.map(Some)
+  client.replies(id, &query).await.map(|page| Some((current, page)))
 }
 
 /// What `--show` reads: one question by its number, or every question asked about an item.
@@ -866,7 +1046,7 @@ pub async fn show(client: &JobClient, shown: Shown) -> Result<Vec<Reading>, Stri
       QuestionState::Answered => settling_reply(client, question.id)
         .await
         .map_err(|why| format!("ask: question #{}: {why}", question.id))?
-        .and_then(|reply| settled_line(&reply).ok()),
+        .and_then(|reply| settled_answer(&reply, question.addressee).ok()),
       _ => None,
     };
 
