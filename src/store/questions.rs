@@ -386,8 +386,10 @@ impl Store {
           kept.remaining_ms = kept.question.due_at.map(|due| (due - now).max(0));
           kept.question.due_at = None;
         }
+        // A clock that had run out when it stopped runs a whole wait again rather than passing at once.
         (QuestionState::Paused, QuestionState::Open) => {
-          kept.question.due_at = kept.remaining_ms.map(|left| now + left);
+          kept.question.due_at =
+            kept.remaining_ms.map(|left| now + if left > 0 { left } else { kept.wait_ms });
           kept.remaining_ms = None;
         }
         (QuestionState::Open | QuestionState::Paused, QuestionState::Withdrawn | QuestionState::Unsent) => {

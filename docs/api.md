@@ -324,9 +324,11 @@ kept in the store may carry. The source is the voice a reply is heard in, whatev
   has its `dueAt` that far from when it was asked; one put to the supervisor has none while the supervisor holds
   it, and is never told of as due there, and once the supervisor puts it to a person its `dueAt` is that far from
   that moment. Pausing a question keeps the time it had left and reads `dueAt` as null; opening it again sets
-  `dueAt` that far from then. A question is told of as due once each time it is put to a person: a pause and an
-  opening again tell nothing of a question already told of, whose due time has passed. The due time paces a
-  notice and nothing more: a question waits for its answer however long that takes.
+  `dueAt` that far from then, or a whole `waitMs` from then where it had no time left, as a question paused past
+  its due time has. A question is told of as due once each time it is put to a person: a pause and an opening
+  again tell nothing of a question already told of, whose due time has passed, and the `dueAt` it reads after
+  opening again passes untold. The due time paces a notice and nothing more: a question waits for its answer
+  however long that takes.
 - **The recommendation.** `recommendation` is `{answer, why}`: `answer` is one of the question's choices or a
   free answer where the choices do not cover it, and `why` is the one line saying why that is the answer. It is
   shown to whoever answers, and taken only where a person settles the question with it. The

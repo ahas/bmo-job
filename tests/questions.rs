@@ -889,7 +889,7 @@ async fn the_supervisor_takes_back_a_question_put_to_a_person_that_nobody_settle
 }
 
 #[tokio::test]
-async fn a_question_told_of_as_due_is_not_told_again_by_a_pause_and_an_opening() {
+async fn a_question_paused_past_its_due_time_runs_a_whole_wait_again_and_is_not_told_again() {
   let service = Service::start().await;
   let client = service.client();
   let question = service
@@ -914,19 +914,32 @@ async fn a_question_told_of_as_due_is_not_told_again_by_a_pause_and_an_opening()
   service.pass(11_000).await;
   assert_eq!(client.events_page(&due).await.expect("read").items.len(), 1);
 
-  // The owner talks and the clock stops; the job answers and it runs again, twice over.
-  for _ in 0..2 {
-    client
-      .change_question(question.id, &moved(QuestionState::Paused))
-      .await
-      .expect("paused");
-    service.pass(1_000).await;
-    client
-      .change_question(question.id, &moved(QuestionState::Open))
-      .await
-      .expect("open again");
-    service.pass(1_000).await;
-  }
+  // The owner talks past the due time and the clock stops with nothing left; the job answers and it runs a
+  // whole wait again.
+  client
+    .change_question(question.id, &moved(QuestionState::Paused))
+    .await
+    .expect("paused");
+  service.pass(1_000).await;
+  let open = client
+    .change_question(question.id, &moved(QuestionState::Open))
+    .await
+    .expect("open again");
+  assert_eq!(open.due_at, Some(START + 12_000 + 10_000), "a whole wait from the opening");
 
+  // Paused again with time left, it keeps what it had.
+  service.pass(1_000).await;
+  client
+    .change_question(question.id, &moved(QuestionState::Paused))
+    .await
+    .expect("paused");
+  service.pass(1_000).await;
+  let open = client
+    .change_question(question.id, &moved(QuestionState::Open))
+    .await
+    .expect("open again");
+  assert_eq!(open.due_at, Some(START + 14_000 + 9_000), "the time it had left");
+
+  service.pass(10_000).await;
   assert_eq!(client.events_page(&due).await.expect("read").items.len(), 1, "told once");
 }
