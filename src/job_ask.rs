@@ -30,8 +30,10 @@ pub const USAGE: &str = "usage: bmo job ask --todo <id> --question '<what is to 
        bmo job ask --show <question>
        bmo job ask --todo <id> --show";
 
-// How long one read of the replies is held open; the wait goes on past it.
+// How long one read of the replies is held open; the wait goes on past it. While the supervisor's notice is
+// watched, a read is held shorter, so a turn that ended with no word on the question is read soon after.
 const HELD_OPEN_MS: i64 = 60_000;
+const WATCHING_MS: i64 = 15_000;
 
 // The states a question an ask stands as may be in: every one but those that will never be answered.
 const STANDING: &str = "open,paused,answered";
@@ -1073,13 +1075,21 @@ async fn wait_on(
             continue;
           }
         }
-        Err(why) => eprintln!("ask: the supervisor's notice of question #{id} was not read: {why}"),
+        Err(why) => {
+          eprintln!("ask: the supervisor's notice of question #{id} was not read: {why}; reading it again");
+          tokio::select! {
+            () = &mut stop => return stopped(client, receiver, id, told).await,
+            () = tokio::time::sleep(rests.take()) => {}
+          }
+
+          continue;
+        }
       }
     }
 
     let looked = tokio::select! {
       () = &mut stop => return stopped(client, receiver, id, told).await,
-      looked = look(client, id, after, question.addressee) => looked,
+      looked = look(client, id, after, question.addressee, watch.is_some()) => looked,
     };
     let (current, page) = match looked {
       Ok(Some(looked)) => {
@@ -1158,6 +1168,7 @@ async fn look(
   id: i64,
   after: Option<i64>,
   holding: QuestionAddressee,
+  watching: bool,
 ) -> Result<Option<(Question, Page<Reply>)>, ClientFailure> {
   let current = client.question(id).await?;
 
@@ -1166,7 +1177,7 @@ async fn look(
   }
 
   let query = WaitQuery {
-    wait_ms: (current.addressee == holding).then_some(HELD_OPEN_MS),
+    wait_ms: (current.addressee == holding).then_some(if watching { WATCHING_MS } else { HELD_OPEN_MS }),
     after,
     limit: None,
   };
