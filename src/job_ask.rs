@@ -939,7 +939,7 @@ async fn wait_on(
 
     let looked = tokio::select! {
       () = &mut stop => return stopped(client, receiver, id, told).await,
-      looked = look(client, id, after) => looked,
+      looked = look(client, id, after, question.addressee) => looked,
     };
     let (current, page) = match looked {
       Ok(Some(looked)) => {
@@ -966,11 +966,11 @@ async fn wait_on(
     // The supervisor put it to the owner: its notice is done with, and his answer is waited on.
     if question.addressee == QuestionAddressee::Supervisor && current.addressee == QuestionAddressee::Person
     {
-      eprintln!("ask: the supervisor put question #{id} to the owner; waiting on his answer");
-
       if let Some(notice) = told.take() {
         receiver.withdraw(notice).await;
       }
+
+      eprintln!("ask: the supervisor put question #{id} to the owner; waiting on his answer");
     }
 
     let asker = question.asker_name.clone();
@@ -1018,11 +1018,13 @@ async fn wait_on(
 }
 
 // One look at the question: none where it was closed unanswered, else the question as it stands and the replies
-// past the cursor, the read held open for a while where none stands yet.
+// past the cursor, the read held open for a while where none stands yet and the question is still put to whom the
+// wait last saw it put to, so a move to the owner is told at once.
 async fn look(
   client: &JobClient,
   id: i64,
   after: Option<i64>,
+  holding: QuestionAddressee,
 ) -> Result<Option<(Question, Page<Reply>)>, ClientFailure> {
   let current = client.question(id).await?;
 
@@ -1031,7 +1033,7 @@ async fn look(
   }
 
   let query = WaitQuery {
-    wait_ms: Some(HELD_OPEN_MS),
+    wait_ms: (current.addressee == holding).then_some(HELD_OPEN_MS),
     after,
     limit: None,
   };

@@ -618,7 +618,13 @@ async fn only_the_supervising_caller_settles_a_question_the_supervisor_holds() {
   }
   let word = service
     .client()
-    .reply(question.id, &reply(None, "which node?"))
+    .reply(
+      question.id,
+      &NewReply {
+        settles: Some(false),
+        ..reply(None, "which node?")
+      },
+    )
     .await
     .expect("a word from anyone");
   assert!(!word.settles);

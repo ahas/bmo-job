@@ -1105,7 +1105,8 @@ async fn the_supervisor_puts_it_to_the_owner_and_his_answer_settles_it() {
   let question = opened(&client, &heard, 1).await;
 
   to_owner(&service, question.id).await;
-  let told = tokio::time::timeout(Duration::from_secs(90), async {
+  // A read of the replies already held open runs out first: a minute at most.
+  let told = tokio::time::timeout(Duration::from_secs(150), async {
     while let Some(line) = said.next_line().await.expect("a line") {
       if line.contains("put question") && line.contains("to the owner") {
         return;
