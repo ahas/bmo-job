@@ -1,9 +1,0 @@
-repository = "bmo-job"
-base = false
-
-[coverage]
-# Every Cargo package's src/ and the TypeScript client package, but these: the client crate's root, which only
-# lists its modules and re-exports them, and the types generated from the OpenAPI document.
-layout = "bmo-next"
-roots = ["package/"]
-unindexed = ["crates/client/src/lib.rs", "package/openapi.d.ts"]
