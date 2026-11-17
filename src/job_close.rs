@@ -1,14 +1,15 @@
 //! `bmo-job job close` from a shell (docs/cli.md, docs/deploy.md): what the job changed checked, its commits
 //! pushed onto the remote's main, and the item left waiting for its repository's batch deployment. The close runs
-//! no suite and waits for no deployment. Where the close stands is written on the item it was told, as two of the
-//! item's labels.
+//! no suite and waits for no deployment. Where the close stands is written on the item it was told, as a pair of
+//! labels for its own repository beside the pair summing up every repository's.
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use bmo_job_client::{ClientFailure, Item, ItemChange, JobClient};
+use bmo_job_client::{ClientFailure, Item, ItemChange, JobClient, Labels};
 use serde::Deserialize;
 
 use crate::again::{Halt, until_answered};
@@ -85,12 +86,107 @@ pub struct Steps<'a> {
   pub say: &'a dyn Fn(&str),
 }
 
-/// The label saying where an item's close stands, and the one naming the commit it left on main.
+/// The label summing up where an item's closes stand, and the one naming a commit a close left waiting on main
+/// (docs/cli.md, 「`bmo-job job close`」). Each repository's own pair is these keys, `:` and its name.
 pub const PHASE_LABEL: &str = "close-phase";
 pub const COMMIT_LABEL: &str = "close-commit";
 
 const TESTING: &str = "testing";
 const WAITING_BATCH: &str = "waiting-batch";
+
+/// The label saying where the close of `repository` stands on an item.
+pub fn phase_label_of(repository: &str) -> String {
+  format!("{PHASE_LABEL}:{repository}")
+}
+
+/// The label naming the commit the close of `repository` left waiting on main.
+pub fn commit_label_of(repository: &str) -> String {
+  format!("{COMMIT_LABEL}:{repository}")
+}
+
+// The repository a repository's own phase label is for; none for any other label.
+fn phase_label_for(key: &str) -> Option<&str> {
+  key.strip_prefix(PHASE_LABEL)?.strip_prefix(':')
+}
+
+/// The commits an item waits on to be deployed: each repository whose close left its commit waiting on main, with
+/// that commit, by repository name.
+pub fn waiting_commits(labels: &Labels) -> BTreeMap<String, String> {
+  labels
+    .iter()
+    .filter(|(_, phase)| phase.as_str() == WAITING_BATCH)
+    .filter_map(|(key, _)| phase_label_for(key))
+    .map(|repository| {
+      let commit = labels.get(&commit_label_of(repository)).cloned().unwrap_or_default();
+
+      (repository.to_owned(), commit)
+    })
+    .collect()
+}
+
+/// The labels an item carries once the close of `repository` stands as `standing`: that repository's pair written,
+/// every other repository's pair kept, and the summing pair written again from them all.
+pub fn standing_labels(labels: &Labels, repository: &str, standing: &Standing) -> Labels {
+  let mut written = labels.clone();
+  let named_before = written.remove(COMMIT_LABEL);
+
+  written.remove(PHASE_LABEL);
+  written.remove(&phase_label_of(repository));
+  written.remove(&commit_label_of(repository));
+  match standing {
+    Standing::Testing => {
+      written.insert(phase_label_of(repository), TESTING.to_owned());
+    }
+    Standing::WaitingBatch(commit) => {
+      written.insert(phase_label_of(repository), WAITING_BATCH.to_owned());
+      written.insert(commit_label_of(repository), commit.clone());
+    }
+    Standing::Off => {}
+  }
+
+  let testing = written
+    .iter()
+    .any(|(key, phase)| phase.as_str() == TESTING && phase_label_for(key).is_some());
+  let waiting = waiting_commits(&written);
+
+  if testing {
+    written.insert(PHASE_LABEL.to_owned(), TESTING.to_owned());
+  } else if let Some(first) = waiting.values().next() {
+    let named = match standing {
+      Standing::WaitingBatch(commit) => commit,
+      _ => named_before
+        .as_ref()
+        .filter(|named| waiting.values().any(|commit| commit == *named))
+        .unwrap_or(first),
+    };
+
+    written.insert(COMMIT_LABEL.to_owned(), named.clone());
+    written.insert(PHASE_LABEL.to_owned(), WAITING_BATCH.to_owned());
+  }
+
+  written
+}
+
+/// The repository a close in the checkout at `root` writes its labels for: the name its testbed declaration
+/// gives, else the last part of the address of the remote its main is fetched from, without `.git`, else the
+/// checkout's directory name.
+pub fn repository_of(root: &Path) -> String {
+  declaration(root)
+    .and_then(|declaration| declaration.name)
+    .filter(|name| !name.trim().is_empty())
+    .or_else(|| {
+      let address = git(root, &["remote", "get-url", &followed_remote(root)]).ok()?;
+      let last = Path::new(address.trim_end_matches('/')).file_name()?.to_string_lossy().into_owned();
+      let name = last.strip_suffix(".git").unwrap_or(&last);
+
+      (!name.is_empty()).then(|| name.to_owned())
+    })
+    .unwrap_or_else(|| {
+      root
+        .file_name()
+        .map_or_else(|| "checkout".to_owned(), |name| name.to_string_lossy().into_owned())
+    })
+}
 
 /// Where a close stands, as its item says it: its check under way, its commit waiting on main for its
 /// repository's batch deployment, or neither.
@@ -101,34 +197,22 @@ pub enum Standing {
   Off,
 }
 
-/// The commit an item waits on to be deployed: the one its close left on main, where its labels say it waits.
+/// The commit an item's summing labels say it waits on to be deployed, where they say it waits.
 pub fn waiting_commit(item: &Item) -> Option<&str> {
   (item.labels.get(PHASE_LABEL).map(String::as_str) == Some(WAITING_BATCH))
     .then(|| item.labels.get(COMMIT_LABEL).map_or("", String::as_str))
 }
 
-/// Where the close stands written on its item, the item's other labels kept; nothing is written where the
-/// item already says it. One read and one write, either of which may fail.
+/// Where the close of `repository` stands written on its item (`standing_labels`), the item's other labels
+/// kept; nothing is written where the item already says it. One read and one write, either of which may fail.
 pub async fn write_standing(
   client: &JobClient,
   item: i64,
+  repository: &str,
   standing: &Standing,
 ) -> Result<(), ClientFailure> {
   let read = client.item(item).await?;
-  let mut labels = read.labels.clone();
-
-  labels.remove(PHASE_LABEL);
-  labels.remove(COMMIT_LABEL);
-  match standing {
-    Standing::Testing => {
-      labels.insert(PHASE_LABEL.to_owned(), TESTING.to_owned());
-    }
-    Standing::WaitingBatch(commit) => {
-      labels.insert(PHASE_LABEL.to_owned(), WAITING_BATCH.to_owned());
-      labels.insert(COMMIT_LABEL.to_owned(), commit.clone());
-    }
-    Standing::Off => {}
-  }
+  let labels = standing_labels(&read.labels, repository, standing);
 
   if labels == read.labels {
     return Ok(());
@@ -149,13 +233,14 @@ pub async fn write_standing(
 pub async fn keep_standing(
   client: &JobClient,
   item: i64,
+  repository: &str,
   standing: &Standing,
   within: Duration,
   stop: impl Future<Output = ()>,
 ) -> Result<(), String> {
   let stop = std::pin::pin!(stop);
   let write = || async {
-    tokio::time::timeout(ANSWER_WITHIN, write_standing(client, item, standing))
+    tokio::time::timeout(ANSWER_WITHIN, write_standing(client, item, repository, standing))
       .await
       .unwrap_or_else(|_| {
         Err(ClientFailure::Unreachable(format!("no answer within {}", spoken(ANSWER_WITHIN))))
@@ -689,6 +774,8 @@ fn home() -> PathBuf {
 
 #[derive(Deserialize)]
 struct Declaration {
+  #[serde(default)]
+  name: Option<String>,
   #[serde(default)]
   deploy: Option<Deploy>,
   #[serde(default)]

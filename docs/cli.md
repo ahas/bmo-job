@@ -62,14 +62,28 @@ flowchart TD
 - **The merge.** Once the check passes, the job's commits are pushed onto the remote's main as `HEAD` stands. A
   push the remote refuses, its main having moved while the check ran, refuses the close with what git said and
   the way to close again; nothing is written as waiting.
-- **Where the close stands is written on the item `--todo` names,** as two of its labels, the rest of its labels
-  kept: `close-phase` is `testing` from the moment the check starts and `waiting-batch` once the commit stands on
-  main, and `close-commit` is that commit, written with `waiting-batch`. A reader of the queue tells from them an
-  item whose work is being checked from one whose commit waits on main for its repository's batch deployment.
-  Taking them off once the commit is live is the deployer's, as is the batch deployment itself.
-- **Both labels are taken off** where the close is refused, where its check does not pass, where its push is
-  refused, where the close is told to stop, where the commit is already what is deployed, and where the
-  repository deploys nothing, so an item carries them only while its check runs or its commit waits.
+- **Where the close stands is written on the item `--todo` names,** as labels of its own repository, the rest of
+  the item's labels kept: `close-phase:<repository>` is `testing` from the moment the check starts and
+  `waiting-batch` once the commit stands on main, and `close-commit:<repository>` is that commit, written with
+  `waiting-batch`. A reader of the queue tells from them an item whose work is being checked from one whose
+  commit waits on main for its repository's batch deployment.
+- **The repository is the name its testbed declaration gives,** the name its deployment goes by; a checkout
+  whose declaration names none goes by the last part of the address of the remote its main is fetched from,
+  without `.git`, and else by its directory's name.
+- **An item whose work spans repositories carries a pair for each.** A close in one repository writes and takes
+  off that repository's pair alone, so the commit another repository's close left waiting stays on the item.
+  The item's work is live once every commit its pairs name as waiting is live. Telling that, taking a pair off
+  once its commit is live, and the batch deployment itself are the deployer's.
+- **`close-phase` and `close-commit`, with no repository, sum the pairs up** for a reader that reads one commit:
+  `close-phase` is `testing` while any repository's close checks, else `waiting-batch` while any repository's
+  commit waits, and is absent otherwise; `close-commit` stands beside `waiting-batch` alone and names one waiting
+  commit, the one the close writing it has just left, else the one it already named while that still waits,
+  else the waiting commit of the repository first in name order. Each close writes them again from the pairs
+  the item then carries.
+- **A repository's pair is taken off** where its close is refused, where its check does not pass, where its push
+  is refused, where the close is told to stop, where the commit is already what is deployed, and where the
+  repository deploys nothing, so an item carries it only while that repository's check runs or its commit
+  waits.
 - **The item is reached as `bmo-job todo` reaches it** (「`bmo-job todo`」), and a restart is no answer. While
   the service does not answer, nothing at its address, a connection cut, a 5xx or a request left unanswered for
   ten seconds, its labels are written again, after a quarter of a second at first and every five seconds at
@@ -242,7 +256,7 @@ The worker's run already names the job service in `BMO_JOB_URL` and its token in
 
 | Form | What it does |
 |---|---|
-| `--done <item> [--report <text>] [--unfinished <text>]` | Leaves the run's account of the finished work on the item: `--report` kept as a `final` report and `--unfinished` as a `held` one through `POST /items/{itemId}/reports`. It moves no state: the item is done once whoever ordered the work takes it — its review, or, for an item whose commit waits on main for its repository's batch deployment (its label `close-phase` reading `waiting-batch`, 「`bmo-job job close`」), whoever puts that commit live. The verb prints one line saying what the item waits on: `deployment` with the commit, `review`, or `orderer` |
+| `--done <item> [--report <text>] [--unfinished <text>]` | Leaves the run's account of the finished work on the item: `--report` kept as a `final` report and `--unfinished` as a `held` one through `POST /items/{itemId}/reports`. It moves no state: the item is done once whoever ordered the work takes it — its review, or, for an item whose commit waits on main for its repository's batch deployment (a label `close-phase:<repository>` reading `waiting-batch`, 「`bmo-job job close`」), whoever puts every such commit live. The verb prints one line saying what the item waits on: `deployment` with `commit`, the commit its label `close-commit` names, and `commits`, each waiting repository with its commit, `review`, or `orderer` |
 | `--stop-here <item> --report <text>` | Leaves the run's account on the item as a `held` report, for the run that picks the work up: what is finished and where the next run goes on. It moves no state; holding the item is its orderer's |
 | `--add --title <words> --judgement <words> --raised-by <item> [--repository <name>] [--from-todo <id>:<strand>[,<id>:<strand>]]` | Raises a draft in the queue and scope of the item it was raised from, the judgement as its brief, `--repository` as its assignee (the repository its work is in), else the assignee of the item it was raised from, and `--from-todo` as its label `from-todo`, and prints it |
 

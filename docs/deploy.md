@@ -45,9 +45,10 @@ bmo-testbed's. This document states what the declaration says of this service.
 - **A close ends at the merge.** `bmo job close` checks what the job changed, pushes its commits onto the
   remote's main and leaves the item waiting for this repository's batch deployment (docs/cli.md, 「`bmo-job job
   close`」). It runs no suite and waits for no deployment.
-- **The batch deployment.** Every commit a close leaves on main waits there, its item labelled `close-phase`
-  `waiting-batch` with the commit in `close-commit`, until one deployment of this repository puts main live, the
-  waiting commits all at once. When that deployment is made, and who makes it, is the deployer's; the service
+- **The batch deployment.** Every commit a close leaves on main waits there, its item labelled
+  `close-phase:<repository>` `waiting-batch` with the commit in `close-commit:<repository>` (docs/cli.md,
+  「`bmo-job job close`」), until one deployment of that repository puts main live, the waiting commits all at
+  once. An item whose work spans repositories waits until each of its repositories' commits is live. When that deployment is made, and who makes it, is the deployer's; the service
   keeps no backlog and reads none, and the labels on the items are the whole record of what waits.
 - **The deployment record.** Each deployment writes `deployed.json` under the deploy root `[deploy] root` names
   (`~/.local/share/bmo-job`), holding the commit it put live, and appends a line to `deployed.log` beside it,

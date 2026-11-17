@@ -14,10 +14,10 @@ use crate::support;
 use bmo_job::close_watch::{Running, StepEnd, output_within, run_step};
 use bmo_job::job_close::{
   Clocks, JobCloseArgs, SILENCE, SILENCE_MARGIN, Standing, Steps, close, commits_refusal,
-  deployed_commit_of, keep_standing, silence_for,
+  deployed_commit_of, keep_standing, repository_of, silence_for, standing_labels,
 };
 
-use bmo_job_client::{EventQuery, NewItem};
+use bmo_job_client::{EventQuery, Labels, NewItem};
 
 // The clocks a test's close keeps to: a step's silence, the grace after a TERM and the lines saying where it
 // stands each a fraction of a second.
@@ -750,6 +750,7 @@ async fn the_close_writes_its_standing_through_a_job_service_restart_and_ends_at
 
   assert_eq!(standing.get("close-phase").map(String::as_str), Some("waiting-batch"), "{standing:?}");
   assert_eq!(standing.get("close-commit"), Some(&closable.head), "{standing:?}");
+  assert_eq!(standing.get("close-commit:the-test"), Some(&closable.head), "{standing:?}");
 
   let changes = client
     .events_page(&EventQuery {
@@ -929,12 +930,109 @@ async fn a_standing_the_service_never_answers_is_given_up_once_its_clock_has_pas
   });
   let client = bmo_job_client::JobClient::new(&format!("http://{address}"), "token").expect("a client");
 
-  let written =
-    keep_standing(&client, 7, &Standing::Testing, Duration::from_millis(300), std::future::pending()).await;
+  let written = keep_standing(
+    &client,
+    7,
+    "web",
+    &Standing::Testing,
+    Duration::from_millis(300),
+    std::future::pending(),
+  )
+  .await;
 
   silent.abort();
   assert_eq!(
     written,
     Err("item 7 was not written on: the job service gave no answer within 300ms".to_owned())
   );
+}
+
+// An item's labels after each close in turn, every close a repository and where it comes to stand.
+fn standings(closes: &[(&str, Standing)]) -> Labels {
+  let start = Labels::from([("lane".to_owned(), "todo".to_owned())]);
+
+  closes
+    .iter()
+    .fold(start, |labels, (repository, standing)| standing_labels(&labels, repository, standing))
+}
+
+fn waits(commit: &str) -> Standing {
+  Standing::WaitingBatch(commit.to_owned())
+}
+
+fn labels(pairs: &[(&str, &str)]) -> Labels {
+  pairs.iter().map(|(key, value)| ((*key).to_owned(), (*value).to_owned())).collect()
+}
+
+#[test]
+fn a_close_in_a_second_repository_keeps_the_first_repository_s_commit_waiting() {
+  let both = standings(&[("web", waits("aaa1")), ("drive", Standing::Testing), ("drive", waits("bbb2"))]);
+
+  assert_eq!(
+    both,
+    labels(&[
+      ("lane", "todo"),
+      ("close-phase", "waiting-batch"),
+      ("close-commit", "bbb2"),
+      ("close-phase:web", "waiting-batch"),
+      ("close-commit:web", "aaa1"),
+      ("close-phase:drive", "waiting-batch"),
+      ("close-commit:drive", "bbb2"),
+    ])
+  );
+}
+
+#[test]
+fn a_repository_s_check_sums_up_as_testing_with_no_commit_while_another_waits() {
+  let checking = standings(&[("web", waits("aaa1")), ("drive", Standing::Testing)]);
+
+  assert_eq!(checking.get("close-phase").map(String::as_str), Some("testing"));
+  assert_eq!(checking.get("close-commit"), None);
+  assert_eq!(checking.get("close-commit:web").map(String::as_str), Some("aaa1"));
+}
+
+#[test]
+fn a_close_that_ends_takes_off_its_own_pair_and_the_summing_commit_moves_to_one_still_waiting() {
+  let ended = standings(&[("web", waits("aaa1")), ("drive", waits("bbb2")), ("drive", Standing::Off)]);
+
+  assert_eq!(
+    ended,
+    labels(&[
+      ("lane", "todo"),
+      ("close-phase", "waiting-batch"),
+      ("close-commit", "aaa1"),
+      ("close-phase:web", "waiting-batch"),
+      ("close-commit:web", "aaa1"),
+    ])
+  );
+  assert_eq!(standing_labels(&ended, "web", &Standing::Off), labels(&[("lane", "todo")]));
+}
+
+#[test]
+fn the_summing_commit_stays_on_a_commit_still_waiting_rather_than_the_first_by_name() {
+  let ended = standings(&[
+    ("arbiter", waits("aaa1")),
+    ("brain", waits("bbb2")),
+    ("calendar", waits("ccc3")),
+    ("brain", Standing::Off),
+  ]);
+
+  assert_eq!(ended.get("close-commit").map(String::as_str), Some("ccc3"));
+}
+
+#[test]
+fn a_checkout_declaring_no_name_goes_by_its_remote_s_name() {
+  let repo = tempfile::tempdir().expect("a repository");
+  let remotes = tempfile::tempdir().expect("a directory for the remote");
+  let remote = remotes.path().join("drive.git");
+
+  init(repo.path());
+  git(remotes.path(), &["init", "-q", "--bare", "drive.git"]);
+  git(repo.path(), &["remote", "add", "origin", &remote.display().to_string()]);
+
+  assert_eq!(repository_of(repo.path()), "drive");
+
+  declare_deploy_root(repo.path(), remotes.path());
+
+  assert_eq!(repository_of(repo.path()), "the-test", "the declared name comes first");
 }

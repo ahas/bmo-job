@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use bmo_job_client::{JobClient, NewItem, NewReport, Report, ReportKind, ReviewKind, ReviewQuery};
 
 use crate::Settings;
-use crate::job_close::waiting_commit;
+use crate::job_close::{waiting_commit, waiting_commits};
 use crate::outside::outside_refusal;
 
 /// What a closing hands the service: the item, its report and what it could not reach, and the actor the
@@ -146,9 +146,13 @@ pub async fn close(client: &JobClient, args: &TodoArgs) -> Result<Vec<String>, S
 
   lines.push(
     match waiting_commit(&stands) {
-      Some(commit) => {
-        serde_json::json!({ "itemId": args.done, "state": stands.state, "waitsOn": "deployment", "commit": commit })
-      }
+      Some(commit) => serde_json::json!({
+        "itemId": args.done,
+        "state": stands.state,
+        "waitsOn": "deployment",
+        "commit": commit,
+        "commits": waiting_commits(&stands.labels),
+      }),
       None if review_open(client, args.done).await? => {
         serde_json::json!({ "itemId": args.done, "state": stands.state, "waitsOn": "review" })
       }

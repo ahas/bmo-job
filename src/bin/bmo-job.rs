@@ -228,6 +228,7 @@ fn stopped() -> ! {
 async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
   let root = std::env::current_dir().unwrap_or_default();
   let data_root = data_root();
+  let repository = job_close::repository_of(&root);
   let item = todo.and_then(|item| match todo_cli::client() {
     Ok(client) => Some((client, item)),
     Err(why) => {
@@ -241,6 +242,7 @@ async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
   let stop_writing = stop.clone();
   let running = Running::default();
   let running_now = running.clone();
+  let written_for = repository.clone();
   let close = tokio::task::spawn_blocking(move || {
     let steps = job_close::Steps {
       testbed: Path::new("bmo-testbed"),
@@ -254,6 +256,7 @@ async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
         && let Err(why) = runtime.block_on(job_close::keep_standing(
           client,
           *item,
+          &written_for,
           &standing,
           job_close::STANDING_WITHIN,
           stop_writing(),
@@ -297,7 +300,7 @@ async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
       if let Some((client, item)) = &item {
         let written = tokio::time::timeout(
           job_close::ANSWER_WITHIN,
-          job_close::write_standing(client, *item, &Standing::Off),
+          job_close::write_standing(client, *item, &repository, &Standing::Off),
         )
         .await;
 

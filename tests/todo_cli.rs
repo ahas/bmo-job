@@ -5,7 +5,7 @@ use crate::support;
 
 use std::collections::BTreeMap;
 
-use bmo_job::job_close::{COMMIT_LABEL, PHASE_LABEL, Standing, waiting_commit, write_standing};
+use bmo_job::job_close::{Standing, waiting_commit, waiting_commits, write_standing};
 use bmo_job::todo_cli::{AddArgs, StopHereArgs, TodoArgs, add, close, stop_here};
 use bmo_job_client::{
   ItemChange, ItemState, LeaseAsk, LeaseWait, NewItem, NewReview, PageQuery, ReportKind, ReviewKind,
@@ -80,7 +80,7 @@ async fn a_closing_leaves_its_reports_and_moves_no_state() {
 }
 
 #[tokio::test]
-async fn a_close_s_standing_is_written_on_the_item_and_a_closing_names_the_commit_it_waits_on() {
+async fn each_repository_s_close_is_written_on_the_item_and_a_closing_names_every_commit_it_waits_on() {
   let service = Service::start_unattended(&["lane=todo"]).await;
   let client = service.client();
   let item = client
@@ -110,11 +110,11 @@ async fn a_close_s_standing_is_written_on_the_item_and_a_closing_names_the_commi
     .unwrap()
     .expect("the item is leased");
 
-  write_standing(&client, item.id, &Standing::Testing).await.unwrap();
+  write_standing(&client, item.id, "web", &Standing::Testing).await.unwrap();
 
   let testing = client.item(item.id).await.unwrap();
 
-  assert_eq!(testing.labels.get(PHASE_LABEL).map(String::as_str), Some("testing"));
+  assert_eq!(testing.labels.get("close-phase:web").map(String::as_str), Some("testing"));
   assert_eq!(
     testing.labels.get("lane").map(String::as_str),
     Some("todo"),
@@ -122,14 +122,24 @@ async fn a_close_s_standing_is_written_on_the_item_and_a_closing_names_the_commi
   );
   assert_eq!(waiting_commit(&testing), None);
 
-  write_standing(&client, item.id, &Standing::WaitingBatch("0123abcd".to_owned()))
+  write_standing(&client, item.id, "web", &Standing::WaitingBatch("0123abcd".to_owned()))
+    .await
+    .unwrap();
+  write_standing(&client, item.id, "drive", &Standing::WaitingBatch("4567ef01".to_owned()))
     .await
     .unwrap();
 
   let waiting = client.item(item.id).await.unwrap();
 
-  assert_eq!(waiting_commit(&waiting), Some("0123abcd"));
-  assert_eq!(waiting.labels.get(COMMIT_LABEL).map(String::as_str), Some("0123abcd"));
+  assert_eq!(
+    waiting_commits(&waiting.labels),
+    BTreeMap::from([
+      ("drive".to_owned(), "4567ef01".to_owned()),
+      ("web".to_owned(), "0123abcd".to_owned())
+    ]),
+    "the second repository's close keeps the first's commit"
+  );
+  assert_eq!(waiting_commit(&waiting), Some("4567ef01"));
 
   let lines = close(
     &client,
@@ -142,22 +152,31 @@ async fn a_close_s_standing_is_written_on_the_item_and_a_closing_names_the_commi
   )
   .await
   .unwrap();
+  let waits: serde_json::Value = serde_json::from_str(&lines[1]).unwrap();
 
   assert_eq!(lines.len(), 2, "the report and the line naming what it waits on");
-  assert!(lines[1].contains("\"waitsOn\":\"deployment\""), "{}", lines[1]);
-  assert!(lines[1].contains("0123abcd"), "{}", lines[1]);
+  assert_eq!(
+    waits,
+    serde_json::json!({
+      "itemId": item.id,
+      "state": "leased",
+      "waitsOn": "deployment",
+      "commit": "4567ef01",
+      "commits": { "drive": "4567ef01", "web": "0123abcd" },
+    })
+  );
 
   let kept = client.item(item.id).await.unwrap();
 
-  assert_eq!(kept.state, ItemState::Leased, "it is done once its commit is live");
+  assert_eq!(kept.state, ItemState::Leased, "it is done once its commits are live");
   assert_eq!(client.reports(item.id, &PageQuery::default()).await.unwrap().items.len(), 1);
 
-  write_standing(&client, item.id, &Standing::Off).await.unwrap();
+  write_standing(&client, item.id, "drive", &Standing::Off).await.unwrap();
+  write_standing(&client, item.id, "web", &Standing::Off).await.unwrap();
 
   let off = client.item(item.id).await.unwrap();
 
-  assert!(!off.labels.contains_key(PHASE_LABEL) && !off.labels.contains_key(COMMIT_LABEL));
-  assert_eq!(off.labels.get("lane").map(String::as_str), Some("todo"));
+  assert_eq!(off.labels, BTreeMap::from([("lane".to_owned(), "todo".to_owned())]));
 
   close(
     &client,
