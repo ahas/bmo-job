@@ -379,7 +379,7 @@ async fn a_row_raised_by_a_job_stands_a_draft_in_its_items_queue_and_scope() {
       title: "what is left".to_owned(),
       judgement: "It was left because the source closed first.".to_owned(),
       raised_by: Some(item),
-      repository: None,
+      repositories: Vec::new(),
       from_todo: Some("12:2".to_owned()),
       by: "helper".to_owned(),
     },
@@ -397,6 +397,7 @@ async fn a_row_raised_by_a_job_stands_a_draft_in_its_items_queue_and_scope() {
   assert_eq!(row.requester_name.as_deref(), Some("helper"));
   // A row names the repository its work is in: the one given, else the raising item's own.
   assert_eq!(row.assignee_name.as_deref(), Some("the-repository"));
+  assert!(!row.labels.contains_key("repositories"), "a row of one repository carries no list");
 
   let elsewhere = add(
     &client,
@@ -404,7 +405,7 @@ async fn a_row_raised_by_a_job_stands_a_draft_in_its_items_queue_and_scope() {
       title: "work in another repository".to_owned(),
       judgement: "The source's run found it in a repository of its own.".to_owned(),
       raised_by: Some(item),
-      repository: Some("another-repository".to_owned()),
+      repositories: vec!["another-repository".to_owned()],
       by: "helper".to_owned(),
       ..AddArgs::default()
     },
@@ -415,6 +416,36 @@ async fn a_row_raised_by_a_job_stands_a_draft_in_its_items_queue_and_scope() {
   let elsewhere = client.item(elsewhere["id"].as_i64().unwrap()).await.unwrap();
 
   assert_eq!(elsewhere.assignee_name.as_deref(), Some("another-repository"));
+  assert!(
+    !elsewhere.labels.contains_key("repositories"),
+    "a row of one repository carries no list"
+  );
+
+  // A row whose work spans repositories names the first as its assignee and every one, once each, in its label.
+  let spanning = add(
+    &client,
+    &AddArgs {
+      title: "work across repositories".to_owned(),
+      judgement: "The source's run found it spans a base library and its consumers.".to_owned(),
+      raised_by: Some(item),
+      repositories: vec![
+        "the-base".to_owned(),
+        " a-consumer ".to_owned(),
+        "the-base".to_owned(),
+        String::new(),
+        "another-consumer".to_owned(),
+      ],
+      by: "helper".to_owned(),
+      ..AddArgs::default()
+    },
+  )
+  .await
+  .expect("raised");
+  let spanning: serde_json::Value = serde_json::from_str(&spanning).unwrap();
+  let spanning = client.item(spanning["id"].as_i64().unwrap()).await.unwrap();
+
+  assert_eq!(spanning.assignee_name.as_deref(), Some("the-base"));
+  assert_eq!(spanning.labels["repositories"], "the-base,a-consumer,another-consumer");
 
   add(&client, &AddArgs::default())
     .await

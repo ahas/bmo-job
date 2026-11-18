@@ -12,6 +12,7 @@ mod item_changes;
 mod items;
 mod job_ask;
 mod job_close;
+mod job_close_checkouts;
 mod layout;
 mod leases;
 mod migrate;

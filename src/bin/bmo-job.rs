@@ -1,14 +1,17 @@
 //! The `bmo-job` command (docs/cli.md): the service, its MCP server, and its OpenAPI document.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::{Arc, Mutex};
 
 use bmo_job::Settings;
 use bmo_job::close_watch::Running;
 use bmo_job::job_ask::{self, Ending, NewAsk, Receiver, Shown, TALK_EXIT, TalkAsk};
-use bmo_job::job_close::{self, JobCloseArgs, Standing};
+use bmo_job::job_close::{self, JobCloseArgs, Standing, Stands};
 use bmo_job::todo_cli::{self, AddArgs, StopHereArgs, TodoArgs};
+use bmo_job_client::JobClient;
 use bmo_job_plugin::Start;
 use clap::{Parser, Subcommand};
 
@@ -81,9 +84,10 @@ enum Verb {
     /// The item the new row was raised from.
     #[arg(long = "raised-by", value_name = "item")]
     raised_by: Option<String>,
-    /// The repository the new row's work is in; the raising item's where left out.
-    #[arg(long, value_name = "name")]
-    repository: Option<String>,
+    /// A repository the new row's work is in, given again or joined with commas for each; the first is its
+    /// assignee, and two or more its label `repositories`. The raising item's where left out.
+    #[arg(long = "repository", value_name = "name", value_delimiter = ',')]
+    repositories: Vec<String>,
     /// Who writes it; the run's agent where left out.
     #[arg(long, value_name = "name")]
     by: Option<String>,
@@ -118,6 +122,9 @@ enum JobVerb {
     /// The item the job works on, which the close writes where it stands onto.
     #[arg(long, value_name = "item")]
     todo: Option<i64>,
+    /// A checkout to close, given once for each; with none, the checkout the close runs in.
+    #[arg(long = "checkout", value_name = "path")]
+    checkouts: Vec<PathBuf>,
   },
   /// Puts a question to the job's supervisor in the middle of a job, which settles it or puts it to the owner, and
   /// waits for it to be settled; with --talk answers the talk over the question and waits on it again, or with
@@ -206,9 +213,14 @@ fn stop_heard() -> impl Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output
 // The close, with where it stands written on the item it was told as it moves, each write made again while the
 // service gives no answer, for two minutes at most. It ends at the merge and waits for no deployment. Told to stop
 // while its check runs, it ends the check with everything under it, takes its standing off the item and ends as a
-// stopped run does. Whatever ends it, its last line says so (docs/cli.md, 「`bmo-job job close`」).
-async fn job_close(args: JobCloseArgs, todo: Option<i64>) -> ExitCode {
-  let code = closed(args, todo).await;
+// stopped run does. Whatever ends it, its last line says so (docs/cli.md, 「`bmo-job job close`」). With
+// checkouts named, it closes them all in one close (「Several checkouts in one close」).
+async fn job_close(args: JobCloseArgs, todo: Option<i64>, checkouts: Vec<PathBuf>) -> ExitCode {
+  let code = if checkouts.is_empty() {
+    closed(args, todo).await
+  } else {
+    closed_checkouts(args, todo, checkouts).await
+  };
 
   close_ended(code)
 }
@@ -225,17 +237,50 @@ fn stopped() -> ! {
   std::process::exit(130);
 }
 
-async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
-  let root = std::env::current_dir().unwrap_or_default();
-  let data_root = data_root();
-  let repository = job_close::repository_of(&root);
-  let item = todo.and_then(|item| match todo_cli::client() {
+// The run's stop as one wait hears it.
+type Stop = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+
+// The item a close writes on, where it was told one and the job service can be named.
+fn close_item(todo: Option<i64>) -> Option<(JobClient, i64)> {
+  todo.and_then(|item| match todo_cli::client() {
     Ok(client) => Some((client, item)),
     Err(why) => {
       eprintln!("job-close: item {item} is not written on — {why}");
       None
     }
-  });
+  })
+}
+
+// Where the close's repositories stand written on its item, from the close's own thread; a write that does not
+// land is said in one line. Answers whether nothing is left unwritten: true where it landed or no item is named.
+fn told(
+  runtime: &tokio::runtime::Handle,
+  item: Option<&(JobClient, i64)>,
+  standings: &[Stands],
+  stop: &dyn Fn() -> Stop,
+) -> bool {
+  let Some((client, item)) = item else { return true };
+
+  match runtime.block_on(job_close::keep_standings(
+    client,
+    *item,
+    standings,
+    job_close::STANDING_WITHIN,
+    stop(),
+  )) {
+    Ok(()) => true,
+    Err(why) => {
+      eprintln!("job-close: {why}");
+      false
+    }
+  }
+}
+
+async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
+  let root = std::env::current_dir().unwrap_or_default();
+  let data_root = data_root();
+  let repository = job_close::repository_of(&root);
+  let item = close_item(todo);
   let stop = stop_heard();
   let runtime = tokio::runtime::Handle::current();
   let written = item.clone();
@@ -252,21 +297,110 @@ async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
     };
 
     job_close::close(&root, &data_root, &args, &steps, &|standing| {
-      if let Some((client, item)) = &written
-        && let Err(why) = runtime.block_on(job_close::keep_standing(
-          client,
-          *item,
-          &written_for,
-          &standing,
-          job_close::STANDING_WITHIN,
-          stop_writing(),
-        ))
-      {
-        eprintln!("job-close: {why}");
+      told(&runtime, written.as_ref(), &[(written_for.clone(), standing)], &stop_writing);
+    })
+  });
+
+  awaited(close, running, item, stop(), move || vec![(repository, Standing::Off)]).await
+}
+
+async fn closed_checkouts(args: JobCloseArgs, todo: Option<i64>, paths: Vec<PathBuf>) -> u8 {
+  let from = std::env::current_dir().unwrap_or_default();
+  let roots = match job_close::checkout_roots(&from, &paths) {
+    Ok(roots) => roots,
+    Err(why) => {
+      eprintln!("job-close: refused — {why}");
+      return 1;
+    }
+  };
+  let data_root = data_root();
+  let item = close_item(todo);
+  let waiting = match &item {
+    Some((client, item)) => waiting_on(client, *item).await,
+    None => BTreeMap::new(),
+  };
+  let stop = stop_heard();
+  let runtime = tokio::runtime::Handle::current();
+  let written = item.clone();
+  let stop_writing = stop.clone();
+  let running = Running::default();
+  let running_now = running.clone();
+  // Each repository's standing the item does not carry yet, or carries as `testing`: kept before its write and
+  // let go once a write that leaves it off `testing` lands, so a stop that cuts the write still writes it.
+  let owed: Arc<Mutex<BTreeMap<String, Standing>>> = Arc::default();
+  let owed_now = Arc::clone(&owed);
+  let close = tokio::task::spawn_blocking(move || {
+    let steps = job_close::Steps {
+      testbed: Path::new("bmo-testbed"),
+      clocks: job_close::Clocks::for_checkouts(&roots),
+      running: running_now,
+      say: &|line| println!("{line}"),
+    };
+    let checkouts = job_close::Checkouts {
+      from: &from,
+      roots: &roots,
+      waiting: &waiting,
+    };
+
+    let held = || owed_now.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    job_close::close_checkouts(&checkouts, &data_root, &args, &steps, &|standings| {
+      held().extend(standings.iter().cloned());
+
+      if told(&runtime, written.as_ref(), standings, &stop_writing) {
+        let mut held = held();
+
+        for (repository, standing) in standings {
+          if *standing != Standing::Testing && held.get(repository) == Some(standing) {
+            held.remove(repository);
+          }
+        }
       }
     })
   });
 
+  awaited(close, running, item, stop(), move || {
+    let owed = std::mem::take(&mut *owed.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+
+    owed
+      .into_iter()
+      .map(|(repository, standing)| match standing {
+        Standing::Testing => (repository, Standing::Off),
+        standing => (repository, standing),
+      })
+      .collect()
+  })
+  .await
+}
+
+// The commits the item already names as waiting on main, by repository, which a close of several checkouts leaves
+// out; none where the item cannot be read, said in one line, so every checkout on main is checked.
+async fn waiting_on(client: &JobClient, item: i64) -> BTreeMap<String, String> {
+  match tokio::time::timeout(job_close::ANSWER_WITHIN, client.item(item)).await {
+    Ok(Ok(read)) => job_close::waiting_commits(&read.labels),
+    Ok(Err(why)) => {
+      eprintln!("job-close: item {item} could not be read, so every checkout on main is checked: {why}");
+      BTreeMap::new()
+    }
+    Err(_) => {
+      eprintln!(
+        "job-close: item {item} could not be read, so every checkout on main is checked: the job service gave no answer"
+      );
+      BTreeMap::new()
+    }
+  }
+}
+
+// A close run to its end, or to the run's stop: told to stop, the run has no wait left in it: the step it runs is
+// ended with everything under it, what `left` names is written once, each repository still `testing` off, and
+// the close's own thread ends with the process rather than going on to write after it.
+async fn awaited(
+  close: tokio::task::JoinHandle<Result<Vec<String>, String>>,
+  running: Running,
+  item: Option<(JobClient, i64)>,
+  stop: Stop,
+  left: impl FnOnce() -> Vec<Stands>,
+) -> u8 {
   tokio::select! {
     closed = close => match closed {
       Ok(Ok(lines)) => {
@@ -285,10 +419,7 @@ async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
         1
       }
     },
-    () = stop() => {
-      // Told to stop, the run has no wait left in it: the step it runs is ended with everything under it, the
-      // standing is written off once, and the close's own thread ends with the process rather than going on to
-      // write after it.
+    () = stop => {
       let ended = tokio::task::spawn_blocking(move || running.take_down(&job_close::Clocks::default()))
         .await
         .unwrap_or_default();
@@ -298,11 +429,9 @@ async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
       }
 
       if let Some((client, item)) = &item {
-        let written = tokio::time::timeout(
-          job_close::ANSWER_WITHIN,
-          job_close::write_standing(client, *item, &repository, &Standing::Off),
-        )
-        .await;
+        let left = left();
+        let written =
+          tokio::time::timeout(job_close::ANSWER_WITHIN, job_close::write_standings(client, *item, &left)).await;
 
         match written {
           Ok(Ok(())) => {}
@@ -527,13 +656,14 @@ async fn main() -> ExitCode {
         then_reason,
         skip_suite,
         todo,
+        checkouts,
       } => {
         let args = JobCloseArgs {
           then_reason,
           skip_suite,
         };
 
-        job_close(args, todo).await
+        job_close(args, todo, checkouts).await
       }
       JobVerb::Ask {
         todo,
@@ -586,7 +716,7 @@ async fn main() -> ExitCode {
       judgement,
       from_todo,
       raised_by,
-      repository,
+      repositories,
       by,
     } => ended(
       async {
@@ -603,7 +733,7 @@ async fn main() -> ExitCode {
             title: title.unwrap_or_default(),
             judgement: judgement.unwrap_or_default(),
             raised_by,
-            repository,
+            repositories,
             from_todo,
             by,
           };

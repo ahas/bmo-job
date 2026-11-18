@@ -13,7 +13,7 @@ use bmo_job_client::{ClientFailure, Item, ItemChange, JobClient, Labels};
 use serde::Deserialize;
 
 use crate::again::{Halt, until_answered};
-use crate::close_watch::{Running, StepEnd, output_within, run_step, spoken};
+use crate::close_watch::{Running, StepEnd, output_within, run_step, run_step_kept, spoken};
 
 /// How long the check may write nothing and touch nothing before it is hung, in a checkout whose declaration
 /// sets no testbed silence: the testbed's own ten-minute default and the margin above it.
@@ -64,6 +64,15 @@ impl Clocks {
   pub fn for_checkout(root: &Path) -> Self {
     Self {
       silence: silence_for(root),
+      ..Self::default()
+    }
+  }
+
+  /// The clocks a close of several checkouts keeps to: the defaults, its silence the largest any of them gives
+  /// (`silence_for`).
+  pub fn for_checkouts(roots: &[PathBuf]) -> Self {
+    Self {
+      silence: roots.iter().map(|root| silence_for(root)).max().unwrap_or(SILENCE),
       ..Self::default()
     }
   }
@@ -122,6 +131,14 @@ pub fn waiting_commits(labels: &Labels) -> BTreeMap<String, String> {
       (repository.to_owned(), commit)
     })
     .collect()
+}
+
+/// The labels an item carries once each repository of `standings` stands as its standing says, written in turn
+/// as `standing_labels` writes one.
+pub fn standings_labels(labels: &Labels, standings: &[Stands]) -> Labels {
+  standings.iter().fold(labels.clone(), |labels, (repository, standing)| {
+    standing_labels(&labels, repository, standing)
+  })
 }
 
 /// The labels an item carries once the close of `repository` stands as `standing`: that repository's pair written,
@@ -197,6 +214,9 @@ pub enum Standing {
   Off,
 }
 
+/// A repository with where its close stands.
+pub type Stands = (String, Standing);
+
 /// The commit an item's summing labels say it waits on to be deployed, where they say it waits.
 pub fn waiting_commit(item: &Item) -> Option<&str> {
   (item.labels.get(PHASE_LABEL).map(String::as_str) == Some(WAITING_BATCH))
@@ -211,8 +231,18 @@ pub async fn write_standing(
   repository: &str,
   standing: &Standing,
 ) -> Result<(), ClientFailure> {
+  write_standings(client, item, &[(repository.to_owned(), standing.clone())]).await
+}
+
+/// Where the closes of several repositories stand written on their item at once (`standings_labels`), as
+/// `write_standing` writes one.
+pub async fn write_standings(
+  client: &JobClient,
+  item: i64,
+  standings: &[Stands],
+) -> Result<(), ClientFailure> {
   let read = client.item(item).await?;
-  let labels = standing_labels(&read.labels, repository, standing);
+  let labels = standings_labels(&read.labels, standings);
 
   if labels == read.labels {
     return Ok(());
@@ -238,9 +268,21 @@ pub async fn keep_standing(
   within: Duration,
   stop: impl Future<Output = ()>,
 ) -> Result<(), String> {
+  keep_standings(client, item, &[(repository.to_owned(), standing.clone())], within, stop).await
+}
+
+/// Where the closes of several repositories stand written on their item at once, kept as `keep_standing` keeps
+/// one.
+pub async fn keep_standings(
+  client: &JobClient,
+  item: i64,
+  standings: &[Stands],
+  within: Duration,
+  stop: impl Future<Output = ()>,
+) -> Result<(), String> {
   let stop = std::pin::pin!(stop);
   let write = || async {
-    tokio::time::timeout(ANSWER_WITHIN, write_standing(client, item, repository, standing))
+    tokio::time::timeout(ANSWER_WITHIN, write_standings(client, item, standings))
       .await
       .unwrap_or_else(|_| {
         Err(ClientFailure::Unreachable(format!("no answer within {}", spoken(ANSWER_WITHIN))))
@@ -329,31 +371,51 @@ impl Main {
   }
 }
 
-fn merged(
-  root: &Path,
-  data_root: &Path,
-  args: &JobCloseArgs,
-  steps: &Steps,
-  tell: &dyn Fn(Standing),
-) -> Result<Closed, String> {
+const ALREADY_DEPLOYED: &str = "this commit is already what is deployed";
+
+// A checkout as a close reads it before any check: what it leaves out, or what its check and its push need.
+enum Reading {
+  // The record already names its `HEAD` as live.
+  Deployed,
+  // Its `HEAD` stands on main and the item names it as waiting there: an earlier close checked and pushed it.
+  ClosedBefore { main: Main, head: String },
+  // It owes a check, and a push where main lacks its `HEAD`.
+  Owes(Prepared),
+}
+
+// A checkout that owes a check: its `HEAD`, the main it lands on, whether that main lacks `HEAD`, the base its
+// check reads the change since, its own commits past that base, and the lines saying which range was used.
+struct Prepared {
+  root: PathBuf,
+  head: String,
+  main: Main,
+  to_push: bool,
+  base: String,
+  own: Vec<OwnCommit>,
+  notes: Vec<String>,
+}
+
+// The checkout read as far as its check: its record, its remote fetched, main under `HEAD`, its range and the
+// language of its messages. `waiting` is the commit the item names as waiting on main for its repository, which
+// leaves a `HEAD` already on main out.
+fn read_checkout(root: &Path, data_root: &Path, waiting: Option<&str>) -> Result<Reading, String> {
   let head =
     git(root, &["rev-parse", "HEAD"]).map_err(|why| format!("the checkout is on no commit: {why}"))?;
-  let short = short_of(&head);
-  let mut lines = vec![format!("job-close: {}", args.then_reason.trim())];
   let deployed = deployed_commit_of(root, data_root);
-
-  if args.skip_suite.is_some() {
-    lines.push("the suite is the deployment's: --skip-suite changes nothing".to_owned());
-  }
 
   // A commit its deployment already records as live runs nothing and ends clean.
   if deployed.as_deref() == Some(head.as_str()) {
-    lines.push("this commit is already what is deployed".to_owned());
-    return Ok(Closed::Ended(lines));
+    return Ok(Reading::Deployed);
   }
 
   let main = fetched_main(root)?;
   let to_push = !is_ancestor(root, &head, &main.tip);
+
+  if !to_push && waiting == Some(head.as_str()) {
+    return Ok(Reading::ClosedBefore { main, head });
+  }
+
+  let mut notes = Vec::new();
   let base = if to_push {
     // The close merges by fast-forward alone: main must stand under HEAD.
     if !is_ancestor(root, &main.tip, &head) {
@@ -366,7 +428,7 @@ fn merged(
 
     main.tip.clone()
   } else {
-    range_on_main(root, deployed.as_deref(), &head, &mut lines)?
+    range_on_main(root, deployed.as_deref(), &head, &mut notes)?
   };
 
   let own = own_commits(root, &base)?;
@@ -375,31 +437,313 @@ fn merged(
     return Err(refusal);
   }
 
+  Ok(Reading::Owes(Prepared {
+    root: root.to_owned(),
+    head,
+    main,
+    to_push,
+    base,
+    own,
+    notes,
+  }))
+}
+
+// A checked commit landed: pushed where main lacks it, with the lines the close says of it and where it then
+// stands, waiting for the batch, or off where its repository deploys nothing.
+fn land(prepared: &Prepared) -> Result<(Vec<String>, Standing), String> {
+  let short = short_of(&prepared.head);
+  let main = prepared.main.name();
+  let mut lines = Vec::new();
+
+  if prepared.to_push {
+    push(&prepared.root, &prepared.main)?;
+    lines.push(format!("merged: {} onto {main}", merged_list(&prepared.own)));
+  } else {
+    lines.push(format!("merged: {short} already stands on {main}"));
+  }
+
+  lines.push(format!(
+    "checked: the static check passed over what changed since {}",
+    short_of(&prepared.base)
+  ));
+
+  // A repository whose declaration reads and names no deployment is never put live: its commit on main is the end.
+  if deploys_nothing(&prepared.root) {
+    lines.push(format!("on main: {short} stands on {main}, and this repository deploys nothing"));
+    return Ok((lines, Standing::Off));
+  }
+
+  lines.push(format!("waiting for the batch deployment: {short} stands on {main}"));
+  Ok((lines, Standing::WaitingBatch(prepared.head.clone())))
+}
+
+// The lines every close opens with: why it goes live, and that a skip reason changes nothing.
+fn opening(args: &JobCloseArgs) -> Vec<String> {
+  let mut lines = vec![format!("job-close: {}", args.then_reason.trim())];
+
+  if args.skip_suite.is_some() {
+    lines.push("the suite is the deployment's: --skip-suite changes nothing".to_owned());
+  }
+
+  lines
+}
+
+fn merged(
+  root: &Path,
+  data_root: &Path,
+  args: &JobCloseArgs,
+  steps: &Steps,
+  tell: &dyn Fn(Standing),
+) -> Result<Closed, String> {
+  let mut lines = opening(args);
+  let prepared = match read_checkout(root, data_root, None)? {
+    Reading::Owes(prepared) => prepared,
+    Reading::Deployed | Reading::ClosedBefore { .. } => {
+      lines.push(ALREADY_DEPLOYED.to_owned());
+      return Ok(Closed::Ended(lines));
+    }
+  };
+
+  lines.extend(prepared.notes.iter().cloned());
+
   let found = checkout_state(root);
 
   tell(Standing::Testing);
-  check(root, steps, &base, found.as_deref())?;
+  check(root, steps, &prepared.base, found.as_deref())?;
 
-  if to_push {
-    push(root, &main)?;
-    lines.push(format!("merged: {} onto {}", merged_list(&own), main.name()));
-  } else {
-    lines.push(format!("merged: {short} already stands on {}", main.name()));
+  let (landed, standing) = land(&prepared)?;
+
+  lines.extend(landed);
+  Ok(match standing {
+    Standing::WaitingBatch(commit) => Closed::Waiting(lines, commit),
+    Standing::Testing | Standing::Off => Closed::Ended(lines),
+  })
+}
+
+/// The checkouts a close of several is named, each at its top level as git names it, a path read from `from`;
+/// refused where a path names no checkout or two name one.
+pub fn checkout_roots(from: &Path, paths: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+  let mut roots: Vec<PathBuf> = Vec::with_capacity(paths.len());
+
+  for path in paths {
+    let root = git(&from.join(path), &["rev-parse", "--show-toplevel"])
+      .map(PathBuf::from)
+      .map_err(|_| format!("--checkout {} names no checkout", path.display()))?;
+
+    if roots.contains(&root) {
+      return Err(format!(
+        "--checkout {} names a checkout another --checkout already names",
+        path.display()
+      ));
+    }
+
+    roots.push(root);
   }
 
-  lines.push(format!("checked: the static check passed over what changed since {}", short_of(&base)));
+  Ok(roots)
+}
 
-  // A repository whose declaration reads and names no deployment is never put live: its commit on main is the end.
-  if deploys_nothing(root) {
-    lines.push(format!(
-      "on main: {short} stands on {}, and this repository deploys nothing",
-      main.name()
-    ));
-    return Ok(Closed::Ended(lines));
+/// What a close of several checkouts closes: the directory it runs in, the checkouts at their top levels in the
+/// order given, and, by repository, the commit the item already names as waiting on main.
+pub struct Checkouts<'a> {
+  pub from: &'a Path,
+  pub roots: &'a [PathBuf],
+  pub waiting: &'a BTreeMap<String, String>,
+}
+
+/// Closes every checkout a job changed in one close (docs/cli.md, 「Several checkouts in one close」): each read
+/// first and every refusal said at once, one check over those that owe one, then each pushed in the order their
+/// base libraries ask. `tell` is handed each repository's standing as it moves, several at once where they move
+/// together. What comes back is what the close says of every checkout, each line opening with its repository.
+pub fn close_checkouts(
+  checkouts: &Checkouts,
+  data_root: &Path,
+  args: &JobCloseArgs,
+  steps: &Steps,
+  tell: &dyn Fn(&[Stands]),
+) -> Result<Vec<String>, String> {
+  if let Some(refusal) = reasons_refusal(args) {
+    return Err(refusal);
   }
 
-  lines.push(format!("waiting for the batch deployment: {short} stands on {}", main.name()));
-  Ok(Closed::Waiting(lines, head))
+  let mut said: Vec<(String, Vec<String>)> = Vec::with_capacity(checkouts.roots.len());
+  let mut owes: Vec<(String, Prepared)> = Vec::new();
+  let mut refusals = Vec::new();
+
+  for root in checkouts.roots {
+    let repository = repository_of(root);
+
+    if said.iter().any(|(named, _)| *named == repository) {
+      refusals.push(format!("{repository}: two checkouts are of this repository; name one of them"));
+      continue;
+    }
+
+    let waiting = checkouts.waiting.get(&repository).map(String::as_str);
+
+    match read_checkout(root, data_root, waiting) {
+      Ok(Reading::Deployed) => said.push((repository, vec![ALREADY_DEPLOYED.to_owned()])),
+      Ok(Reading::ClosedBefore { main, head }) => {
+        said.push((repository, vec![format!("already waits on {}: {}", main.name(), short_of(&head))]));
+      }
+      Ok(Reading::Owes(prepared)) => {
+        said.push((repository.clone(), prepared.notes.clone()));
+        owes.push((repository, prepared));
+      }
+      Err(why) => {
+        said.push((repository.clone(), Vec::new()));
+        refusals.push(format!("{repository}: {why}"));
+      }
+    }
+  }
+
+  let order = push_order(&owes).unwrap_or_else(|ring| {
+    refusals.push(ring);
+    Vec::new()
+  });
+
+  if !refusals.is_empty() {
+    return Err(refusals.join("\n"));
+  }
+
+  if !owes.is_empty() {
+    tell(&standing_all(&owes, &Standing::Testing));
+
+    if let Err(why) = check_set(checkouts.from, steps, &owes) {
+      tell(&standing_all(&owes, &Standing::Off));
+      return Err(why);
+    }
+  }
+
+  let mut pushed: Vec<&str> = Vec::new();
+
+  for (at, &index) in order.iter().enumerate() {
+    let (repository, prepared) = &owes[index];
+
+    match land(prepared) {
+      Ok((lines, standing)) => {
+        tell(&[(repository.clone(), standing)]);
+        if let Some((_, lines_of)) = said.iter_mut().find(|(named, _)| named == repository) {
+          lines_of.extend(lines);
+        }
+        pushed.push(repository);
+      }
+      Err(why) => {
+        let left: Vec<Stands> =
+          order[at..].iter().map(|&left| (owes[left].0.clone(), Standing::Off)).collect();
+        let stay = if pushed.is_empty() {
+          String::new()
+        } else {
+          format!("{} stay on their main with their pairs; ", pushed.join(", "))
+        };
+
+        tell(&left);
+        return Err(format!(
+          "{repository}: {why}; {stay}run the close again with the same --checkout list, and only what is not yet on main is checked and pushed"
+        ));
+      }
+    }
+  }
+
+  let mut lines = opening(args);
+
+  for (repository, lines_of) in said {
+    lines.extend(lines_of.into_iter().map(|line| format!("{repository}: {line}")));
+  }
+
+  Ok(lines)
+}
+
+// Every repository of `owes` standing as `standing`.
+fn standing_all(owes: &[(String, Prepared)], standing: &Standing) -> Vec<Stands> {
+  owes.iter().map(|(repository, _)| (repository.clone(), standing.clone())).collect()
+}
+
+// The order the checkouts that owe a check are pushed in, as indexes into `owes`: a checkout whose repository
+// another's declaration lists among its base libraries before that one, the rest in the order given. Declarations
+// naming one another in a ring are refused.
+fn push_order(owes: &[(String, Prepared)]) -> Result<Vec<usize>, String> {
+  let libraries: Vec<Vec<String>> =
+    owes.iter().map(|(_, prepared)| base_libraries(&prepared.root)).collect();
+  let ready = |at: usize, placed: &[usize]| {
+    owes
+      .iter()
+      .enumerate()
+      .filter(|(other, (repository, _))| *other != at && libraries[at].contains(repository))
+      .all(|(other, _)| placed.contains(&other))
+  };
+  let mut order: Vec<usize> = Vec::with_capacity(owes.len());
+
+  while order.len() < owes.len() {
+    match (0..owes.len()).find(|at| !order.contains(at) && ready(*at, &order)) {
+      Some(next) => order.push(next),
+      None => {
+        let ring: Vec<&str> =
+          (0..owes.len()).filter(|at| !order.contains(at)).map(|at| owes[at].0.as_str()).collect();
+
+        return Err(format!(
+          "{} list one another in [check] base_libraries, so no one of them can be pushed first; mend their testbed.toml and close again",
+          ring.join(", ")
+        ));
+      }
+    }
+  }
+
+  Ok(order)
+}
+
+// The repositories the checkout's declaration lists in `[check] base_libraries`; none where it lists none or
+// does not read.
+fn base_libraries(root: &Path) -> Vec<String> {
+  declaration(root)
+    .and_then(|declaration| declaration.check)
+    .map(|check| check.base_libraries)
+    .unwrap_or_default()
+}
+
+/// The line bmo-testbed's check over several checkouts opens each failed repository's line with.
+pub const FAILED_REPOSITORY_LINE: &str = "check FAILED: ";
+
+// The testbed's check over several checkouts, each since its own base, run in the directory the close runs in and
+// watched. One that does not pass says the repositories and steps the check named as failed, else its last line;
+// one the close ended for falling silent says how each checkout stands against how the close found it.
+fn check_set(from: &Path, steps: &Steps, owes: &[(String, Prepared)]) -> Result<(), String> {
+  let found: Vec<Option<String>> =
+    owes.iter().map(|(_, prepared)| checkout_state(&prepared.root)).collect();
+  let mut command = Command::new(steps.testbed);
+
+  command.arg("check").current_dir(from);
+  for (_, prepared) in owes {
+    command.arg("--checkout").arg(format!("{}@{}", prepared.root.display(), prepared.base));
+  }
+
+  let (ran, kept) = run_step_kept(command, "the combined check", &steps.clocks, &steps.running, steps.say);
+
+  ran.map_err(|end| match end {
+    StepEnd::Failed(why) => {
+      let failed: Vec<&str> = kept
+        .iter()
+        .map(String::as_str)
+        .filter(|line| line.starts_with(FAILED_REPOSITORY_LINE))
+        .collect();
+
+      match (failed.is_empty(), kept.last()) {
+        (false, _) => format!("{why}: {}", failed.join("; ")),
+        (true, Some(last)) => format!("{why}; its last line: {last}"),
+        (true, None) => why,
+      }
+    }
+    StepEnd::Hung(why) => {
+      let stands: Vec<String> = owes
+        .iter()
+        .zip(&found)
+        .map(|((repository, prepared), found)| {
+          format!("{repository}: {}", checkout_against(&prepared.root, found.as_deref()))
+        })
+        .collect();
+
+      format!("{why}; {}", stands.join("; "))
+    }
+  })
 }
 
 // The range of a job whose commits already stand on main: past the commit the deployment records as live, where
@@ -780,6 +1124,14 @@ struct Declaration {
   deploy: Option<Deploy>,
   #[serde(default)]
   test: Option<TestTable>,
+  #[serde(default)]
+  check: Option<CheckTable>,
+}
+
+#[derive(Deserialize)]
+struct CheckTable {
+  #[serde(default)]
+  base_libraries: Vec<String>,
 }
 
 #[derive(Deserialize)]

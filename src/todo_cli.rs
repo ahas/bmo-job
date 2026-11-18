@@ -233,14 +233,19 @@ pub struct AddArgs {
   pub title: String,
   pub judgement: String,
   pub raised_by: Option<i64>,
-  /// The repository the row's work is in; the raising item's where none is named.
-  pub repository: Option<String>,
+  /// The repositories the row's work is in, the first its assignee; the raising item's where none is named.
+  pub repositories: Vec<String>,
   pub from_todo: Option<String>,
   pub by: String,
 }
 
+/// The label naming every repository a row's work spans (docs/cli.md, 「`bmo-job todo`」). The service does not
+/// read it; whoever lends a run its checkouts does.
+pub const REPOSITORIES_LABEL: &str = "repositories";
+
 /// The row raised in the queue and scope of the item it was raised from, a draft until an approver takes it,
-/// assigned to the repository named, else to the raising item's own.
+/// assigned to the first repository named, else to the raising item's own. Where two repositories or more are
+/// named, each once in the order given, the whole list is its label `repositories`, joined with commas.
 pub async fn add(client: &JobClient, args: &AddArgs) -> Result<String, String> {
   if args.title.trim().is_empty() {
     return Err("--add takes --title '<title>'".to_owned());
@@ -265,14 +270,20 @@ pub async fn add(client: &JobClient, args: &AddArgs) -> Result<String, String> {
     labels.insert("from-todo".to_owned(), strands.to_owned());
   }
 
+  let mut repositories: Vec<&str> = Vec::with_capacity(args.repositories.len());
+
+  for repository in args.repositories.iter().map(|repository| repository.trim()) {
+    if !repository.is_empty() && !repositories.contains(&repository) {
+      repositories.push(repository);
+    }
+  }
+
+  if repositories.len() > 1 {
+    labels.insert(REPOSITORIES_LABEL.to_owned(), repositories.join(","));
+  }
+
   let by = args.by.trim();
-  let assignee = args
-    .repository
-    .as_deref()
-    .map(str::trim)
-    .filter(|repository| !repository.is_empty())
-    .map(str::to_owned)
-    .or(from.assignee_name);
+  let assignee = repositories.first().map(|repository| (*repository).to_owned()).or(from.assignee_name);
   let raised = client
     .create_item(&NewItem {
       title: args.title.trim().to_owned(),

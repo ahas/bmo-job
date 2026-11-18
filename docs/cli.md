@@ -14,14 +14,15 @@ The binary `bmo-job` carries these commands.
 
 ## `bmo-job job close`
 
-`bmo job close --then '<why this goes live, in English>' [--todo <item>] [--skip-suite '<why, in English>']` runs this, through
-the unit command the deployment links into `~/.local/bin` (docs/deploy.md, "The unit command").
+`bmo job close --then '<why this goes live, in English>' [--todo <item>] [--skip-suite '<why, in English>'] [--checkout <path>]…`
+runs this, through the unit command the deployment links into `~/.local/bin` (docs/deploy.md, "The unit command").
 
 | Option | What it does |
 |---|---|
 | `--then <why>` | Why this goes live, in English; required. A reason holding Hangul is refused |
 | `--skip-suite <why>` | Read as a reason, English like `--then`, and nothing more: the close runs no suite, so it changes nothing, and the close says so in one line |
 | `--todo <item>` | The item the job works on; the close writes where it stands onto that item (below) |
+| `--checkout <path>` | A checkout the close closes, read from the directory it runs in, given once for each; with none, the close closes the checkout it runs in (「Several checkouts in one close」) |
 
 A close ends at the merge. It checks what the job changed, puts the job's commits on the remote's main, marks
 the item waiting for its repository's batch deployment and ends; it runs no suite, waits for no deployment and
@@ -131,6 +132,63 @@ flowchart TD
   | The record already names the commit as live | `this commit is already what is deployed` | | 0 |
   | A reason, a commit message, the remote, a branch main has moved past, the check or the push refused it | | `job-close: refused —` and why | 1 |
   | The run was told to stop | | one line saying so | 130 |
+
+### Several checkouts in one close
+
+A job whose work spans repositories closes every checkout it changed in one close, each named by a `--checkout`.
+Each checkout is closed by the rules above, its main, its range, its record, its repository's name and its pair
+its own, except where this section says otherwise: one check runs for them all, and their pushes follow an order.
+
+```mermaid
+flowchart TD
+  A[Reasons read] --> B[Every checkout read: remote fetched, main under HEAD, messages]
+  B -- any refused --> X[Refused, nothing checked]
+  B --> C[One check over the checkouts that owe one]
+  C -- failed --> Y[Refused, nothing pushed]
+  C --> D[Pushed one by one, base libraries first]
+  D -- a push refused --> Z[Stops there, the pushed ones stay]
+  D --> E[Each repository's pair written after its push]
+```
+
+- **Every checkout is read before anything is checked.** Each path names a checkout by its top level as git names
+  it; a path that names none, and two paths naming one checkout or two checkouts of one repository, are refused.
+  Then each checkout, in the order given, is read as the close of one checkout reads it: a commit its record
+  already names as live is left out and said so; its remote is fetched; its main must stand under `HEAD`; and no
+  message of its range holds Hangul. Every refusal of every checkout is said at once, each line opening with its
+  repository and naming the command that mends it, and nothing is checked, pushed or written on the item.
+- **A checkout already closed is not checked again.** Where a checkout's `HEAD` already stands on its main and the
+  item `--todo` names carries that repository's pair as `waiting-batch` with that very commit, an earlier close
+  checked it and pushed it: it is neither checked nor pushed again, and its pair stays. Any other checkout whose
+  `HEAD` stands on main, one the job pushed itself or one closed with no item, is checked over the range its
+  record gives, as the close of one checkout checks it.
+- **One check runs for every checkout that owes one:** bmo-testbed's change check over several checkouts,
+  `bmo-testbed check --checkout <path>@<base>` once for each, every checkout's own base given as its commit, run
+  in the directory the close runs in (bmo-testbed's `docs/checks.md`, 「The change check over several
+  checkouts」). It is watched as the check of one checkout is, its minute line naming it `the combined check`.
+  Its silence limit is the largest any named checkout's declaration gives, `[test] silence_seconds` or the
+  testbed's ten minutes where one declares none, and five minutes more. Where no checkout owes a check, none
+  runs.
+- **A check that does not pass pushes nothing.** The close is refused with the lines the check named its failed
+  repositories and steps with (`check FAILED: <repository>: <steps>`), else its last line, and every pair the
+  close wrote `testing` is taken off. A check ended for falling silent says, for each checkout, whether it stands
+  as the close found it.
+- **The pushes follow the base libraries.** A checkout whose repository another checkout's `testbed.toml` lists in
+  `[check] base_libraries` is pushed before that checkout; the rest go in the order given. Declarations naming one
+  another in a ring are refused before anything is checked.
+- **Each repository's pair is written once its push lands:** `waiting-batch` with its commit, or taken off where
+  its repository deploys nothing, and the summing pair written again from every pair the item then carries. While
+  the check runs, each checked repository's pair is `testing`, all written at once.
+- **A push the remote refuses stops the close there.** Every repository pushed before it stays on its main with
+  its pair; the refused one's pair, and the pairs of those after it, are taken off; the close is refused naming
+  the repository, what git said, the command that brings its branch up and that the close is run again with the
+  same checkouts. Run again, every checkout the first run pushed is already closed (above), so only the rest are
+  checked and pushed.
+- **Told to stop,** the close ends its check as above, takes off every pair it wrote `testing`, and writes once
+  every other pair whose writing the stop cut short.
+- **What it says** is the account of each checkout, every line opening with its repository and `: `: `merged:`
+  with its commits, `checked:` with the check and its base, and what it waits on, the lines the close of one
+  checkout ends with, or, for a checkout already closed, `already waits on <remote>/<main>` with its commit. Its
+  last line is `job-close: ended, exit <code>`, and the codes are those above.
 
 ## `bmo-job job ask`
 
@@ -258,7 +316,7 @@ The worker's run already names the job service in `BMO_JOB_URL` and its token in
 |---|---|
 | `--done <item> [--report <text>] [--unfinished <text>]` | Leaves the run's account of the finished work on the item: `--report` kept as a `final` report and `--unfinished` as a `held` one through `POST /items/{itemId}/reports`. It moves no state: the item is done once whoever ordered the work takes it — its review, or, for an item whose commit waits on main for its repository's batch deployment (a label `close-phase:<repository>` reading `waiting-batch`, 「`bmo-job job close`」), whoever puts every such commit live. The verb prints one line saying what the item waits on: `deployment` with `commit`, the commit its label `close-commit` names, and `commits`, each waiting repository with its commit, `review`, or `orderer` |
 | `--stop-here <item> --report <text>` | Leaves the run's account on the item as a `held` report, for the run that picks the work up: what is finished and where the next run goes on. It moves no state; holding the item is its orderer's |
-| `--add --title <words> --judgement <words> --raised-by <item> [--repository <name>] [--from-todo <id>:<strand>[,<id>:<strand>]]` | Raises a draft in the queue and scope of the item it was raised from, the judgement as its brief, `--repository` as its assignee (the repository its work is in), else the assignee of the item it was raised from, and `--from-todo` as its label `from-todo`, and prints it |
+| `--add --title <words> --judgement <words> --raised-by <item> [--repository <name>[,<name>]]… [--from-todo <id>:<strand>[,<id>:<strand>]]` | Raises a draft in the queue and scope of the item it was raised from, the judgement as its brief, the first `--repository` as its assignee (the repository its work is in), else the assignee of the item it was raised from, and `--from-todo` as its label `from-todo`, and prints it. Where its work spans two repositories or more, named by `--repository` given again or by names joined with commas, the whole list, in the order given and each name once, is its label `repositories`, joined with commas |
 
 - **`--by <name>`** names who writes it: the run's `BMO_TURN_AGENT` where left out, then `USER`.
 - **Pages hosted elsewhere are refused** in a `--report` and an `--unfinished`, as in a question.

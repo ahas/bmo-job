@@ -3,6 +3,7 @@
 //! silence limit, and saying where it stands as it runs; and every short command the
 //! close asks, ended once it runs past its clock.
 
+use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -20,6 +21,8 @@ pub const HEARD_VARIABLE: &str = "BMO_TESTBED_HEARD";
 const LONGEST_LINE: usize = 4096;
 /// The longest a process's command line is when the close names it.
 const LONGEST_NAME: usize = 160;
+/// How many of a step's last whole lines are kept for what the close says of a step that did not pass.
+const KEPT_LINES: usize = 64;
 
 /// How a step the close ran ended short of passing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,14 +59,29 @@ impl Running {
 /// limit, every process under it is ended and the step is `Hung`. Every `standing_every`, `say` is handed one
 /// line saying where it stands.
 pub fn run_step(
-  mut command: Command,
+  command: Command,
   what: &str,
   clocks: &Clocks,
   running: &Running,
   say: &dyn Fn(&str),
 ) -> Result<(), StepEnd> {
+  run_step_kept(command, what, clocks, running, say).0
+}
+
+/// Runs a step as `run_step` does, and answers besides how it ended its last whole lines, oldest first, so a
+/// caller reads what a step that did not pass said of itself.
+pub fn run_step_kept(
+  mut command: Command,
+  what: &str,
+  clocks: &Clocks,
+  running: &Running,
+  say: &dyn Fn(&str),
+) -> (Result<(), StepEnd>, Vec<String>) {
   let not_started = |why: std::io::Error| StepEnd::Failed(format!("{what} could not be started: {why}"));
-  let heard = HeardFile::make().map_err(not_started)?;
+  let heard = match HeardFile::make() {
+    Ok(heard) => heard,
+    Err(why) => return (Err(not_started(why)), Vec::new()),
+  };
 
   command
     .process_group(0)
@@ -72,7 +90,10 @@ pub fn run_step(
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
-  let mut child = command.spawn().map_err(not_started)?;
+  let mut child = match command.spawn() {
+    Ok(child) => child,
+    Err(why) => return (Err(not_started(why)), Vec::new()),
+  };
   let leader = child.id();
   let moved = Arc::new(Mutex::new(Moved::new()));
   let (read_out, readers) = mpsc::channel();
@@ -103,12 +124,14 @@ pub fn run_step(
       let _ = child.wait();
       running.release();
 
-      return Err(StepEnd::Hung(format!(
+      let hung = StepEnd::Hung(format!(
         "{what} wrote nothing for {} and was ended; its last line: {}; still running: {}",
         spoken(clocks.silence),
         last_line(&moved),
         if still.is_empty() { "nothing".to_owned() } else { still.join("; ") }
-      )));
+      ));
+
+      return (Err(hung), kept_lines(&moved));
     }
 
     if said.elapsed() >= clocks.standing_every {
@@ -134,11 +157,13 @@ pub fn run_step(
   }
   running.release();
 
-  match status {
+  let ended = match status {
     Some(status) if status.success() => Ok(()),
     Some(_) => Err(StepEnd::Failed(format!("{what} did not pass"))),
     None => Err(StepEnd::Failed(format!("{what} could not be waited on"))),
-  }
+  };
+
+  (ended, kept_lines(&moved))
 }
 
 /// The output of a short command the close asks, its standard input closed; one still running once `within` has
@@ -176,11 +201,13 @@ pub fn spoken(span: Duration) -> String {
   }
 }
 
-// When a step's output last moved, and its last line: the line under way where one is, else the last whole one.
+// When a step's output last moved, its last line, the line under way where one is, else the last whole one, and
+// its last whole lines.
 struct Moved {
   at: Instant,
   partial: Vec<u8>,
   last: String,
+  kept: VecDeque<String>,
 }
 
 impl Moved {
@@ -189,6 +216,7 @@ impl Moved {
       at: Instant::now(),
       partial: Vec::new(),
       last: String::new(),
+      kept: VecDeque::with_capacity(KEPT_LINES),
     }
   }
 
@@ -200,6 +228,10 @@ impl Moved {
         let line = String::from_utf8_lossy(&self.partial).trim().to_owned();
 
         if !line.is_empty() {
+          if self.kept.len() == KEPT_LINES {
+            self.kept.pop_front();
+          }
+          self.kept.push_back(line.clone());
           self.last = line;
         }
         self.partial.clear();
@@ -222,6 +254,16 @@ impl Moved {
 
 fn last_line(moved: &Mutex<Moved>) -> String {
   moved.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).last_line()
+}
+
+fn kept_lines(moved: &Mutex<Moved>) -> Vec<String> {
+  moved
+    .lock()
+    .unwrap_or_else(|poisoned| poisoned.into_inner())
+    .kept
+    .iter()
+    .cloned()
+    .collect()
 }
 
 // How long the step has written nothing and touched nothing.

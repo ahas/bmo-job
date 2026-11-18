@@ -21,7 +21,7 @@ use bmo_job_client::{EventQuery, Labels, NewItem};
 
 // The clocks a test's close keeps to: a step's silence, the grace after a TERM and the lines saying where it
 // stands each a fraction of a second.
-fn quick() -> Clocks {
+pub(crate) fn quick() -> Clocks {
   Clocks {
     silence: Duration::from_millis(300),
     grace: Duration::from_millis(200),
@@ -40,18 +40,18 @@ const RECORD: &str = r#"{
   "backup": ""
 }"#;
 
-fn git(dir: &Path, args: &[&str]) -> String {
+pub(crate) fn git(dir: &Path, args: &[&str]) -> String {
   let output = Command::new("git").arg("-C").arg(dir).args(args).output().expect("git runs");
 
   assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
   String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
-fn init(dir: &Path) {
+pub(crate) fn init(dir: &Path) {
   git(dir, &["init", "-q", "-b", "main"]);
 }
 
-fn commit(dir: &Path, file: &str, message: &str) -> String {
+pub(crate) fn commit(dir: &Path, file: &str, message: &str) -> String {
   fs::write(dir.join(file), format!("{file}\n")).expect("the file");
   git(dir, &["add", file]);
   git(
@@ -63,7 +63,7 @@ fn commit(dir: &Path, file: &str, message: &str) -> String {
 }
 
 // A bare repository standing as the checkout's `origin`, its main pushed from the checkout's HEAD as it stands.
-fn remote_for(repo: &Path) -> tempfile::TempDir {
+pub(crate) fn remote_for(repo: &Path) -> tempfile::TempDir {
   let remote = tempfile::tempdir().expect("a remote");
 
   git(remote.path(), &["init", "-q", "--bare", "-b", "main"]);
@@ -74,7 +74,7 @@ fn remote_for(repo: &Path) -> tempfile::TempDir {
 }
 
 // The commit the remote's main stands at.
-fn main_of(remote: &Path) -> String {
+pub(crate) fn main_of(remote: &Path) -> String {
   git(remote, &["rev-parse", "refs/heads/main"])
 }
 
@@ -99,7 +99,7 @@ fn declare_deploy_root(repo: &Path, deploy_root: &Path) {
   .expect("the declaration");
 }
 
-fn record_at(deploy_root: &Path, commit: &str) {
+pub(crate) fn record_at(deploy_root: &Path, commit: &str) {
   fs::write(deploy_root.join("deployed.json"), RECORD.replace("{commit}", commit)).expect("the record");
 }
 
@@ -117,7 +117,7 @@ fn platform_record_at(data_root: &Path, commit: &str) {
 // A commit no checkout of the test's repository holds.
 const FOREIGN: &str = "b0dd02ec3a4edabffb3c794b3d4e54eeffbe561b";
 
-fn executable(path: &Path, body: &str) {
+pub(crate) fn executable(path: &Path, body: &str) {
   fs::write(path, body).expect("the testbed stand-in");
   let mut permissions = fs::metadata(path).expect("the stand-in").permissions();
   permissions.set_mode(0o755);
@@ -788,10 +788,10 @@ fn check_at(dir: &Path, check: &str) -> (PathBuf, Started) {
 
 // The processes a stand-in started, each written to a file of its own: killed when the test ends, whatever it
 // came to.
-struct Started(PathBuf);
+pub(crate) struct Started(pub(crate) PathBuf);
 
 impl Started {
-  fn pids(&self) -> Vec<i32> {
+  pub(crate) fn pids(&self) -> Vec<i32> {
     fs::read_to_string(&self.0)
       .unwrap_or_default()
       .split_whitespace()
@@ -800,7 +800,7 @@ impl Started {
   }
 
   // Whether every one of them is gone: no longer listed, or ended and waiting only to be reaped.
-  fn all_gone(&self) -> bool {
+  pub(crate) fn all_gone(&self) -> bool {
     self.pids().iter().all(|pid| {
       fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| {
         stat.rsplit(')').next().and_then(|rest| rest.split_whitespace().next()) == Some("Z")
@@ -819,7 +819,7 @@ impl Drop for Started {
 }
 
 // Waits for `condition` a few seconds at most, looking every few milliseconds.
-fn soon(condition: impl Fn() -> bool) -> bool {
+pub(crate) fn soon(condition: impl Fn() -> bool) -> bool {
   (0..500).any(|_| {
     let met = condition();
     if !met {

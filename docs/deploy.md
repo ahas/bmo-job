@@ -44,7 +44,9 @@ bmo-testbed's. This document states what the declaration says of this service.
 
 - **A close ends at the merge.** `bmo job close` checks what the job changed, pushes its commits onto the
   remote's main and leaves the item waiting for this repository's batch deployment (docs/cli.md, 「`bmo-job job
-  close`」). It runs no suite and waits for no deployment.
+  close`」). It runs no suite and waits for no deployment. A job whose work spans repositories closes every
+  checkout it changed in one close, each repository's commits pushed onto its own main and its pair written
+  on the item (docs/cli.md, 「Several checkouts in one close」).
 - **The batch deployment.** Every commit a close leaves on main waits there, its item labelled
   `close-phase:<repository>` `waiting-batch` with the commit in `close-commit:<repository>` (docs/cli.md,
   「`bmo-job job close`」), until one deployment of that repository puts main live, the waiting commits all at
