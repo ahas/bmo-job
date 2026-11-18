@@ -17,7 +17,8 @@ use bmo_job::job_close::{
 use bmo_job_client::{ItemChange, Labels, NewItem};
 
 use crate::job_close::{
-  Started, commit, executable, git, init, main_of, quick, record_at, remote_for, soon,
+  Started, commit, executable, git, held_lines, init, main_of, quick, record_at, remote_for, soon,
+  testbed_stand_in,
 };
 
 // A checkout of the repository `name`: its first commit on its remote's main, and recorded live where it deploys;
@@ -73,11 +74,11 @@ fn set_testbed_at(dir: &Path, then: &str) -> (PathBuf, PathBuf) {
   let calls = dir.join("testbed-calls");
   let path = dir.join("bmo-testbed");
 
-  executable(
+  testbed_stand_in(
     &path,
+    "",
     &format!(
-      r#"#!/bin/sh
-echo "$@" >> "{calls}"
+      r#"echo "$@" >> "{calls}"
 [ "$1" = check ] || exit 2
 shift
 while [ $# -gt 0 ]; do
@@ -181,6 +182,14 @@ fn every_checkout_passing_is_pushed_base_library_first_and_each_pair_written() {
       library.base
     ),
     "one check over both, each since its own main"
+  );
+  assert_eq!(
+    held_lines(&testbed),
+    [
+      format!("close-line --checkout {} --checkout {}", top(&library), top(&consumer)),
+      "let go".to_owned()
+    ],
+    "one hold over both lines, asked in push order"
   );
   assert_eq!(
     told,
@@ -311,6 +320,82 @@ fn a_refused_second_push_leaves_the_first_on_main_and_a_second_run_closes_the_re
   );
   assert_eq!(main_of(api.remote.path()), api.head);
   assert_eq!(main_of(web.remote.path()), web.head);
+}
+
+// Another close lands on one repository's main while this close waits for its lines: inside them that checkout is
+// rebased onto it and checked since it, the other as it was.
+#[test]
+fn a_main_moved_while_the_lines_were_waited_for_is_rebased_onto_and_checked_since() {
+  let data = tempfile::tempdir().expect("a data root");
+  let web = repo("the-web", true, &[]);
+  let api = repo("the-api", true, &[]);
+  let other = tempfile::tempdir().expect("another clone");
+
+  git(other.path(), &["clone", "-q", &api.remote.path().display().to_string(), "."]);
+  commit(other.path(), "elsewhere.md", "Add a page from elsewhere");
+
+  let calls = data.path().join("testbed-calls");
+  let testbed = data.path().join("bmo-testbed");
+
+  testbed_stand_in(
+    &testbed,
+    &format!("git -C \"{}\" push -q origin HEAD:refs/heads/main", other.path().display()),
+    &format!("echo \"$@\" >> \"{}\"\n", calls.display()),
+  );
+
+  let (closed, _) = close_of(&[&web, &api], data.path(), &BTreeMap::new(), &testbed);
+  let lines = closed.expect("closed");
+  let moved = git(other.path(), &["rev-parse", "HEAD"]);
+  let rebased = git(api.repo.path(), &["rev-parse", "HEAD"]);
+
+  assert_eq!(git(api.repo.path(), &["rev-parse", "HEAD^"]), moved);
+  assert_eq!(main_of(api.remote.path()), rebased);
+  assert_eq!(main_of(web.remote.path()), web.head);
+  assert_eq!(
+    fs::read_to_string(calls).expect("the check"),
+    format!("check --checkout {}@{} --checkout {}@{moved}\n", top(&web), web.base, top(&api))
+  );
+  assert!(
+    lines.contains(&format!(
+      "the-api: rebased: HEAD moved from {} onto origin/main, and stands on {}",
+      &api.head[..12],
+      &rebased[..12]
+    )),
+    "{lines:?}"
+  );
+}
+
+// A rebase that conflicts in one checkout refuses the close naming that repository, and nothing is checked or
+// pushed.
+#[test]
+fn a_rebase_that_conflicts_in_one_checkout_refuses_the_close_before_anything_is_checked() {
+  let data = tempfile::tempdir().expect("a data root");
+  let web = repo("the-web", true, &[]);
+  let api = repo("the-api", true, &[]);
+  let other = tempfile::tempdir().expect("another clone");
+
+  git(other.path(), &["clone", "-q", &api.remote.path().display().to_string(), "."]);
+  fs::write(other.path().join("two.md"), "another second page\n").expect("the clashing page");
+  git(other.path(), &["add", "two.md"]);
+  git(
+    other.path(),
+    &["-c", "user.name=tester", "-c", "user.email=tester", "commit", "-q", "-m", "Clash"],
+  );
+  git(other.path(), &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+
+  let (testbed, calls) = set_testbed_at(data.path(), PASSES);
+  let (closed, told) = close_of(&[&web, &api], data.path(), &BTreeMap::new(), &testbed);
+  let refused = closed.expect_err("the rebase conflicts");
+
+  assert!(
+    refused.starts_with("the-api: the rebase onto origin/main stopped on a conflict in two.md"),
+    "{refused}"
+  );
+  assert_eq!(git(api.repo.path(), &["rev-parse", "HEAD"]), api.head);
+  assert!(!calls.exists(), "nothing is checked");
+  assert!(told.is_empty(), "no pair is written");
+  assert_eq!(main_of(web.remote.path()), web.base);
+  assert_eq!(held_lines(&testbed).last().map(String::as_str), Some("let go"));
 }
 
 #[test]

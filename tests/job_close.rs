@@ -47,8 +47,11 @@ pub(crate) fn git(dir: &Path, args: &[&str]) -> String {
   String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
+// A repository whose own identity a rebase the close makes commits with.
 pub(crate) fn init(dir: &Path) {
   git(dir, &["init", "-q", "-b", "main"]);
+  git(dir, &["config", "user.name", "tester"]);
+  git(dir, &["config", "user.email", "tester"]);
 }
 
 pub(crate) fn commit(dir: &Path, file: &str, message: &str) -> String {
@@ -124,21 +127,45 @@ pub(crate) fn executable(path: &Path, body: &str) {
   fs::set_permissions(path, permissions).expect("the stand-in is executable");
 }
 
+// A testbed stand-in: its `close-line` holds as the real verb does, `before` run first, then one line said and the
+// lines held until its standard input ends, each hold and its letting go written to the file `held_lines` reads;
+// every other verb runs `body`.
+pub(crate) fn testbed_stand_in(path: &Path, before: &str, body: &str) {
+  executable(
+    path,
+    &format!(
+      "#!/bin/sh\nif [ \"$1\" = close-line ]; then\n  echo \"$@\" >> \"$0.lines\"\n  :\n  {before}\n  echo 'close line: holding'\n  cat > /dev/null\n  echo 'let go' >> \"$0.lines\"\n  exit 0\nfi\n{body}"
+    ),
+  );
+}
+
+// What a testbed stand-in wrote of the close lines it held, a line each; none where it held none.
+pub(crate) fn held_lines(testbed: &Path) -> Vec<String> {
+  let mut lines = testbed.as_os_str().to_owned();
+  lines.push(".lines");
+
+  fs::read_to_string(PathBuf::from(lines))
+    .unwrap_or_default()
+    .lines()
+    .map(str::to_owned)
+    .collect()
+}
+
 // A testbed standing in for the real one: it writes the words it was asked with on a line.
 fn testbed_at(dir: &Path) -> (PathBuf, PathBuf) {
   let calls = dir.join("testbed-calls");
   let path = dir.join("bmo-testbed");
 
-  executable(&path, &format!("#!/bin/sh\necho \"$@\" >> \"{}\"\nexit 0\n", calls.display()));
+  testbed_stand_in(&path, "", &format!("echo \"$@\" >> \"{}\"\nexit 0\n", calls.display()));
 
   (path, calls)
 }
 
-// A testbed stand-in whose every verb fails.
+// A testbed stand-in whose every verb but `close-line` fails.
 fn failing_testbed_at(dir: &Path) -> PathBuf {
   let path = dir.join("bmo-testbed-failing");
 
-  executable(&path, "#!/bin/sh\nexit 1\n");
+  testbed_stand_in(&path, "", "exit 1\n");
 
   path
 }
@@ -428,25 +455,145 @@ fn a_close_whose_check_fails_tells_testing_takes_it_off_and_pushes_nothing() {
   assert_eq!(main_of(closable.remote.path()), closable.base);
 }
 
+// The close line held from before the rebase to the end of the push: the check runs inside it, standing next,
+// the push lands inside it, and the line is let go after.
 #[test]
-fn a_branch_main_has_moved_past_is_refused_with_the_command_that_brings_it_up() {
+fn a_close_holds_its_close_line_through_its_check_and_its_push_and_then_lets_it_go() {
+  let closable = closable();
+  let testbed = closable.data.path().join("bmo-testbed");
+  let lines = closable.data.path().join("bmo-testbed.lines");
+
+  testbed_stand_in(&testbed, "", "echo \"check next=$BMO_TESTBED_NEXT\" >> \"$0.lines\"\n");
+  executable(
+    &closable.remote.path().join("hooks").join("pre-receive"),
+    &format!("#!/bin/sh\necho push >> \"{}\"\n", lines.display()),
+  );
+
+  run_close(closable.repo.path(), closable.data.path(), "Land the second page", None, &testbed)
+    .expect("closed");
+
+  assert_eq!(
+    held_lines(&testbed),
+    [
+      format!("close-line --checkout {}", git(closable.repo.path(), &["rev-parse", "--show-toplevel"])),
+      "check next=1".to_owned(),
+      "push".to_owned(),
+      "let go".to_owned(),
+    ]
+  );
+  assert_eq!(main_of(closable.remote.path()), closable.head);
+}
+
+// Another close lands while this one waits for its line: inside the line the close fetches again, rebases its
+// commit onto that main, checks since it and lands the rebased commit.
+#[test]
+fn a_main_moved_while_the_close_waited_for_its_line_is_rebased_onto_inside_it() {
   let closable = closable();
   let other = other_clone(closable.remote.path());
+  let testbed = closable.data.path().join("bmo-testbed");
+  let calls = closable.data.path().join("testbed-calls");
+
+  testbed_stand_in(
+    &testbed,
+    &format!("git -C \"{}\" push -q origin HEAD:refs/heads/main", other.path().display()),
+    &format!("echo \"$@\" >> \"{}\"\n", calls.display()),
+  );
+
+  let (closed, told) =
+    told_close(closable.repo.path(), closable.data.path(), "Land the second page", None, &testbed);
+  let lines = closed.expect("closed");
+  let moved = git(other.path(), &["rev-parse", "HEAD"]);
+  let rebased = git(closable.repo.path(), &["rev-parse", "HEAD"]);
+
+  assert_ne!(rebased, closable.head);
+  assert_eq!(git(closable.repo.path(), &["rev-parse", "HEAD^"]), moved);
+  assert_eq!(main_of(closable.remote.path()), rebased);
+  assert_eq!(fs::read_to_string(calls).expect("the check"), format!("check --since {moved}\n"));
+  assert!(
+    lines.contains(&format!(
+      "rebased: HEAD moved from {} onto origin/main, and stands on {}",
+      &closable.head[..12],
+      &rebased[..12]
+    )),
+    "{lines:?}"
+  );
+  assert_eq!(told, vec![Standing::Testing, Standing::WaitingBatch(rebased)]);
+}
+
+// A rebase that stops on a conflict is aborted: the checkout stands as it was, nothing is checked or pushed, and
+// the line is let go.
+#[test]
+fn a_rebase_that_conflicts_is_aborted_and_refuses_the_close_naming_the_path() {
+  let closable = closable();
+  let other = tempfile::tempdir().expect("another clone");
+
+  git(other.path(), &["clone", "-q", &closable.remote.path().display().to_string(), "."]);
+  fs::write(other.path().join("two.md"), "another second page\n").expect("the clashing page");
+  git(other.path(), &["add", "two.md"]);
+  git(
+    other.path(),
+    &["-c", "user.name=tester", "-c", "user.email=tester", "commit", "-q", "-m", "Clash"],
+  );
   git(other.path(), &["push", "-q", "origin", "HEAD:refs/heads/main"]);
-  let moved = main_of(closable.remote.path());
 
   let (testbed, calls) = testbed_at(closable.data.path());
   let (closed, told) =
     told_close(closable.repo.path(), closable.data.path(), "Land the second page", None, &testbed);
-  let refused = closed.expect_err("main moved past the branch");
+  let refused = closed.expect_err("the rebase conflicts");
+
+  assert!(
+    refused.starts_with("the rebase onto origin/main stopped on a conflict in two.md and was aborted"),
+    "{refused}"
+  );
+  assert!(
+    refused.ends_with("rebase by hand with git pull --rebase origin main, resolve it and close again")
+  );
+  assert_eq!(git(closable.repo.path(), &["rev-parse", "HEAD"]), closable.head);
+  assert_eq!(git(closable.repo.path(), &["status", "--porcelain=v1", "--untracked-files=no"]), "");
+  assert!(!calls.exists(), "nothing is checked");
+  assert_eq!(told, vec![Standing::Off]);
+  assert_eq!(held_lines(&testbed).last().map(String::as_str), Some("let go"));
+}
+
+// A checkout holding uncommitted changes to tracked files is not rebased.
+#[test]
+fn a_checkout_with_uncommitted_changes_is_not_rebased_and_names_them() {
+  let closable = closable();
+  let other = other_clone(closable.remote.path());
+
+  git(other.path(), &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+  fs::write(closable.repo.path().join("one.md"), "changed\n").expect("an uncommitted change");
+
+  let (testbed, calls) = testbed_at(closable.data.path());
+  let refused =
+    run_close(closable.repo.path(), closable.data.path(), "Land the second page", None, &testbed)
+      .expect_err("the checkout is not clean");
 
   assert_eq!(
     refused,
-    "origin/main has moved past this branch; bring it up with git pull --rebase origin main and close again"
+    "origin/main has moved on, and the checkout holds uncommitted changes to one.md, so it is not rebased; commit them or put them aside and close again"
   );
-  assert!(!calls.exists(), "a refused close runs nothing");
+  assert_eq!(git(closable.repo.path(), &["rev-parse", "HEAD"]), closable.head);
+  assert!(!calls.exists(), "nothing is checked");
+}
+
+// The harness gone before the line came: the testbed ends with 75, and the close is refused with what it said.
+#[test]
+fn a_close_whose_harness_is_gone_before_its_line_came_is_refused_with_what_the_testbed_said() {
+  let closable = closable();
+  let testbed = closable.data.path().join("bmo-testbed-gone");
+
+  executable(&testbed, "#!/bin/sh\necho 'close line: the harness is gone' >&2\nexit 75\n");
+
+  let (closed, told) =
+    told_close(closable.repo.path(), closable.data.path(), "Land the second page", None, &testbed);
+
+  assert_eq!(
+    closed.expect_err("no line"),
+    "the harness this close runs in is gone before its close line came: close line: the harness is gone"
+  );
   assert_eq!(told, vec![Standing::Off]);
-  assert_eq!(main_of(closable.remote.path()), moved);
+  assert_eq!(main_of(closable.remote.path()), closable.base);
 }
 
 // Main moving while the check runs refuses the push, and the item is not told the commit waits.
@@ -456,9 +603,10 @@ fn a_push_main_refuses_after_the_check_ends_the_close_with_the_way_to_close_agai
   let other = other_clone(closable.remote.path());
   let testbed = closable.data.path().join("bmo-testbed-racing");
 
-  executable(
+  testbed_stand_in(
     &testbed,
-    &format!("#!/bin/sh\ngit -C \"{}\" push -q origin HEAD:refs/heads/main\n", other.path().display()),
+    "",
+    &format!("git -C \"{}\" push -q origin HEAD:refs/heads/main\n", other.path().display()),
   );
 
   let (closed, told) =
@@ -467,7 +615,7 @@ fn a_push_main_refuses_after_the_check_ends_the_close_with_the_way_to_close_agai
 
   assert!(refused.starts_with("the push onto origin/main was refused: "), "{refused}");
   assert!(
-    refused.ends_with("bring the branch up with git pull --rebase origin main and close again"),
+    refused.ends_with("close again, and the close rebases onto it inside its close line"),
     "{refused}"
   );
   assert_eq!(told, vec![Standing::Testing, Standing::Off]);
@@ -543,6 +691,7 @@ fn a_commit_already_on_main_is_checked_past_the_record_and_waits_for_the_batch()
     fs::read_to_string(calls).expect("the testbed stand-in's calls"),
     format!("check --since {}\n", closable.base)
   );
+  assert!(held_lines(&testbed).is_empty(), "nothing to push takes no close line");
   assert_eq!(told, vec![Standing::Testing, Standing::WaitingBatch(closable.head.clone())]);
 }
 
@@ -775,10 +924,11 @@ fn check_at(dir: &Path, check: &str) -> (PathBuf, Started) {
   let path = dir.join("bmo-testbed-check");
   let pids = dir.join("stand-in-pids");
 
-  executable(
+  testbed_stand_in(
     &path,
+    "",
     &format!(
-      "#!/bin/sh\n[ \"$1\" = check ] || exit 0\nset -- \"{}\"\necho $$ >> \"$1\"\n{check}\n",
+      "[ \"$1\" = check ] || exit 0\nset -- \"{}\"\necho $$ >> \"$1\"\n{check}\n",
       pids.display()
     ),
   );

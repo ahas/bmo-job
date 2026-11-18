@@ -13,6 +13,7 @@ use bmo_job_client::{ClientFailure, Item, ItemChange, JobClient, Labels};
 use serde::Deserialize;
 
 use crate::again::{Halt, until_answered};
+use crate::close_line::{HeldLines, NEXT_VARIABLE, hold_lines};
 use crate::close_watch::{Running, StepEnd, output_within, run_step, run_step_kept, spoken};
 
 /// How long the check may write nothing and touch nothing before it is hung, in a checkout whose declaration
@@ -318,7 +319,8 @@ struct OwnCommit {
 }
 
 /// Closes a job's change: checks what the job changed, pushes its commits onto the remote's main, and leaves the
-/// commit waiting there for its repository's batch deployment. The check runs as `steps` says, watched. `tell` is
+/// commit waiting there for its repository's batch deployment. A close with commits to push holds its repository's
+/// close line from before its rebase to the end of its push. The check runs as `steps` says, watched. `tell` is
 /// handed where the close stands as it moves: testing once the check starts, waiting for the batch once the commit
 /// stands on main in a repository that deploys, and off where it ends any other way. What comes back is what the
 /// close says of itself: the commits it merged and the check that passed.
@@ -365,7 +367,7 @@ impl Main {
     format!("{}/{}", self.remote, self.branch)
   }
 
-  // The command that brings a branch main has moved past up onto it.
+  // The command that rebases a branch onto main by hand.
   fn bring_up(&self) -> String {
     format!("git pull --rebase {} {}", self.remote, self.branch)
   }
@@ -384,7 +386,8 @@ enum Reading {
 }
 
 // A checkout that owes a check: its `HEAD`, the main it lands on, whether that main lacks `HEAD`, the base its
-// check reads the change since, its own commits past that base, and the lines saying which range was used.
+// check reads the change since, its own commits past that base, and the lines saying which range was used and
+// how it was rebased. Where it has commits to push, its main and its base are read again inside its close line.
 struct Prepared {
   root: PathBuf,
   head: String,
@@ -395,8 +398,8 @@ struct Prepared {
   notes: Vec<String>,
 }
 
-// The checkout read as far as its check: its record, its remote fetched, main under `HEAD`, its range and the
-// language of its messages. `waiting` is the commit the item names as waiting on main for its repository, which
+// The checkout read as far as its close line: its record, its remote fetched, its range and the language of its
+// messages. `waiting` is the commit the item names as waiting on main for its repository, which
 // leaves a `HEAD` already on main out.
 fn read_checkout(root: &Path, data_root: &Path, waiting: Option<&str>) -> Result<Reading, String> {
   let head =
@@ -417,15 +420,6 @@ fn read_checkout(root: &Path, data_root: &Path, waiting: Option<&str>) -> Result
 
   let mut notes = Vec::new();
   let base = if to_push {
-    // The close merges by fast-forward alone: main must stand under HEAD.
-    if !is_ancestor(root, &main.tip, &head) {
-      return Err(format!(
-        "{} has moved past this branch; bring it up with {} and close again",
-        main.name(),
-        main.bring_up()
-      ));
-    }
-
     main.tip.clone()
   } else {
     range_on_main(root, deployed.as_deref(), &head, &mut notes)?
@@ -446,6 +440,59 @@ fn read_checkout(root: &Path, data_root: &Path, waiting: Option<&str>) -> Result
     own,
     notes,
   }))
+}
+
+impl Prepared {
+  // Inside its close line: the remote fetched again and, where its main no longer stands under `HEAD`, the job's
+  // commits rebased onto it, said in one line. A checkout with uncommitted changes to tracked files is not rebased,
+  // and a rebase that stops on a conflict is aborted, leaving the checkout as it was; both are refused.
+  fn rebase_in_line(&mut self) -> Result<(), String> {
+    let main = fetched_main(&self.root)?;
+
+    if !is_ancestor(&self.root, &main.tip, &self.head) {
+      let changed = git(&self.root, &["diff", "--name-only", "HEAD"])?;
+
+      if !changed.is_empty() {
+        let paths: Vec<&str> = changed.lines().collect();
+
+        return Err(format!(
+          "{} has moved on, and the checkout holds uncommitted changes to {}, so it is not rebased; commit them or put them aside and close again",
+          main.name(),
+          paths.join(", ")
+        ));
+      }
+
+      if let Err(why) = git(&self.root, &["rebase", "--quiet", &main.tip]) {
+        let conflicted = git(&self.root, &["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default();
+        let _ = git(&self.root, &["rebase", "--abort"]);
+        let paths = conflicted.lines().collect::<Vec<_>>().join(", ");
+
+        return Err(format!(
+          "the rebase onto {} stopped on a conflict in {} and was aborted, the checkout left as it was ({why}); rebase by hand with {}, resolve it and close again",
+          main.name(),
+          if paths.is_empty() { "an unnamed path".to_owned() } else { paths },
+          main.bring_up()
+        ));
+      }
+
+      let moved_from = std::mem::replace(&mut self.head, git(&self.root, &["rev-parse", "HEAD"])?);
+
+      self.notes.push(format!(
+        "rebased: HEAD moved from {} onto {}, and stands on {}",
+        short_of(&moved_from),
+        main.name(),
+        short_of(&self.head)
+      ));
+    }
+
+    self.to_push = !is_ancestor(&self.root, &self.head, &main.tip);
+    if self.to_push {
+      self.base = main.tip.clone();
+      self.own = own_commits(&self.root, &self.base)?;
+    }
+    self.main = main;
+    Ok(())
+  }
 }
 
 // A checked commit landed: pushed where main lacks it, with the lines the close says of it and where it then
@@ -496,7 +543,7 @@ fn merged(
   tell: &dyn Fn(Standing),
 ) -> Result<Closed, String> {
   let mut lines = opening(args);
-  let prepared = match read_checkout(root, data_root, None)? {
+  let mut prepared = match read_checkout(root, data_root, None)? {
     Reading::Owes(prepared) => prepared,
     Reading::Deployed | Reading::ClosedBefore { .. } => {
       lines.push(ALREADY_DEPLOYED.to_owned());
@@ -504,15 +551,23 @@ fn merged(
     }
   };
 
+  // Held from before the rebase to the end of the push, and let go however the close ends.
+  let held = in_lines(steps, root, &[&prepared])?;
+
+  if held.is_some() {
+    prepared.rebase_in_line()?;
+  }
+
   lines.extend(prepared.notes.iter().cloned());
 
   let found = checkout_state(root);
 
   tell(Standing::Testing);
-  check(root, steps, &prepared.base, found.as_deref())?;
+  check(root, steps, &prepared.base, found.as_deref(), held.is_some())?;
 
   let (landed, standing) = land(&prepared)?;
 
+  drop(held);
   lines.extend(landed);
   Ok(match standing {
     Standing::WaitingBatch(commit) => Closed::Waiting(lines, commit),
@@ -552,8 +607,9 @@ pub struct Checkouts<'a> {
 }
 
 /// Closes every checkout a job changed in one close (docs/cli.md, 「Several checkouts in one close」): each read
-/// first and every refusal said at once, one check over those that owe one, then each pushed in the order their
-/// base libraries ask. `tell` is handed each repository's standing as it moves, several at once where they move
+/// first and every refusal said at once, the close lines of those with commits to push held together, each of them
+/// rebased inside the lines, one check over those that owe one, then each pushed in the order their base libraries
+/// ask. `tell` is handed each repository's standing as it moves, several at once where they move
 /// together. What comes back is what the close says of every checkout, each line opening with its repository.
 pub fn close_checkouts(
   checkouts: &Checkouts,
@@ -605,10 +661,26 @@ pub fn close_checkouts(
     return Err(refusals.join("\n"));
   }
 
+  let pushing: Vec<&Prepared> = order.iter().map(|&index| &owes[index].1).collect();
+  // Every line held before any is used, from before the first rebase to the end of the last push.
+  let held = in_lines(steps, checkouts.from, &pushing)?;
+
+  for &index in &order {
+    let (repository, prepared) = &mut owes[index];
+
+    if prepared.to_push {
+      prepared.rebase_in_line().map_err(|why| format!("{repository}: {why}"))?;
+
+      if let Some((_, lines_of)) = said.iter_mut().find(|(named, _)| named == repository) {
+        *lines_of = prepared.notes.clone();
+      }
+    }
+  }
+
   if !owes.is_empty() {
     tell(&standing_all(&owes, &Standing::Testing));
 
-    if let Err(why) = check_set(checkouts.from, steps, &owes) {
+    if let Err(why) = check_set(checkouts.from, steps, &owes, held.is_some()) {
       tell(&standing_all(&owes, &Standing::Off));
       return Err(why);
     }
@@ -644,6 +716,8 @@ pub fn close_checkouts(
     }
   }
 
+  drop(held);
+
   let mut lines = opening(args);
 
   for (repository, lines_of) in said {
@@ -651,6 +725,19 @@ pub fn close_checkouts(
   }
 
   Ok(lines)
+}
+
+// The close lines of every checkout of `owes` with commits to push, held through the testbed run in `from`; none
+// where none has commits to push.
+fn in_lines(steps: &Steps, from: &Path, owes: &[&Prepared]) -> Result<Option<HeldLines>, String> {
+  let roots: Vec<&PathBuf> =
+    owes.iter().filter(|prepared| prepared.to_push).map(|prepared| &prepared.root).collect();
+
+  if roots.is_empty() {
+    return Ok(None);
+  }
+
+  hold_lines(steps.testbed, from, &roots, steps.say).map(Some)
 }
 
 // Every repository of `owes` standing as `standing`.
@@ -706,12 +793,13 @@ pub const FAILED_REPOSITORY_LINE: &str = "check FAILED: ";
 // The testbed's check over several checkouts, each since its own base, run in the directory the close runs in and
 // watched. One that does not pass says the repositories and steps the check named as failed, else its last line;
 // one the close ended for falling silent says how each checkout stands against how the close found it.
-fn check_set(from: &Path, steps: &Steps, owes: &[(String, Prepared)]) -> Result<(), String> {
+fn check_set(from: &Path, steps: &Steps, owes: &[(String, Prepared)], next: bool) -> Result<(), String> {
   let found: Vec<Option<String>> =
     owes.iter().map(|(_, prepared)| checkout_state(&prepared.root)).collect();
   let mut command = Command::new(steps.testbed);
 
   command.arg("check").current_dir(from);
+  stand_next(&mut command, next);
   for (_, prepared) in owes {
     command.arg("--checkout").arg(format!("{}@{}", prepared.root.display(), prepared.base));
   }
@@ -816,15 +904,15 @@ fn followed_remote(root: &Path) -> String {
     .unwrap_or_else(|| "origin".to_owned())
 }
 
-// HEAD pushed onto the remote's main. A push the remote refuses, its main having moved on, says how to close again.
+// HEAD pushed onto the remote's main. A push the remote refuses, its main moved by a push that stood in no close
+// line here, says to close again, which rebases onto that main inside the line.
 fn push(root: &Path, main: &Main) -> Result<(), String> {
   remote_git(root, &["push", "--quiet", &main.remote, &format!("HEAD:refs/heads/{}", main.branch)])
     .map(drop)
     .map_err(|why| {
       format!(
-        "the push onto {} was refused: {why}; bring the branch up with {} and close again",
-        main.name(),
-        main.bring_up()
+        "the push onto {} was refused: {why}; close again, and the close rebases onto it inside its close line",
+        main.name()
       )
     })
 }
@@ -1045,14 +1133,22 @@ fn short_of(commit: &str) -> String {
 
 // The testbed's check of what changed since `base`, run in the checkout and watched. A check the close ended for
 // falling silent says, besides its last line and what was running, how the checkout stands against `found`.
-fn check(root: &Path, steps: &Steps, base: &str, found: Option<&str>) -> Result<(), String> {
+fn check(root: &Path, steps: &Steps, base: &str, found: Option<&str>, next: bool) -> Result<(), String> {
   let mut command = Command::new(steps.testbed);
   command.args(["check", "--since", base]).current_dir(root);
+  stand_next(&mut command, next);
 
   run_step(command, "the static check", &steps.clocks, &steps.running, steps.say).map_err(|end| match end {
     StepEnd::Failed(why) => why,
     StepEnd::Hung(why) => format!("{why}; {}", checkout_against(root, found)),
   })
+}
+
+// A check run inside a close line is handed the variable that stands its seats next after the front.
+fn stand_next(command: &mut Command, next: bool) {
+  if next {
+    command.env(NEXT_VARIABLE, "1");
+  }
 }
 
 // What the checkout holds as git reads it: its HEAD and every entry of its status, untracked files each named.

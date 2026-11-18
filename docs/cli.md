@@ -34,22 +34,39 @@ a deployment").
 flowchart TD
   A[Reasons read] --> B[Remote fetched]
   B --> C{Commits not on main?}
-  C -- yes --> D[Main must stand under HEAD]
+  C -- yes --> D[Commit messages read]
   C -- no --> E[Range from the record]
-  D --> F[Commit messages read]
-  E --> F
-  F --> G[Check since the base]
+  E --> F[Commit messages read]
+  D --> L[Close line taken]
+  L --> R[Remote fetched, HEAD rebased where main moved]
+  R --> G[Check since the base]
+  F --> G
   G --> H[HEAD pushed where main lacks it]
-  H --> I[Item waits for the batch]
+  H --> I[Close line let go, item waits for the batch]
 ```
 
 - **The main it lands on.** The remote is the one the checkout's branch follows, else `origin`; its main is the
   remote's `main`, else its `master` where the remote holds no `main`. The close fetches that remote first, and
   a remote that cannot be read refuses the close with what git said.
-- **The job's own commits.** Where `HEAD` holds commits the remote's main does not, those are the job's own, and
-  the base is the remote's main. A branch the remote's main has moved past, so that it no longer stands under
-  `HEAD`, is refused with the command that brings it up: the close merges by fast-forward alone and never
-  rewrites the checkout.
+- **The job's own commits.** Where `HEAD` holds commits the remote's main does not, those are the job's own: the
+  close has commits to push, and the base is the remote's main as the close finds it inside its close line.
+- **The close line.** A close with commits to push stands in its repository's close line, bmo-testbed's
+  (bmo-testbed's `docs/testbed.md`, 「The close line」), from before its rebase to the end of its push, so no
+  other close of that repository on this machine lands while it checks. It takes the line through bmo-testbed's
+  `close-line` verb, started with its checkout, which waits its turn, says every thirty seconds how many closes
+  stand ahead and which holds the line, and holds the line until the close lets it go; the close passes those
+  lines on as its standard output. The line is held by that verb's process alone, so a close that ends in any
+  way lets it go. A close with nothing to push takes no line.
+- **The wait for the line has no clock.** It ends once the line is the close's, once the harness the close runs
+  in is gone, which the testbed answers with exit 75 and the close is refused with what it said, or once the
+  close is told to stop.
+- **The rebase.** Inside its line the close fetches the remote again. Where the remote's main no longer stands
+  under `HEAD`, another close having landed while this one waited, the job's commits are rebased onto it, so
+  the check runs on the commit that lands, and the close says in one line the commit `HEAD` moved from and the
+  one it stands on now. A checkout holding uncommitted changes to tracked files is not rebased: the close is
+  refused naming them, to be committed or put aside before closing again. A rebase that stops on a conflict is
+  aborted, which leaves the checkout as the close found it, and the close is refused naming the paths in
+  conflict and the command that rebases by hand.
 - **A commit already on main.** Where the remote's main already holds `HEAD`, nothing is pushed, and the range is
   read from the deployment record (docs/deploy.md, "A job closes"): the job's commits are those past the commit
   the record names as live. Where the record's commit is not in the repository or is no ancestor of `HEAD`, the
@@ -58,11 +75,14 @@ flowchart TD
 - **What is refused before the check.** A commit of the range whose message holds Hangul, each such commit named
   with the command that rewords it; nothing is checked, pushed or written on the item.
 - **The check.** `bmo-testbed check --since <base>`, which `bmo check --since` runs, runs in the checkout: the
-  check a change owes over every path changed since the base (bmo-testbed's `docs/checks.md`). A check that does
-  not pass refuses the close with exit 1, and nothing is pushed.
-- **The merge.** Once the check passes, the job's commits are pushed onto the remote's main as `HEAD` stands. A
-  push the remote refuses, its main having moved while the check ran, refuses the close with what git said and
-  the way to close again; nothing is written as waiting.
+  check a change owes over every path changed since the base (bmo-testbed's `docs/checks.md`). A check run inside
+  the close line is handed `BMO_TESTBED_NEXT`, so its seats stand next after the front (bmo-testbed's
+  `docs/testbed.md`, 「Next after the front」). A check that does not pass refuses the close with exit 1, and
+  nothing is pushed.
+- **The merge.** Once the check passes, the job's commits are pushed onto the remote's main as `HEAD` stands, and
+  the close line is let go once the push has ended. A push the remote refuses, its main moved by a push that
+  stood in no close line on this machine, refuses the close with what git said and the way to close again;
+  nothing is written as waiting.
 - **Where the close stands is written on the item `--todo` names,** as labels of its own repository, the rest of
   the item's labels kept: `close-phase:<repository>` is `testing` from the moment the check starts and
   `waiting-batch` once the commit stands on main, and `close-commit:<repository>` is that commit, written with
@@ -106,19 +126,19 @@ flowchart TD
   checkout's `git status` against what it read before the check, and refuses the close with the check's last
   line, what was still running, and whether the checkout stands as it found it or which paths differ:
   `job-close: refused — the static check wrote nothing for 900s and was ended`, the seconds being the limit
-  the close kept to. The close itself writes nothing
-  in the checkout.
+  the close kept to. Besides its rebase, the close writes nothing in the checkout.
 - **A running close says where it stands.** Every minute while the check runs, one line on standard output
   names it, how long it has run, how long ago its output last moved and its last line, so a reader tells a slow
   check, whose output moves, from a wedged one, whose does not. Whatever ends the close, its last line on
   standard output is `job-close: ended, exit <code>`, so a caller reading its log needs no process listing to
   know it has ended.
 - **Every wait inside a close has a clock the code names.** Each request writing the item's labels waits ten
-  seconds and the writing as a whole two minutes; each local `git` call one minute, and the fetch
-  and the push five minutes each, after which it is ended and read as failed; the check's silence fifteen
-  minutes, or five more than the checkout's declared testbed silence, and the pause before the KILL ten seconds; the running check is looked at every second.
-- **Told to stop, a close ends the check it runs first,** every process under it as for a hung check, so
-  nothing it started goes on after it.
+  seconds and the writing as a whole two minutes; each local `git` call one minute, the rebase among them, and
+  the fetch and the push five minutes each, after which it is ended and read as failed; the check's silence
+  fifteen minutes, or five more than the checkout's declared testbed silence, and the pause before the KILL ten
+  seconds; the running check is looked at every second. The wait for the close line alone has none (above).
+- **Told to stop, a close ends the check it runs first,** every process under it as for a hung check, and lets
+  its close line go, so nothing it started goes on after it.
 - **What the close says is the account of its close.** A close that ends at the merge prints, before its last
   line, the commits it put on main, each as its short commit and subject, and the check that passed with the
   base it ran from. That is what a job's report says of its close: what changed and what was checked, and that
@@ -130,41 +150,59 @@ flowchart TD
   | The check passed and the commit stands on main, its repository deploying | `merged:` with the commits, `checked:` with the check, and `waiting for the batch deployment: <commit> stands on <remote>/<main>` | | 0 |
   | The same in a repository whose `testbed.toml` reads and declares no `[deploy]` (a base library, released and never put live) | `merged:`, `checked:`, and `on main: <commit> stands on <remote>/<main>, and this repository deploys nothing` | | 0 |
   | The record already names the commit as live | `this commit is already what is deployed` | | 0 |
-  | A reason, a commit message, the remote, a branch main has moved past, the check or the push refused it | | `job-close: refused —` and why | 1 |
+  | A reason, a commit message, the remote, the close line, the rebase, the check or the push refused it | | `job-close: refused —` and why | 1 |
   | The run was told to stop | | one line saying so | 130 |
 
 ### Several checkouts in one close
 
 A job whose work spans repositories closes every checkout it changed in one close, each named by a `--checkout`.
 Each checkout is closed by the rules above, its main, its range, its record, its repository's name and its pair
-its own, except where this section says otherwise: one check runs for them all, and their pushes follow an order.
+its own, except where this section says otherwise: their close lines are held together, one check runs for them
+all, and their pushes follow an order.
 
 ```mermaid
 flowchart TD
-  A[Reasons read] --> B[Every checkout read: remote fetched, main under HEAD, messages]
+  A[Reasons read] --> B[Every checkout read: remote fetched, messages, push order]
   B -- any refused --> X[Refused, nothing checked]
-  B --> C[One check over the checkouts that owe one]
+  B --> L[Every close line taken at once]
+  L --> R[Each fetched and rebased where its main moved]
+  R -- a rebase refused --> W[Refused, nothing checked]
+  R --> C[One check over the checkouts that owe one]
   C -- failed --> Y[Refused, nothing pushed]
   C --> D[Pushed one by one, base libraries first]
   D -- a push refused --> Z[Stops there, the pushed ones stay]
   D --> E[Each repository's pair written after its push]
+  Z --> G[Every close line let go]
+  E --> G
 ```
 
 - **Every checkout is read before anything is checked.** Each path names a checkout by its top level as git names
   it; a path that names none, and two paths naming one checkout or two checkouts of one repository, are refused.
   Then each checkout, in the order given, is read as the close of one checkout reads it: a commit its record
-  already names as live is left out and said so; its remote is fetched; its main must stand under `HEAD`; and no
-  message of its range holds Hangul. Every refusal of every checkout is said at once, each line opening with its
-  repository and naming the command that mends it, and nothing is checked, pushed or written on the item.
+  already names as live is left out and said so; its remote is fetched; and no message of its range holds Hangul.
+  The push order is read then too (below). Every refusal of every checkout is said at once, each line opening
+  with its repository and naming the command that mends it, and nothing is checked, pushed or written on the item.
 - **A checkout already closed is not checked again.** Where a checkout's `HEAD` already stands on its main and the
   item `--todo` names carries that repository's pair as `waiting-batch` with that very commit, an earlier close
   checked it and pushed it: it is neither checked nor pushed again, and its pair stays. Any other checkout whose
   `HEAD` stands on main, one the job pushed itself or one closed with no item, is checked over the range its
-  record gives, as the close of one checkout checks it.
+  record gives, as the close of one checkout checks it. Neither takes a close line, having nothing to push.
+- **Every close line is held before any is used.** Each checkout with commits to push stands in its repository's
+  close line, all of them asked for through one `close-line` of bmo-testbed's, its checkouts each named, and held
+  from before the first rebase to the end of the last push. The testbed takes several lines in the one order it
+  keeps for every holder of several, so two closes asking for lines they share, whatever order each names them
+  in, never each hold a line the other waits for. Nothing is rebased, checked or pushed until every line is the
+  close's, and the wait for them has no clock, as for one checkout's line.
+- **Each checkout is rebased inside the lines,** in push order, as the close of one checkout rebases it: fetched
+  again, and its commits rebased onto its main where that main no longer stands under `HEAD`, each rebase said in
+  one line opening with its repository. A rebase refused, by uncommitted changes or a conflict, refuses the close
+  naming that repository, and nothing is checked or pushed; a checkout rebased before it stays as rebased, on
+  top of its main.
 - **One check runs for every checkout that owes one:** bmo-testbed's change check over several checkouts,
-  `bmo-testbed check --checkout <path>@<base>` once for each, every checkout's own base given as its commit, run
-  in the directory the close runs in (bmo-testbed's `docs/checks.md`, 「The change check over several
-  checkouts」). It is watched as the check of one checkout is, its minute line naming it `the combined check`.
+  `bmo-testbed check --checkout <path>@<base>` once for each, every checkout's own base given as its commit, its
+  main as it stands after the rebase where it has commits to push, run in the directory the close runs in
+  (bmo-testbed's `docs/checks.md`, 「The change check over several checkouts」). It is watched as the check of one checkout is, its minute line naming it `the combined check`, and
+  is handed `BMO_TESTBED_NEXT` where the close holds any line.
   Its silence limit is the largest any named checkout's declaration gives, `[test] silence_seconds` or the
   testbed's ten minutes where one declares none, and five minutes more. Where no checkout owes a check, none
   runs.
@@ -180,11 +218,12 @@ flowchart TD
   the check runs, each checked repository's pair is `testing`, all written at once.
 - **A push the remote refuses stops the close there.** Every repository pushed before it stays on its main with
   its pair; the refused one's pair, and the pairs of those after it, are taken off; the close is refused naming
-  the repository, what git said, the command that brings its branch up and that the close is run again with the
-  same checkouts. Run again, every checkout the first run pushed is already closed (above), so only the rest are
-  checked and pushed.
-- **Told to stop,** the close ends its check as above, takes off every pair it wrote `testing`, and writes once
-  every other pair whose writing the stop cut short.
+  the repository, what git said and that the close is run again with the same checkouts. Run again, every
+  checkout the first run pushed is already closed (above), so only the rest are rebased, checked and pushed.
+- **Every close line is let go once the close ends,** however it ends: after its last push, at a refusal, or told
+  to stop.
+- **Told to stop,** the close ends its check as above, lets go of its close lines, takes off every pair it wrote
+  `testing`, and writes once every other pair whose writing the stop cut short.
 - **What it says** is the account of each checkout, every line opening with its repository and `: `: `merged:`
   with its commits, `checked:` with the check and its base, and what it waits on, the lines the close of one
   checkout ends with, or, for a checkout already closed, `already waits on <remote>/<main>` with its commit. Its
