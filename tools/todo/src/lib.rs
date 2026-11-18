@@ -172,10 +172,12 @@ pub async fn answer(handed: &Handed) -> Answer {
   };
 
   match name {
-    "todo_list" => list(&service, &handed.arguments, handed, Reader::Worker).await,
-    "bmo_todo_list" => list(&service, &handed.arguments, handed, Reader::Chat).await,
-    "todo_show" => show(&service, &handed.arguments, handed, Reader::Worker).await,
-    "bmo_todo_show" => show(&service, &handed.arguments, handed, Reader::Chat).await,
+    "todo_list" | "bmo_todo_list" => {
+      list(&service, &handed.arguments, handed, Reader::of(&handed.entry)).await
+    }
+    "todo_show" | "bmo_todo_show" => {
+      show(&service, &handed.arguments, handed, Reader::of(&handed.entry)).await
+    }
     "todo_add" => add(&service, &handed.arguments, handed).await,
     "todo_append" => append(&service, &handed.arguments, handed).await,
     "todo_approve" => approve(&service, &handed.arguments).await,
@@ -184,15 +186,27 @@ pub async fn answer(handed: &Handed) -> Answer {
 }
 
 /// Whose reading an entry answers, which decides how its titles are shown.
-#[derive(Clone, Copy)]
-enum Reader {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reader {
   /// The worker's, in the worker's language.
   Worker,
   /// The chat agent's, as a person filed them.
   Chat,
 }
 
+/// The namespace the worker's readings stand under.
+pub const WORKER_NAMESPACE: &str = "worker";
+
 impl Reader {
+  /// The reader of an entry by the namespace of its full name, `<namespace>/<name>`, as the host hands it: the
+  /// worker's under the worker namespace, and the chat agent's under any other or none.
+  pub fn of(entry: &str) -> Self {
+    match entry.split_once('/') {
+      Some((WORKER_NAMESPACE, _)) => Self::Worker,
+      _ => Self::Chat,
+    }
+  }
+
   // How this reader is shown the titles of `items`.
   async fn titles(self, handed: &Handed, items: &[&Value]) -> Box<dyn Titles> {
     match self {

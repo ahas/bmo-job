@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde_json::json;
 use todo_tool::titles::AsWritten;
-use todo_tool::{ENTRIES, ListArgs, item_line, states};
+use todo_tool::{ENTRIES, ListArgs, Reader, item_line, states};
 
 fn manifest() -> toml::Table {
   let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tool.toml")).unwrap();
@@ -87,4 +87,16 @@ fn a_merged_item_names_the_row_it_went_into() {
   let item = json!({ "id": 3, "state": "merged", "title": "Duplicate", "mergedInto": 2 });
 
   assert_eq!(item_line(&item, &AsWritten), "#3 [merged] Duplicate · merged into #2");
+}
+
+#[test]
+fn the_worker_namespace_alone_reads_titles_in_the_worker_s_language() {
+  assert_eq!(Reader::of("worker/todo_show"), Reader::Worker);
+  assert_eq!(Reader::of("worker/todo_list"), Reader::Worker);
+  assert_eq!(
+    Reader::of("bmo/todo_show"),
+    Reader::Chat,
+    "the host hands the full name, its last part alike"
+  );
+  assert_eq!(Reader::of("bmo/todo_list"), Reader::Chat);
 }
