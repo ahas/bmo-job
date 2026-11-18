@@ -1,8 +1,11 @@
 //! The queue tool's manifest and its two readings' shapes.
 
+mod titles;
+
 use std::path::Path;
 
 use serde_json::json;
+use todo_tool::titles::AsWritten;
 use todo_tool::{ENTRIES, ListArgs, item_line, states};
 
 fn manifest() -> toml::Table {
@@ -76,12 +79,12 @@ fn an_item_reads_as_one_line() {
     "assigneeName": "bmo-job"
   });
 
-  assert_eq!(item_line(&item), "#12 [open] Repair the queue · bmo-job");
+  assert_eq!(item_line(&item, &AsWritten), "#12 [open] Repair the queue · bmo-job");
 }
 
 #[test]
 fn a_merged_item_names_the_row_it_went_into() {
   let item = json!({ "id": 3, "state": "merged", "title": "Duplicate", "mergedInto": 2 });
 
-  assert_eq!(item_line(&item), "#3 [merged] Duplicate · merged into #2");
+  assert_eq!(item_line(&item, &AsWritten), "#3 [merged] Duplicate · merged into #2");
 }

@@ -20,9 +20,13 @@ test = false
 tool-call = { path = "../../crates/tool-call" }
 serde.workspace = true
 serde_json.workspace = true
+# The digest a title's kept translation is read by.
+sha2.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+# The stand-in gate the worker's titles are read from.
+axum.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 

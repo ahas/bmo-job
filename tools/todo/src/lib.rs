@@ -1,15 +1,20 @@
 //! The queue's entries for the tool host, in the worker namespace and in the chat agent's `bmo`: the two
 //! readings, the filing of a row, the words added to one and its approval. Each answers out of the job
 //! service's own routes, with the caller token the deployment keeps for the chat agent so an approval is an
-//! approver's (bmo-job's `docs/api.md`, 「Items」).
+//! approver's (bmo-job's `docs/api.md`, 「Items」). The worker's readings show each title in the worker's language
+//! (`titles`).
+
+pub mod titles;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use tool_call::{
-  Answer, Handed, Service, entry_name, job_service, queue_name, read_handed, turn_agent, turn_room,
-  write_answer,
+  Answer, Handed, Service, entry_name, gate_service, job_service, queue_name, read_handed, turn_agent,
+  turn_room, write_answer,
 };
+
+use crate::titles::{AsWritten, Kept, Titles};
 
 /// The entries this executable answers, as its manifest declares them.
 pub const ENTRIES: [&str; 7] = [
@@ -103,11 +108,11 @@ fn text(item: &Value, key: &str) -> Option<String> {
   item.get(key).and_then(Value::as_str).map(str::to_owned).filter(|text| !text.is_empty())
 }
 
-/// One item as one line.
-pub fn item_line(item: &Value) -> String {
+/// One item as one line, its title shown as `titles` shows it.
+pub fn item_line(item: &Value, titles: &dyn Titles) -> String {
   let id = item.get("id").and_then(Value::as_i64).unwrap_or(0);
   let state = text(item, "state").unwrap_or_default();
-  let title = text(item, "title").unwrap_or_default();
+  let title = titles.shown(&text(item, "title").unwrap_or_default());
   let mut line = format!("#{id} [{state}] {title}");
 
   if let Some(assignee) = text(item, "assigneeName") {
@@ -167,8 +172,10 @@ pub async fn answer(handed: &Handed) -> Answer {
   };
 
   match name {
-    "todo_list" | "bmo_todo_list" => list(&service, &handed.arguments, handed).await,
-    "todo_show" | "bmo_todo_show" => show(&service, &handed.arguments).await,
+    "todo_list" => list(&service, &handed.arguments, handed, Reader::Worker).await,
+    "bmo_todo_list" => list(&service, &handed.arguments, handed, Reader::Chat).await,
+    "todo_show" => show(&service, &handed.arguments, handed, Reader::Worker).await,
+    "bmo_todo_show" => show(&service, &handed.arguments, handed, Reader::Chat).await,
     "todo_add" => add(&service, &handed.arguments, handed).await,
     "todo_append" => append(&service, &handed.arguments, handed).await,
     "todo_approve" => approve(&service, &handed.arguments).await,
@@ -176,7 +183,31 @@ pub async fn answer(handed: &Handed) -> Answer {
   }
 }
 
-async fn list(service: &Service, arguments: &Value, handed: &Handed) -> Answer {
+/// Whose reading an entry answers, which decides how its titles are shown.
+#[derive(Clone, Copy)]
+enum Reader {
+  /// The worker's, in the worker's language.
+  Worker,
+  /// The chat agent's, as a person filed them.
+  Chat,
+}
+
+impl Reader {
+  // How this reader is shown the titles of `items`.
+  async fn titles(self, handed: &Handed, items: &[&Value]) -> Box<dyn Titles> {
+    match self {
+      Self::Chat => Box::new(AsWritten),
+      Self::Worker => {
+        let written: Vec<String> = items.iter().filter_map(|item| text(item, "title")).collect();
+        let written: Vec<&str> = written.iter().map(String::as_str).collect();
+
+        Box::new(Kept::read(gate_service(&handed.session).as_ref(), &written).await)
+      }
+    }
+  }
+}
+
+async fn list(service: &Service, arguments: &Value, handed: &Handed, reader: Reader) -> Answer {
   let args: ListArgs = match serde_json::from_value(arguments.clone()) {
     Ok(args) => args,
     Err(why) => return Answer::refusal(format!("todo_list: {why}")),
@@ -194,19 +225,16 @@ async fn list(service: &Service, arguments: &Value, handed: &Handed) -> Answer {
 
   match tool_call::get(service, "/items", &query).await {
     Ok(page) => {
-      let lines: Vec<String> = page
-        .get("items")
-        .and_then(Value::as_array)
-        .map(|items| items.iter().map(item_line).collect())
-        .unwrap_or_default();
+      let items: Vec<&Value> = page.get("items").and_then(Value::as_array).into_iter().flatten().collect();
+      let titles = reader.titles(handed, &items).await;
 
-      Answer::lines(lines)
+      Answer::lines(items.iter().map(|item| item_line(item, titles.as_ref())).collect())
     }
     Err(why) => Answer::refusal(why),
   }
 }
 
-async fn show(service: &Service, arguments: &Value) -> Answer {
+async fn show(service: &Service, arguments: &Value, handed: &Handed, reader: Reader) -> Answer {
   let args: ShowArgs = match serde_json::from_value(arguments.clone()) {
     Ok(args) => args,
     Err(why) => return Answer::refusal(format!("todo_show: {why}")),
@@ -216,9 +244,10 @@ async fn show(service: &Service, arguments: &Value) -> Answer {
     Err(why) => return Answer::refusal(why),
   };
   let id = item.get("id").and_then(Value::as_i64).unwrap_or(0);
+  let titles = reader.titles(handed, &[&item]).await;
   let mut lines = vec![format!(
     "#{id} {} [{}]",
-    text(&item, "title").unwrap_or_default(),
+    titles.shown(&text(&item, "title").unwrap_or_default()),
     text(&item, "state").unwrap_or_default()
   )];
   let mut facts = Vec::new();

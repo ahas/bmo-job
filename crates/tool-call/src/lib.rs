@@ -295,6 +295,32 @@ pub fn receiver_service(session: &Session) -> Result<Service, String> {
   Ok(Service { url, token })
 }
 
+/// The variable of the record naming the gate's address.
+pub const GATE_URL_VARIABLE: &str = "BMO_GATE_URL";
+/// The variable of the record naming the file the gate's token stands in.
+pub const GATE_TOKEN_FILE_VARIABLE: &str = "BMO_GATE_TOKEN_FILE";
+
+/// The gate the record names, by its address and its token file, else this process's environment; none where
+/// either is set nowhere or the token file holds nothing.
+pub fn gate_service(session: &Session) -> Option<Service> {
+  let named = |name: &str| {
+    session
+      .variables
+      .get(name)
+      .cloned()
+      .or_else(|| std::env::var(name).ok())
+      .map(|value| value.trim().to_owned())
+      .filter(|value| !value.is_empty())
+  };
+  let url = named(GATE_URL_VARIABLE)?;
+  let token = token_file(Path::new(&named(GATE_TOKEN_FILE_VARIABLE)?))?;
+
+  Some(Service {
+    url: url.trim_end_matches('/').to_owned(),
+    token,
+  })
+}
+
 fn client() -> reqwest::Client {
   reqwest::Client::new()
 }

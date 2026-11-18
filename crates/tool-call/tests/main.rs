@@ -68,3 +68,34 @@ fn nothing_read_answers_a_sentence_rather_than_an_empty_text() {
 
   assert_eq!(answer.content[0]["text"], "Nothing stands there now.");
 }
+
+#[test]
+fn the_gate_is_the_one_the_record_names_by_its_address_and_token_file() {
+  let dir = tempfile::tempdir().unwrap();
+  let token = dir.path().join("gate.token");
+  let empty = dir.path().join("empty.token");
+  std::fs::write(&token, "secret\n").unwrap();
+  std::fs::write(&empty, "").unwrap();
+  let record = |file: &std::path::Path| -> tool_call::Session {
+    serde_json::from_value(json!({
+      "variables": {
+        tool_call::GATE_URL_VARIABLE: "http://127.0.0.1:1/",
+        tool_call::GATE_TOKEN_FILE_VARIABLE: file.display().to_string()
+      }
+    }))
+    .unwrap()
+  };
+
+  assert_eq!(
+    tool_call::gate_service(&record(&token)),
+    Some(tool_call::Service {
+      url: "http://127.0.0.1:1".to_owned(),
+      token: "secret".to_owned()
+    })
+  );
+  assert_eq!(
+    tool_call::gate_service(&record(&empty)),
+    None,
+    "a token file holding nothing names no gate"
+  );
+}

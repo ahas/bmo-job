@@ -23,6 +23,17 @@
 - **`worker/todo_show`** and **`bmo/todo_show`** read one item whole: its number, or the title of one that is
   not finished. The answer carries the item, its notes, its questions, each with its number, its state, its
   words and the answer it was settled with, and its reports.
+- **The worker's two readings show every title in the worker's language, English.** A title with no letter
+  outside the Latin script stands as written. Any other is shown as the translation the gate keeps for it,
+  read through the gate's kept translations by the title's digest, so the reading never asks the gate's
+  translator and never waits on a model; the translation is asked of the gate by whoever hands the item to a
+  worker, ahead of the reading. The gate is the one the session's record names, by its address in
+  `BMO_GATE_URL` and its token file in `BMO_GATE_TOKEN_FILE`.
+- **A title with no translation kept is shown as written with `[not translated]` after it,** and so is every
+  title of a reading whose gate is named nowhere, cannot be reached, refuses, or has not answered within five
+  seconds: the reading is never held for a translation. The brief, the notes, the questions and the reports
+  stand as written, since what is written for a worker is English at its source.
+- **The chat agent's readings show every title as written,** in the language a person filed it in.
 - **`bmo/todo_add`** files a row through `POST /items`: its title, its brief from what is to be done and what
   was concluded, the room it came from as its scope, its requester and, where named, its model. A row filed
   this way is a draft until an approver approves it.
