@@ -1,6 +1,7 @@
 //! `bmo job ask` from a shell (docs/cli.md, 「`bmo-job job ask`」), the command run over the real service and a
 //! receiver of the test's own: a question goes to the supervisor first and back only with what the supervisor or a
-//! person settled it with, a failed send ends it unsent with no option printed, and no clock settles anything.
+//! person settled it with, or its recommendation once the owner's due time passed, and a failed send ends it unsent
+//! with no option printed.
 
 use crate::support;
 
@@ -13,10 +14,9 @@ use axum::Router;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
-use bmo_job::job_ask::settled_line;
 use bmo_job_client::{
   JobClient, NewItem, NewReply, Question, QuestionAddressee, QuestionChange, QuestionQuery, QuestionState,
-  Reply, ReplySource, WaitQuery,
+  WaitQuery,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -384,35 +384,34 @@ async fn a_receiver_restarting_is_no_answer_and_the_question_goes_out_once() {
 }
 
 #[tokio::test]
-async fn a_passed_due_time_settles_nothing_and_a_persons_answer_does() {
+async fn the_owners_due_time_settles_the_question_on_its_recommendation_and_the_supervisors_never_does() {
   let service = Service::start().await;
   let client = service.client();
   let (address, heard) = receiver(false).await;
   let item = item(&client).await;
-  let mut child = asked(&service, &address, item);
+  let child = asked(&service, &address, item);
   let question = opened(&client, &heard, 1).await;
 
   assert!(question.told_by_asker);
   assert_eq!(question.scope.as_deref(), Some(ROOM.to_string().as_str()));
   assert_eq!(question.recommendation.as_ref().expect("recommended").answer, "strict grammar");
 
-  // Far past its due time: told of as due, and still open, with the command still waiting.
+  // Held by the supervisor it has no due time, however long it waits.
   service.pass(30 * 24 * 3_600_000).await;
-  tokio::time::sleep(Duration::from_millis(500)).await;
-
-  assert!(child.try_wait().expect("the command's state").is_none(), "no clock ends the wait");
   assert_eq!(client.question(question.id).await.expect("the question").state, QuestionState::Open);
 
+  // Put to the owner, his minute runs, and the recommendation settles it when nobody answered.
   to_owner(&service, question.id).await;
-  client
-    .reply(question.id, &person(Some("loose grammar"), "loose grammar"))
-    .await
-    .expect("answered");
+  service.pass(60_000).await;
 
   let (code, out, err) = ended(child).await;
 
   assert_eq!(code, 0, "{err}");
-  assert_eq!(out, "loose grammar\n", "the person's choice, not the recommendation");
+  assert_eq!(out, "strict grammar\n", "the recommendation, as the owner's own answer would come back");
+  assert!(
+    err.contains(&format!("question #{} was settled on its recommendation", question.id)),
+    "{err}"
+  );
   assert_eq!(*heard.withdrawn.lock().expect("the withdrawals"), [1]);
 }
 
@@ -473,27 +472,6 @@ async fn a_persons_own_words_come_back_as_one_line() {
 
   assert_eq!(code, 0, "{err}");
   assert_eq!(out, "neither a third way\n");
-}
-
-#[test]
-fn a_settling_reply_no_person_gave_is_never_an_answer() {
-  let mut reply = Reply {
-    id: 1,
-    question_id: 2,
-    choice: Some("strict grammar".to_owned()),
-    text: "strict grammar".to_owned(),
-    actor_name: "deadline".to_owned(),
-    settles: true,
-    source: ReplySource::Recommendation,
-    why: Some("the wait ran out".to_owned()),
-    created_at: 0,
-  };
-
-  assert!(settled_line(&reply).is_err());
-
-  reply.source = ReplySource::Person;
-
-  assert_eq!(settled_line(&reply).as_deref(), Ok("strict grammar"));
 }
 
 #[tokio::test]

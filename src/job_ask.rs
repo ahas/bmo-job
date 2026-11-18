@@ -52,8 +52,11 @@ const MOST: i64 = 500;
 /// How a wait ended, as the job reads it. A question that cannot be answered any more is an `Err`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ending {
-  /// A person settled it: the one line the job carries on with.
+  /// The supervisor or a person settled it: the answer the job carries on with.
   Settled(String),
+  /// The owner's due time passed and its recommendation settled it: the one line the job carries on with, and the
+  /// question's number.
+  SettledOnRecommendation { question: i64, line: String },
   /// A person settled the same question before this ask: the line it was settled with, and its number. Nothing
   /// was opened and nobody was told.
   SettledBefore { question: i64, line: String },
@@ -469,27 +472,30 @@ fn heard_message(id: i64, heard: &[Reply]) -> String {
   )
 }
 
-/// The one line a person's settling reply comes back as, the option taken or the person's own words, and a refusal
-/// of one no person gave: only a person's answer is ever printed as an answer.
-pub fn settled_line(reply: &Reply) -> Result<String, String> {
-  if reply.source != ReplySource::Person {
-    return Err(format!(
-      "ask: question #{} was closed by something no person said, so it comes back with no answer",
-      reply.question_id
-    ));
-  }
-
+/// What a settling reply comes back as, by the voice it was given in: the supervisor's answer as it wrote it, a
+/// result of several lines among it, and a person's one line, the option taken or his own words, which the
+/// recommendation that settled a question the owner left past its due time comes back as too.
+pub fn settled_answer(reply: &Reply) -> String {
   let said = reply.choice.as_deref().unwrap_or(&reply.text);
 
-  Ok(said.split_whitespace().collect::<Vec<_>>().join(" "))
+  match reply.source {
+    ReplySource::Supervisor => said.trim().to_owned(),
+    ReplySource::Person | ReplySource::Recommendation => {
+      said.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+  }
 }
 
-/// What a settling reply comes back as, by the voice it was given in: the supervisor's answer as it wrote it, a
-/// result of several lines among it, and a person's one line.
-pub fn settled_answer(reply: &Reply) -> Result<String, String> {
+// How the wait ends on a settling reply: its answer, said apart where the recommendation gave it.
+fn settled_ending(reply: &Reply) -> Ending {
+  let line = settled_answer(reply);
+
   match reply.source {
-    ReplySource::Supervisor => Ok(reply.choice.as_deref().unwrap_or(&reply.text).trim().to_owned()),
-    ReplySource::Person | ReplySource::Recommendation => settled_line(reply),
+    ReplySource::Recommendation => Ending::SettledOnRecommendation {
+      question: reply.question_id,
+      line,
+    },
+    ReplySource::Person | ReplySource::Supervisor => Ending::Settled(line),
   }
 }
 
@@ -593,7 +599,10 @@ async fn stood(
   let mut stop = std::pin::pin!(stop);
 
   match until_answered("ask", stop.as_mut(), || settling_reply(client, id)).await {
-    Ok(Some(reply)) => settled_answer(&reply).map(|line| Ending::SettledBefore { question: id, line }),
+    Ok(Some(reply)) => Ok(Ending::SettledBefore {
+      question: id,
+      line: settled_answer(&reply),
+    }),
     Ok(None) => Err(format!("ask: question #{id} reads answered, yet no reply settled it")),
     Err(Halt::Answered(why)) => {
       Err(format!("ask: question #{id} was settled before, and its answer was not read: {why}"))
@@ -1243,7 +1252,7 @@ async fn wait_on(
           receiver.withdraw(told).await;
         }
 
-        return settled_answer(&reply).map(Ending::Settled);
+        return Ok(settled_ending(&reply));
       }
 
       if reply.actor_name != asker {
@@ -1327,7 +1336,7 @@ pub async fn show(client: &JobClient, shown: Shown) -> Result<Vec<Reading>, Stri
       QuestionState::Answered => settling_reply(client, question.id)
         .await
         .map_err(|why| format!("ask: question #{}: {why}", question.id))?
-        .and_then(|reply| settled_answer(&reply).ok()),
+        .map(|reply| settled_answer(&reply)),
       _ => None,
     };
 

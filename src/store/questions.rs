@@ -140,10 +140,38 @@ fn judged_choices(choices: &[String]) -> Result<(), Refusal> {
   Ok(())
 }
 
-/// What a recommendation must hold: an answer and a reason.
-fn judged_recommendation(recommendation: &QuestionRecommendation) -> Result<(), Refusal> {
+/// What a recommendation must hold: an answer and a reason, the answer one of the choices word for word or a free
+/// answer that neither opens nor closes on a choice's words, since it settles the question by itself.
+fn judged_recommendation(
+  recommendation: &QuestionRecommendation,
+  choices: &[String],
+) -> Result<(), Refusal> {
   filled("recommendation.answer", &recommendation.answer)?;
-  filled("recommendation.why", &recommendation.why)
+  filled("recommendation.why", &recommendation.why)?;
+  let answer = &recommendation.answer;
+  if choices.contains(answer) {
+    return Ok(());
+  }
+  match choices.iter().find(|choice| holds_words_of(answer, choice)) {
+    Some(choice) => Err(Refusal::new(
+      Code::NotAChoice,
+      format!(
+        "The recommendation {answer:?} is the choice {choice:?} with other words beside it; name the choice \
+         word for word, or give a free answer that does not open or close on a choice."
+      ),
+    )),
+    None => Ok(()),
+  }
+}
+
+/// Whether `answer` is the words of `choice` with space around them, or opens or closes on those words with more
+/// beside them past a break in the word.
+fn holds_words_of(answer: &str, choice: &str) -> bool {
+  let (answer, choice) = (answer.trim(), choice.trim());
+  let breaks = |ch: char| !ch.is_alphanumeric();
+  answer == choice
+    || answer.strip_prefix(choice).is_some_and(|rest| rest.starts_with(breaks))
+    || answer.strip_suffix(choice).is_some_and(|rest| rest.ends_with(breaks))
 }
 
 /// Removes a question and its replies, telling it as deleted.
@@ -159,22 +187,44 @@ pub(crate) async fn delete_question(tx: &mut Tx, id: i64, now: i64) -> Result<()
   Ok(())
 }
 
-/// Tells once of each open question whose due time has passed by `now`; the question stays open for a person,
-/// its recommendation unanswered until someone takes it.
+/// The actor a reply the due time settled carries; its source says the recommendation gave it.
+const DUE_TIME_ACTOR: &str = "due time";
+
+/// Settles each open question whose due time has passed by `now` with its recommendation, one told of as due before
+/// it was given one among them, and tells once of each such question that has none, which stays open for a person.
 pub(crate) async fn tell_due_questions(tx: &mut Tx, now: i64) -> Result<usize, Refusal> {
   let rows = sqlx::query(&format!(
-    "SELECT {QUESTION_COLUMNS} FROM questions WHERE state = 'open' AND due_told = 0 AND due_at IS NOT NULL \
-     AND due_at <= $1"
+    "SELECT {QUESTION_COLUMNS} FROM questions WHERE state = 'open' AND due_at IS NOT NULL AND due_at <= $1 \
+     AND (due_told = 0 OR recommendation IS NOT NULL)"
   ))
   .bind(now)
   .fetch_all(&mut **tx)
   .await?;
   for row in &rows {
-    let kept = kept_from(row)?;
-    save_question(tx, &kept, true).await?;
-    told_question(tx, now, EventKind::QuestionDue, &kept.question).await?;
+    let mut kept = kept_from(row)?;
+    match kept.question.recommendation.clone() {
+      Some(recommendation) => settle_on_recommendation(tx, &mut kept, recommendation, now).await?,
+      None => {
+        save_question(tx, &kept, true).await?;
+        told_question(tx, now, EventKind::QuestionDue, &kept.question).await?;
+      }
+    }
   }
   Ok(rows.len())
+}
+
+/// Settles a question with its recommendation: the answer as the choice where it is one, else as a free answer.
+async fn settle_on_recommendation(
+  tx: &mut Tx,
+  kept: &mut Kept,
+  recommendation: QuestionRecommendation,
+  now: i64,
+) -> Result<(), Refusal> {
+  let QuestionRecommendation { answer, why } = recommendation;
+  let choice = kept.question.choices.contains(&answer).then(|| answer.clone());
+  let actor = DUE_TIME_ACTOR.to_owned();
+  write_reply(tx, kept, choice, answer, actor, true, ReplySource::Recommendation, Some(why), now).await?;
+  Ok(())
 }
 
 impl Store {
@@ -245,7 +295,7 @@ impl Store {
     filled("text", &new.text)?;
     judged_choices(&new.choices)?;
     if let Some(recommendation) = &new.recommendation {
-      judged_recommendation(recommendation)?;
+      judged_recommendation(recommendation, &new.choices)?;
     }
     let wait = new.wait_ms.unwrap_or(DEFAULT_ASK_WAIT_MS);
     if !(LEAST_ASK_WAIT_MS..=LONGEST_ASK_WAIT_MS).contains(&wait) {
@@ -360,6 +410,7 @@ impl Store {
           kept.question.state
         )));
       }
+      let answers_moved = choices.is_some() || recommendation.is_some();
       if let Some(text) = text {
         filled("text", &text)?;
         kept.question.text = text;
@@ -369,8 +420,11 @@ impl Store {
         kept.question.choices = choices;
       }
       if let Some(recommendation) = recommendation {
-        judged_recommendation(&recommendation)?;
         kept.question.recommendation = Some(recommendation);
+      }
+      // The recommendation is judged against the choices it now stands beside, whichever of the two moved.
+      if answers_moved && let Some(recommendation) = &kept.question.recommendation {
+        judged_recommendation(recommendation, &kept.question.choices)?;
       }
       moved = true;
     }

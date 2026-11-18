@@ -70,14 +70,17 @@ that would give any of them another value is refused 409 `item-frozen` with that
    settles it. Keep the lease meanwhile. Give `recommendation` as `{answer, why}` only where you can make the
    case for that answer on the merits of the work and the rules; never the safe or timid answer by default.
    Leave it out where you cannot make the case. Where your token is not a caller the deployment marks as
-   supervising the work, the question goes to the supervisor, which settles it or puts it to a person; either
-   way it waits for its answer however long that takes, and `waitMs` only says when a question put to a person
-   is told of as due, a minute where left out.
+   supervising the work, the question goes to the supervisor, which settles it or puts it to a person, and it
+   waits for the supervisor however long that takes. `waitMs` says how long a question put to a person waits for
+   him, a minute where left out: then its recommendation settles it, as a reply with `source` `recommendation`,
+   or, with none, it is told of as due and waits on. Name a choice in `recommendation.answer` word for word, with
+   no mark beside it.
 6. Holding a question put to the supervisor (`addressee` `supervisor`), where your token is a caller the
    deployment marks as supervising the work: do or find what it asks and settle it with `job_reply`, what you did
    or found as its `text`; talk it over with its asker by a `job_reply` that settles nothing; or, where the
    choice is a person's to make, put it to a person with `job_question_change`, `addressee` `person`, and the
-   `text`, `choices` and `recommendation` in your own words. Its clock starts then. A question put to a person
+   `text`, `choices` and `recommendation` in your own words. Its clock starts then, and the recommendation you
+   give settles it where the person has not answered by its due time. A question put to a person
    that nobody has settled, which you would rather settle yourself, you take back with `job_question_change`,
    `addressee` `supervisor`; its clock stops, and it is yours again.
 

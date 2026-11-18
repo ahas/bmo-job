@@ -526,6 +526,14 @@ async fn job_ask(
 
       ExitCode::SUCCESS
     }
+    Ok(Ending::SettledOnRecommendation { question, line }) => {
+      println!("{line}");
+      eprintln!(
+        "ask: question #{question} was settled on its recommendation, the owner's time having run out"
+      );
+
+      ExitCode::SUCCESS
+    }
     Ok(Ending::SettledBefore { question, line }) => {
       println!("{line}");
       eprintln!("ask: question #{question} was settled before; its answer stands");

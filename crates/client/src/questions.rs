@@ -26,8 +26,8 @@ wire_enum! {
 }
 
 wire_enum! {
-  /// Who gave a reply: a caller that answers for a person, a caller that supervises the work, or, on a reply kept
-  /// in the store, a recommendation.
+  /// Who gave a reply: a caller that answers for a person, a caller that supervises the work, or the question's
+  /// recommendation, which the service settles it with once its due time passes.
   ReplySource {
     Person = "person",
     Supervisor = "supervisor",
@@ -39,7 +39,8 @@ wire_enum! {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QuestionRecommendation {
-  /// One of the question's choices, or a free answer where the choices do not cover it.
+  /// One of the question's choices word for word, or a free answer where the choices do not cover it; never a
+  /// choice with other words before or after it.
   pub answer: String,
   /// The one line saying why that is the answer.
   pub why: String,
@@ -62,8 +63,8 @@ pub struct Question {
   /// The answer the asker would take by itself, and why; null where it would not decide alone.
   pub recommendation: Option<QuestionRecommendation>,
   pub state: QuestionState,
-  /// Epoch milliseconds the asker wants an answer by; null while paused, while the supervisor holds it, or where
-  /// none was given.
+  /// Epoch milliseconds the asker wants a person's answer by, when its recommendation settles it; null while
+  /// paused, while the supervisor holds it, or where none was given.
   pub due_at: Option<i64>,
   /// Whether the asker puts it before whoever answers it itself, so no consumer of the events tells of it.
   pub told_by_asker: bool,
@@ -103,9 +104,10 @@ pub struct NewQuestion {
   /// The answer the asker would take by itself, and why; left out where it cannot make the case.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub recommendation: Option<QuestionRecommendation>,
-  /// How long the question goes unanswered by a person before it is told of as due, 1 000 to 86 400 000
+  /// How long the question goes unanswered by a person before its due time passes, 1 000 to 86 400 000
   /// milliseconds; 60 000 where left out. It counts from the ask, or for a question put to the supervisor from
-  /// the moment the supervisor puts it to a person. It paces that notice alone: the question waits for its answer.
+  /// the moment the supervisor puts it to a person. Its recommendation settles it then; with none, it is told of
+  /// as due and waits on.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub wait_ms: Option<i64>,
   /// Whether the asker puts it before whoever answers it itself; false where left out.

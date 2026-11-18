@@ -825,7 +825,7 @@
             "type": "boolean"
           },
           "waitMs": {
-            "description": "How long the question goes unanswered by a person before it is told of as due, 1 000 to 86 400 000\nmilliseconds; 60 000 where left out. It counts from the ask, or for a question put to the supervisor from\nthe moment the supervisor puts it to a person. It paces that notice alone: the question waits for its answer.",
+            "description": "How long the question goes unanswered by a person before its due time passes, 1 000 to 86 400 000\nmilliseconds; 60 000 where left out. It counts from the ask, or for a question put to the supervisor from\nthe moment the supervisor puts it to a person. Its recommendation settles it then; with none, it is told of\nas due and waits on.",
             "format": "int64",
             "type": [
               "integer",
@@ -1106,7 +1106,7 @@
             "type": "integer"
           },
           "dueAt": {
-            "description": "Epoch milliseconds the asker wants an answer by; null while paused, while the supervisor holds it, or where\nnone was given.",
+            "description": "Epoch milliseconds the asker wants a person's answer by, when its recommendation settles it; null while\npaused, while the supervisor holds it, or where none was given.",
             "format": "int64",
             "type": [
               "integer",
@@ -1316,7 +1316,7 @@
         "description": "The answer an asker would take by itself, and the one line saying why.",
         "properties": {
           "answer": {
-            "description": "One of the question's choices, or a free answer where the choices do not cover it.",
+            "description": "One of the question's choices word for word, or a free answer where the choices do not cover it; never a\nchoice with other words before or after it.",
             "type": "string"
           },
           "why": {
@@ -1511,7 +1511,7 @@
         "type": "object"
       },
       "ReplySource": {
-        "description": "Who gave a reply: a caller that answers for a person, a caller that supervises the work, or, on a reply kept\nin the store, a recommendation.",
+        "description": "Who gave a reply: a caller that answers for a person, a caller that supervises the work, or the question's\nrecommendation, which the service settles it with once its due time passes.",
         "enum": [
           "person",
           "supervisor",
@@ -3667,7 +3667,8 @@
         "x-codes": [
           "unauthorized",
           "bad-request",
-          "unknown-item"
+          "unknown-item",
+          "not-a-choice"
         ]
       }
     },
@@ -3756,7 +3757,8 @@
           "bad-request",
           "not-the-addressee",
           "not-found",
-          "conflict"
+          "conflict",
+          "not-a-choice"
         ]
       }
     },
@@ -5140,7 +5142,7 @@
             "type": "boolean"
           },
           "waitMs": {
-            "description": "How long the question goes unanswered by a person before it is told of as due, 1 000 to 86 400 000\nmilliseconds; 60 000 where left out. It counts from the ask, or for a question put to the supervisor from\nthe moment the supervisor puts it to a person. It paces that notice alone: the question waits for its answer.",
+            "description": "How long the question goes unanswered by a person before its due time passes, 1 000 to 86 400 000\nmilliseconds; 60 000 where left out. It counts from the ask, or for a question put to the supervisor from\nthe moment the supervisor puts it to a person. Its recommendation settles it then; with none, it is told of\nas due and waits on.",
             "format": "int64",
             "type": [
               "integer",

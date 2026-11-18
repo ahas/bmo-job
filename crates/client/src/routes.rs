@@ -431,7 +431,7 @@ pub fn routes() -> Vec<Route> {
       None,
       Some(referred::<NewQuestion>),
       vec![json::<Question>(201, "The question asked.")],
-      &[BadRequest, UnknownItem],
+      &[BadRequest, UnknownItem, NotAChoice],
     ),
     route(
       Get,
@@ -452,7 +452,7 @@ pub fn routes() -> Vec<Route> {
       None,
       Some(referred::<QuestionChange>),
       vec![json::<Question>(200, "The question changed.")],
-      &[BadRequest, NotTheAddressee, NotFound, Conflict],
+      &[BadRequest, NotTheAddressee, NotFound, Conflict, NotAChoice],
     ),
     route(
       Get,

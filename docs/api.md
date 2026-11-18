@@ -311,32 +311,43 @@ opaque to the service, or null), `heardThrough` (the last reply its asker has be
 and `readdressedAt` (the caller that put it to a person in the supervisor's place, and when, or null) and
 `createdAt`. A reply is `id`, `questionId`, `choice`, `text`, `actorName`, `settles`, `source` and `why` and
 `createdAt`. A reply is written with `source` `supervisor` where the caller supervises the work and `person`
-otherwise, and `why` null; the type also reads `recommendation` with that recommendation's reason, which a reply
-kept in the store may carry. The source is the voice a reply is heard in, whatever `actorName` says.
+otherwise, and `why` null. A reply with `source` `recommendation` is written by the service alone, when a
+question's due time passes on its recommendation (「When the due time passes」 below), and its `why` is that
+recommendation's reason. The source is the voice a reply is heard in, whatever `actorName` says.
 
 - **States:** `open`, `paused`, `answered`, `withdrawn`, `unsent`. `open` and `paused` move to each other, to
   `withdrawn` and to `unsent` by a change; a settling reply moves `open` or `paused` to `answered`. Any other
   move is answered 409 `conflict`. `withdrawn` is a question its asker took back or stopped waiting on; `unsent`
   is one that never reached anybody, because putting it to them failed. Neither waits for an answer, and neither
   is ever answered.
-- **The due time.** `waitMs` is how long the asker lets the question go unanswered by a person before it is told
-  of as due, from 1 000 to 86 400 000 milliseconds, and 60 000 where left out. A question put to a person
+- **The due time.** `waitMs` is how long the asker lets the question go unanswered by a person before its due
+  time passes, from 1 000 to 86 400 000 milliseconds, and 60 000 where left out. A question put to a person
   has its `dueAt` that far from when it was asked; one put to the supervisor has none while the supervisor holds
   it, and is never told of as due there, and once the supervisor puts it to a person its `dueAt` is that far from
   that moment. Pausing a question keeps the time it had left and reads `dueAt` as null; opening it again sets
   `dueAt` that far from then, or a whole `waitMs` from then where it had no time left, as a question paused past
   its due time has. A question is told of as due once each time it is put to a person: a pause and an opening
   again tell nothing of a question already told of, whose due time has passed, and the `dueAt` it reads after
-  opening again passes untold. The due time paces a notice and nothing more: a question waits for its answer
-  however long that takes.
-- **The recommendation.** `recommendation` is `{answer, why}`: `answer` is one of the question's choices or a
-  free answer where the choices do not cover it, and `why` is the one line saying why that is the answer. It is
-  shown to whoever answers, and taken only where a person settles the question with it. The
+  opening again passes untold. A paused question has no due time, so its time passes only once it is open
+  again.
+- **The recommendation.** `recommendation` is `{answer, why}`: `answer` is one of the question's choices, word
+  for word, or a free answer where the choices do not cover it, and `why` is the one line saying why that is the
+  answer. It is shown to whoever answers, and it settles the question where nobody has by its due time. The
   asker sets it only where it can make the case for that answer on the merits of the work and the rules; it is
   never the safe option by default, and it is left null where it cannot make the case. An answer and a reason
-  are both required where it is given.
-- **When the due time passes** on an open question, the service tells `question.due` once and the question stays
-  open for a person, with or without a recommendation. Nothing settles it but a settling reply or a withdrawal.
+  are both required where it is given. An answer that is no choice but opens or closes on a choice's words, as a
+  choice with a mark or a remark beside it does, is answered 422 `not-a-choice`, whenever the recommendation or
+  the choices are given: the answer settles the question by itself, so it names a choice exactly or is plainly a
+  free answer.
+- **When the due time passes** on an open question put to a person:
+  - **with a recommendation,** the service settles it with that recommendation: a settling reply whose `source`
+    is `recommendation`, whose `why` is the recommendation's reason, whose `choice` and `text` are the
+    recommendation's answer where it is one of the choices, and whose `text` alone is that free answer where it
+    is not. It is told as any settling reply is, `reply.created` and then `question.changed`, and never as
+    `question.due`. A person's reply that comes after it is answered 409 `conflict`. A question already told of
+    as due with none, and given one while it waits, is settled with it the next time the service looks.
+  - **with none,** the service tells `question.due` once and the question stays open for a person, however long
+    that takes. Nothing settles it but a settling reply or a withdrawal.
 - **One question, one row.** Every `POST /questions` opens a row of its own, so an asker that may ask the same
   thing again reads the item's questions first and stands by the one it finds. `bmo job ask` does so in every
   state: it waits on one `open` or `paused`, answers with the line one `answered` was settled with, and opens
@@ -420,7 +431,7 @@ with the events still to come; a page asked with none starts at the oldest the w
 | `task.changed` | A task moved, made or removed by a save (a removed task is told with its key alone) |
 | `queue.changed` | A queue paused, opened or its holds changed, by a change or by a hold running out |
 | `lease.created`, `lease.expired`, `lease.deleted` | A lease taken, run out, or given back or ended by its item's move |
-| `question.created`, `question.changed`, `question.due`, `question.deleted` | A question asked, moved, past its due time while open, or let go with its scope |
+| `question.created`, `question.changed`, `question.due`, `question.deleted` | A question asked, moved, past its due time while open with no recommendation, or let go with its scope |
 | `reply.created` | A reply given |
 | `subscription.created`, `subscription.changed`, `subscription.deleted` | A subscription made, changed, moved to `failing` or back to `active`, or deleted or run out |
 

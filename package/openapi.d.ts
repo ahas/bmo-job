@@ -732,9 +732,10 @@ export interface components {
             toldByAsker?: boolean;
             /**
              * Format: int64
-             * @description How long the question goes unanswered by a person before it is told of as due, 1 000 to 86 400 000
+             * @description How long the question goes unanswered by a person before its due time passes, 1 000 to 86 400 000
              *     milliseconds; 60 000 where left out. It counts from the ask, or for a question put to the supervisor from
-             *     the moment the supervisor puts it to a person. It paces that notice alone: the question waits for its answer.
+             *     the moment the supervisor puts it to a person. Its recommendation settles it then; with none, it is told of
+             *     as due and waits on.
              */
             waitMs?: number | null;
         };
@@ -851,8 +852,8 @@ export interface components {
             createdAt: number;
             /**
              * Format: int64
-             * @description Epoch milliseconds the asker wants an answer by; null while paused, while the supervisor holds it, or where
-             *     none was given.
+             * @description Epoch milliseconds the asker wants a person's answer by, when its recommendation settles it; null while
+             *     paused, while the supervisor holds it, or where none was given.
              */
             dueAt: number | null;
             /**
@@ -929,7 +930,10 @@ export interface components {
         };
         /** @description The answer an asker would take by itself, and the one line saying why. */
         QuestionRecommendation: {
-            /** @description One of the question's choices, or a free answer where the choices do not cover it. */
+            /**
+             * @description One of the question's choices word for word, or a free answer where the choices do not cover it; never a
+             *     choice with other words before or after it.
+             */
             answer: string;
             /** @description The one line saying why that is the answer. */
             why: string;
@@ -1000,8 +1004,8 @@ export interface components {
             more: boolean;
         };
         /**
-         * @description Who gave a reply: a caller that answers for a person, a caller that supervises the work, or, on a reply kept
-         *     in the store, a recommendation.
+         * @description Who gave a reply: a caller that answers for a person, a caller that supervises the work, or the question's
+         *     recommendation, which the service settles it with once its due time passes.
          * @enum {string}
          */
         ReplySource: "person" | "supervisor" | "recommendation";

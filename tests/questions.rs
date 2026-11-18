@@ -234,53 +234,139 @@ async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_another() {
   assert_eq!(too_short.code(), Some("bad-request"));
 }
 
+fn recommended(answer: &str) -> Option<QuestionRecommendation> {
+  Some(QuestionRecommendation {
+    answer: answer.into(),
+    why: "A loose grammar reads a stray token as a rule.".into(),
+  })
+}
+
+fn grammar_question(answer: &str, wait_ms: i64) -> NewQuestion {
+  NewQuestion {
+    asker_name: "builder".into(),
+    text: "Which grammar?".into(),
+    choices: vec!["strict".into(), "loose".into()],
+    recommendation: recommended(answer),
+    wait_ms: Some(wait_ms),
+    ..NewQuestion::default()
+  }
+}
+
+fn kinds(kinds: &str) -> EventQuery {
+  EventQuery {
+    kinds: Some(kinds.into()),
+    ..EventQuery::default()
+  }
+}
+
 #[tokio::test]
-async fn a_due_question_with_a_recommendation_stays_open_for_a_person_and_tells_once() {
+async fn a_due_question_with_a_recommendation_is_settled_by_it_and_never_told_due() {
   let service = Service::start().await;
   let client = service.client();
-  let question = service
-    .supervisor()
-    .ask(&NewQuestion {
-      asker_name: "builder".into(),
-      text: "Which grammar?".into(),
-      choices: vec!["strict".into(), "loose".into()],
-      recommendation: Some(QuestionRecommendation {
-        answer: "strict".into(),
-        why: "A loose grammar reads a stray token as a rule.".into(),
-      }),
-      wait_ms: Some(1_000),
-      ..NewQuestion::default()
-    })
-    .await
-    .expect("asked");
-  assert_eq!(question.recommendation.as_ref().map(|one| one.answer.as_str()), Some("strict"));
+  let question = service.supervisor().ask(&grammar_question("strict", 1_000)).await.expect("asked");
+
+  service.pass(999).await;
+  assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Open);
+
+  service.pass(1).await;
+  assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Answered);
+  let replies = client.replies(question.id, &WaitQuery::default()).await.expect("replies").items;
+  assert_eq!(replies.len(), 1);
+  let settled = &replies[0];
+  assert_eq!(
+    (settled.settles, settled.source, settled.choice.as_deref(), settled.text.as_str()),
+    (true, ReplySource::Recommendation, Some("strict"), "strict")
+  );
+  assert_eq!(settled.why.as_deref(), Some("A loose grammar reads a stray token as a rule."));
+  assert!(client.events_page(&kinds("question.due")).await.expect("events").items.is_empty());
+  assert_eq!(client.events_page(&kinds("reply.created")).await.expect("events").items.len(), 1);
+
+  let late = client.reply(question.id, &reply(Some("loose"), "loose")).await;
+  assert_eq!(late.expect_err("already settled").code(), Some("conflict"));
+}
+
+#[tokio::test]
+async fn a_free_recommendation_settles_the_question_in_its_own_words_with_no_choice() {
+  let service = Service::start().await;
+  let client = service.client();
+  let free = "neither, a hand-written table";
+  let question = service.supervisor().ask(&grammar_question(free, 1_000)).await.expect("asked");
 
   service.pass(1_000).await;
-  assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Open);
-  assert!(
-    client
-      .replies(question.id, &WaitQuery::default())
-      .await
-      .expect("replies")
-      .items
-      .is_empty()
+  let replies = client.replies(question.id, &WaitQuery::default()).await.expect("replies").items;
+  assert_eq!(
+    (replies[0].source, replies[0].choice.as_deref(), replies[0].text.as_str()),
+    (ReplySource::Recommendation, None, free)
   );
-  let due = EventQuery {
-    kinds: Some("question.due".into()),
-    ..EventQuery::default()
-  };
-  assert_eq!(client.events_page(&due).await.expect("events").items.len(), 1);
+}
 
-  let answer = client
-    .reply(question.id, &reply(Some("strict"), "strict, as recommended"))
+#[tokio::test]
+async fn a_paused_question_is_settled_by_its_recommendation_only_once_open_and_due_again() {
+  let service = Service::start().await;
+  let client = service.client();
+  let question = service.supervisor().ask(&grammar_question("strict", 10_000)).await.expect("asked");
+  let moved = |state| QuestionChange {
+    state: Some(state),
+    ..Default::default()
+  };
+
+  service.pass(4_000).await;
+  client
+    .change_question(question.id, &moved(QuestionState::Paused))
     .await
-    .expect("answered");
-  assert_eq!((answer.source, answer.why.as_deref()), (ReplySource::Person, None));
+    .expect("paused");
+  service.pass(100_000).await;
+  assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Paused);
+
+  client
+    .change_question(question.id, &moved(QuestionState::Open))
+    .await
+    .expect("open again");
+  service.pass(5_999).await;
+  assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Open);
+  service.pass(1).await;
   assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Answered);
 }
 
 #[tokio::test]
-async fn a_due_question_without_a_recommendation_stays_open_and_tells_once() {
+async fn a_recommendation_that_is_a_choice_with_other_words_beside_it_is_refused() {
+  let service = Service::start().await;
+  let supervisor = service.supervisor();
+  for marked in ["strict (recommended)", "Recommended: strict", "strict  "] {
+    let refused = supervisor.ask(&grammar_question(marked, 1_000)).await;
+    assert_eq!(refused.expect_err(marked).code(), Some("not-a-choice"), "{marked}");
+  }
+
+  let question = supervisor
+    .ask(&grammar_question("lenient (recommended)", 1_000))
+    .await
+    .expect("a free answer");
+  let remarked = supervisor
+    .change_question(
+      question.id,
+      &QuestionChange {
+        recommendation: recommended("loose, as the old parser was"),
+        ..Default::default()
+      },
+    )
+    .await;
+  assert_eq!(remarked.expect_err("a choice with a remark").code(), Some("not-a-choice"));
+
+  // A choice reworded so the recommendation standing beside it becomes that choice with other words.
+  let rechosen = supervisor
+    .change_question(
+      question.id,
+      &QuestionChange {
+        choices: Some(vec!["lenient".into(), "loose".into()]),
+        ..Default::default()
+      },
+    )
+    .await;
+  assert_eq!(rechosen.expect_err("the recommendation opens on a choice").code(), Some("not-a-choice"));
+}
+
+#[tokio::test]
+async fn a_due_question_without_a_recommendation_stays_open_and_tells_once_until_it_is_given_one() {
   let service = Service::start().await;
   let client = service.client();
   let question = service
@@ -312,6 +398,19 @@ async fn a_due_question_without_a_recommendation_stays_open_and_tells_once() {
 
   service.pass(1_000).await;
   assert_eq!(client.events_page(&due).await.expect("events").items.len(), 1);
+
+  // Given a recommendation past its due time, it is settled with it at once.
+  let recommending = QuestionChange {
+    recommendation: recommended("yes"),
+    ..Default::default()
+  };
+  service
+    .supervisor()
+    .change_question(question.id, &recommending)
+    .await
+    .expect("recommended");
+  service.pass(1).await;
+  assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Answered);
 }
 
 #[tokio::test]
@@ -599,15 +698,22 @@ async fn a_question_any_other_caller_asks_of_a_person_goes_to_the_supervisor_fir
 #[tokio::test]
 async fn a_question_the_supervisor_holds_has_no_clock_and_is_never_told_due() {
   let service = Service::start().await;
-  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+  let client = service.client();
+  let asked = NewQuestion {
+    choices: vec!["probe".into(), "skip".into()],
+    recommendation: recommended("probe"),
+    ..put_to_the_supervisor(None)
+  };
+  let question = client.ask(&asked).await.expect("asked");
   assert_eq!((question.addressee, question.due_at), (QuestionAddressee::Supervisor, None));
 
   service.pass(86_400_000).await;
-  let due = EventQuery {
-    kinds: Some("question.due".into()),
-    ..EventQuery::default()
-  };
-  assert!(service.client().events_page(&due).await.expect("read").items.is_empty());
+  assert!(client.events_page(&kinds("question.due")).await.expect("read").items.is_empty());
+  assert_eq!(
+    client.question(question.id).await.expect("read").state,
+    QuestionState::Open,
+    "nor settled"
+  );
 }
 
 #[tokio::test]
