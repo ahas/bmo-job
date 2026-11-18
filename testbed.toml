@@ -10,7 +10,9 @@ languages = ["cargo", "bun"]
 setup = ["bun install --frozen-lockfile --cwd package"]
 
 [check]
-quick = ["layout", "dependencies", "cargo-profile", "shared-versions"]
+quick = ["layout", "dependencies", "cargo-profile", "shared-versions", "personal-data"]
+# The one address docs/PERSONAL-DATA.md allows.
+personal_data_allowed = ["dev@ahas.io"]
 base_libraries = ["bmo-chat", "bmo-chat-client", "bmo-ui"]
 
 # The repository whose root holds the shared versions the manifests and the lock hold to.

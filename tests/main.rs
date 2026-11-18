@@ -18,7 +18,6 @@ mod leases;
 mod migrate;
 mod notes;
 mod openapi;
-mod personal;
 mod plugin;
 mod port;
 mod questions;

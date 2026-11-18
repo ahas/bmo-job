@@ -35,8 +35,8 @@ These rules hold every change to this repository.
   and branch names. No Korean in code or tests; the Hangul check in `tests/` holds this.
 - What the service answers is an English sentence for a person or a status code and a snake_case code
   for a machine. Words a person reads in another language are the web console's language packs.
-- No personal data: no user names, home directories, machine names or names of any agent. The personal-data
-  check in `tests/` holds this over the whole tree, and the contract check holds the API, its tools and the
+- No personal data: no user names, home directories, machine names or names of any agent. The testbed's
+  `personal-data` check holds this over every tracked file, and the contract check holds the API, its tools and the
   skill free of every caller's concepts. `docs/PERSONAL-DATA.md` states the rule and the values it allows.
 
 ## Layout

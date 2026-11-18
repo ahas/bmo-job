@@ -44,16 +44,16 @@ Every other value of the kinds above is personal data.
 
 ## The check
 
-The personal-data check in `tests/` reads every file in the repository and fails on:
+The testbed's `personal-data` check, which the declaration enables, reads every file git tracks or
+would track, before anything is built, and fails on:
 
-- a home directory written as a path;
-- an email address other than the allowed one;
+- a home directory written as a path, outside the neutral role names;
+- an email address other than the allowed one and those in the domains kept for documents;
 - a telephone number written in groups;
-- a credential, as a long value assigned to a token, key, secret or password name, or as the shape a
-  vendor gives its keys;
-- a private or link-local network address;
-- the name of the machine the check runs on.
+- a credential in the shape a vendor gives its keys, a private key's opening line, or a bearer value;
+- a private or link-local network address.
 
-The check keeps no list of personal terms. It matches shapes, reads the machine's name where it
-stands, and allows only the values this document names. A failure gives the file and the line, and
-what it found there. The rules the check cannot read, such as a commit message, are held by review.
+The check keeps no list of personal terms. It matches shapes, which are the testbed's policy (its
+`docs/checks.md`, 「The quick checks」), and allows only the address the declaration names. A failure
+gives the file, the line and the kind, never the value. The rules the check cannot read, such as a
+commit message or the name of a machine, are held by review.
