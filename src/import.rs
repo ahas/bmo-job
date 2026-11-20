@@ -31,6 +31,8 @@
 //! - Everything the target has no column for is kept as a label on the item: the model, the note, the
 //!   agent, the approval flag and who raised it, the hold and its reason, the resume moment, the
 //!   repair's item, the impact and the brief's Korean spelling.
+//! - A held todo with a held reason also carries it as the item's hold, at the moment it was held and
+//!   with no caller; any other's hold is null.
 //! - A question's `recommended` and `why` become its recommendation; its job is not kept.
 //!
 //! Every time is epoch seconds in the old archive and epoch milliseconds here, so each is multiplied
@@ -233,6 +235,10 @@ pub fn item(todo: &Value, approved: &[Value], merged_into: Option<i64>) -> Vec<(
   let ended = matches!(state, "done" | "dropped" | "merged")
     .then(|| ms(todo.get("done_at")))
     .flatten();
+  let (hold_reason, hold_at) = match hold(todo) {
+    Some((reason, at)) => (Cell::Text(reason), Cell::Int(at)),
+    None => (Cell::Null, Cell::Null),
+  };
 
   vec![
     ("id", Cell::Int(id)),
@@ -273,7 +279,20 @@ pub fn item(todo: &Value, approved: &[Value], merged_into: Option<i64>) -> Vec<(
         None => Cell::Null,
       },
     ),
+    ("hold_reason", hold_reason),
+    ("hold_caller_name", Cell::Null),
+    ("hold_at", hold_at),
   ]
+}
+
+/// The hold a held todo carries over: its held reason where it has one that is not blank, kept at the moment it
+/// was held, with no caller; none for any other todo, whose hold stays null (docs/api.md, "Held, and why").
+pub fn hold(todo: &Value) -> Option<(String, i64)> {
+  if item_state(todo) != "held" {
+    return None;
+  }
+  let reason = text(todo.get("held_reason")).filter(|reason| !reason.trim().is_empty())?;
+  Some((reason, ms(todo.get("held_at"))?))
 }
 
 fn opt_text(value: Option<&Value>) -> Cell {

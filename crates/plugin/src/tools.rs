@@ -194,10 +194,13 @@ pub fn tools() -> Vec<JobTool> {
     ),
     tool::<Keyed<ItemKey, ItemChange>, Item, _, _>(
       "job_item_update",
-      "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief. \
-       An approval takes no name of who approves: it is recorded under the caller whose token this server holds, \
-       and opens a draft only where the deployment marks that caller as an approver; otherwise it is a \
-       recommendation, recorded for an approver to see, and the item stays a draft.",
+      "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief, \
+       labels, and whether notices of it are switched off (noticesOff with a reason, null to switch them on). A \
+       hold is state held with reason, why it waits, in the same change: the item keeps the reason and the change \
+       writes it as the item's held report; a hold without a reason is refused. An approval takes no name of who \
+       approves: it is recorded under the caller whose token this server holds, and opens a draft only where the \
+       deployment marks that caller as an approver; otherwise it is a recommendation, recorded for an approver to \
+       see, and the item stays a draft.",
       "PATCH /items/{itemId}",
       |harness, input| async move { harness.client.change_item(input.key.item_id, &input.rest).await },
     ),

@@ -19,7 +19,13 @@ CREATE TABLE items (
   lease_id INTEGER,
   created_at INTEGER NOT NULL,
   changed_at INTEGER NOT NULL,
-  ended_at INTEGER
+  ended_at INTEGER,
+  hold_reason TEXT,
+  hold_caller_name TEXT,
+  hold_at INTEGER,
+  notices_off_reason TEXT,
+  notices_off_caller_name TEXT,
+  notices_off_at INTEGER
 );
 CREATE INDEX items_by_queue ON items (queue_name, state, priority DESC, position, id);
 CREATE INDEX items_by_scope ON items (scope);
@@ -171,3 +177,9 @@ CREATE TABLE events (
   item_id INTEGER
 );
 CREATE INDEX events_by_time ON events (at);
+
+CREATE TABLE label_values (
+  key TEXT PRIMARY KEY,
+  allowed TEXT NOT NULL,
+  changed_at INTEGER NOT NULL
+);

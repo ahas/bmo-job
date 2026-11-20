@@ -255,6 +255,7 @@ async fn holding_an_item_ends_its_lease_and_a_leased_item_stays_in_its_queue() {
   );
   let held = ItemChange {
     state: Some(ItemState::Held),
+    reason: Some("waits on a decision".to_owned()),
     ..ItemChange::default()
   };
   let held = client.change_item(item.id, &held).await.expect("held");
@@ -320,6 +321,7 @@ async fn what_a_lease_holds_fixed_stays_until_the_holder_lets_it_go() {
   assert_eq!(rescoped.code(), Some("item-frozen"));
   let held_and_moved = refused(ItemChange {
     state: Some(ItemState::Held),
+    reason: Some("waits on a decision".to_owned()),
     ..labelled(&[("kind", "b"), ("note", "x")])
   })
   .await;

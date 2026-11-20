@@ -21,6 +21,8 @@ const item: Item = {
   mergedInto: null,
   raisedBy: null,
   leaseId: null,
+  hold: null,
+  noticesOff: null,
   createdAt: 1,
   changedAt: 1,
   endedAt: null,

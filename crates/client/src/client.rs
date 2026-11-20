@@ -13,6 +13,7 @@ use crate::codes::ErrorBody;
 use crate::events::{Event, EventQuery, NewEvent};
 use crate::health::Health;
 use crate::items::{Item, ItemChange, ItemQuery, NewItem};
+use crate::label_values::{LabelValues, LabelValuesBody, LabelValuesQuery};
 use crate::leases::{Lease, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait};
 use crate::notes::{NewNote, Note, WaitQuery};
 use crate::page::{Page, PageQuery};
@@ -205,6 +206,33 @@ impl JobClient {
   /// Changes an item.
   pub async fn change_item(&self, item_id: i64, change: &ItemChange) -> Result<Item, ClientFailure> {
     answer(self.patch(&["items", &item_id.to_string()]).json(change)).await
+  }
+
+  /// Every label key's list of values, in key order.
+  pub async fn label_values_list(
+    &self,
+    query: &LabelValuesQuery,
+  ) -> Result<Page<LabelValues>, ClientFailure> {
+    answer(self.get(&["label-values"]).query(query)).await
+  }
+
+  /// One label key's list of values.
+  pub async fn label_values(&self, key: &str) -> Result<LabelValues, ClientFailure> {
+    answer(self.get(&["label-values", key])).await
+  }
+
+  /// Publishes a label key's list of values whole, replacing the one that stood.
+  pub async fn put_label_values(
+    &self,
+    key: &str,
+    body: &LabelValuesBody,
+  ) -> Result<LabelValues, ClientFailure> {
+    answer(self.request(reqwest::Method::PUT, &["label-values", key]).json(body)).await
+  }
+
+  /// Removes a label key's list of values.
+  pub async fn delete_label_values(&self, key: &str) -> Result<(), ClientFailure> {
+    nothing(self.delete(&["label-values", key])).await
   }
 
   /// An item's notes past a cursor, waiting for one where `waitMs` asks.

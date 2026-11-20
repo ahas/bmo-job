@@ -14,6 +14,9 @@ type Schemas = components["schemas"];
 
 export type Item = Schemas["Item"];
 export type ItemState = Schemas["ItemState"];
+export type ItemHold = Schemas["ItemHold"];
+export type NoticesOff = Schemas["NoticesOff"];
+export type LabelValues = Schemas["LabelValues"];
 export type Note = Schemas["Note"];
 export type Report = Schemas["Report"];
 export type WorkOrder = Schemas["WorkOrder"];

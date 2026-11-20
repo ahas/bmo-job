@@ -258,6 +258,18 @@
               "null"
             ]
           },
+          "hold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ItemHold"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why it is held, while it is; null otherwise."
+          },
           "id": {
             "format": "int64",
             "type": "integer"
@@ -282,6 +294,18 @@
               "integer",
               "null"
             ]
+          },
+          "noticesOff": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NoticesOff"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why notices of it are switched off, while they are; null while they are on. What a notice is is the\ncaller's to decide."
           },
           "position": {
             "format": "int64",
@@ -344,6 +368,8 @@
           "mergedInto",
           "raisedBy",
           "leaseId",
+          "hold",
+          "noticesOff",
           "createdAt",
           "changedAt",
           "endedAt"
@@ -393,6 +419,17 @@
               "null"
             ]
           },
+          "noticesOff": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NoticesOffGiven"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Switches notices of the item off with a reason, or on again with null."
+          },
           "position": {
             "format": "int64",
             "type": [
@@ -408,6 +445,13 @@
             ]
           },
           "queueName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "description": "Why the item is held: required with a state that moves it to held, and taken with nothing else.",
             "type": [
               "string",
               "null"
@@ -458,6 +502,33 @@
         ],
         "type": "string"
       },
+      "ItemHold": {
+        "description": "Why an item is held, kept from the change that held it until it moves out of `held`.",
+        "properties": {
+          "at": {
+            "description": "Epoch milliseconds.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "callerName": {
+            "description": "The caller the request's token named; null for the shared token.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "description": "The reason the change that held it carried.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "callerName",
+          "at"
+        ],
+        "type": "object"
+      },
       "ItemPage": {
         "description": "One page of a list, and whether anything stands past its last member.",
         "properties": {
@@ -489,6 +560,68 @@
           "merged"
         ],
         "type": "string"
+      },
+      "LabelValues": {
+        "description": "The values one label key may take.",
+        "properties": {
+          "changedAt": {
+            "description": "Epoch milliseconds.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "values": {
+            "description": "Each trimmed, kept once, in sorted order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "values",
+          "changedAt"
+        ],
+        "type": "object"
+      },
+      "LabelValuesBody": {
+        "additionalProperties": false,
+        "description": "A key's list published whole, replacing the one that stood.",
+        "properties": {
+          "values": {
+            "description": "The values the key may take; each is trimmed, a blank one dropped, and each kept once.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "values"
+        ],
+        "type": "object"
+      },
+      "LabelValuesPage": {
+        "description": "One page of a list, and whether anything stands past its last member.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LabelValues"
+            },
+            "type": "array"
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "more"
+        ],
+        "type": "object"
       },
       "Lease": {
         "description": "A lease and the item it holds.",
@@ -1080,6 +1213,46 @@
       },
       "Nothing": {
         "description": "A route that answers nothing.",
+        "type": "object"
+      },
+      "NoticesOff": {
+        "description": "Why notices of an item are switched off, kept until a change switches them on again.",
+        "properties": {
+          "at": {
+            "description": "Epoch milliseconds.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "callerName": {
+            "description": "The caller the request's token named; null for the shared token.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "description": "The reason the change that switched them off carried.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "callerName",
+          "at"
+        ],
+        "type": "object"
+      },
+      "NoticesOffGiven": {
+        "additionalProperties": false,
+        "description": "Notices of an item switched off as a change gives it: the reason alone. Who switched them off is the caller\nthe request's token names, and when is the time of the change.",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
         "type": "object"
       },
       "Question": {
@@ -2510,7 +2683,8 @@
         "x-codes": [
           "unauthorized",
           "bad-request",
-          "unknown-item"
+          "unknown-item",
+          "label_value_unknown"
         ]
       }
     },
@@ -2590,17 +2764,20 @@
             "$ref": "#/components/responses/Error"
           }
         },
-        "summary": "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief. An approval is recorded under the caller the token names; it opens a draft only where that caller is an approver, and is otherwise a recommendation that leaves the item a draft.",
+        "summary": "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief, labels, and whether notices of it are switched off. An approval is recorded under the caller the token names; it opens a draft only where that caller is an approver, and is otherwise a recommendation that leaves the item a draft. A hold carries its reason in the same change, which the item keeps and writes as its held report.",
         "tags": [
           "items"
         ],
         "x-codes": [
           "unauthorized",
           "bad-request",
+          "reason_required",
+          "reason_without_hold",
           "not-found",
           "conflict",
           "item-frozen",
-          "unknown-item"
+          "unknown-item",
+          "label_value_unknown"
         ]
       }
     },
@@ -3306,6 +3483,168 @@
           "bad-request",
           "not-found",
           "conflict"
+        ]
+      }
+    },
+    "/label-values": {
+      "get": {
+        "operationId": "listLabelValues",
+        "parameters": [
+          {
+            "description": "The key of the last list read; the page continues past it.",
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many lists at most, 50 where left out and at most 500.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelValuesPage"
+                }
+              }
+            },
+            "description": "A page of lists."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Every label key's list of values, in key order.",
+        "tags": [
+          "label-values"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "bad-request"
+        ]
+      }
+    },
+    "/label-values/{key}": {
+      "delete": {
+        "operationId": "deleteLabelValuesByKey",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The list is removed."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Remove a label key's list of values; the key is checked no more.",
+        "tags": [
+          "label-values"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "not-found"
+        ]
+      },
+      "get": {
+        "operationId": "readLabelValuesByKey",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelValues"
+                }
+              }
+            },
+            "description": "The list."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "The values one label key may take.",
+        "tags": [
+          "label-values"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "not-found"
+        ]
+      },
+      "put": {
+        "operationId": "putLabelValuesByKey",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelValuesBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelValues"
+                }
+              }
+            },
+            "description": "The list as kept."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Publish the values a label key may take, replacing the list that stood; an item then takes only a value on it under that key.",
+        "tags": [
+          "label-values"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "bad-request"
         ]
       }
     },
@@ -4348,6 +4687,9 @@
       "name": "items"
     },
     {
+      "name": "label-values"
+    },
+    {
       "name": "queues"
     },
     {
@@ -4593,7 +4935,7 @@
       "route": "GET /items/{itemId}"
     },
     {
-      "description": "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief. An approval takes no name of who approves: it is recorded under the caller whose token this server holds, and opens a draft only where the deployment marks that caller as an approver; otherwise it is a recommendation, recorded for an approver to see, and the item stays a draft.",
+      "description": "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief, labels, and whether notices of it are switched off (noticesOff with a reason, null to switch them on). A hold is state held with reason, why it waits, in the same change: the item keeps the reason and the change writes it as the item's held report; a hold without a reason is refused. An approval takes no name of who approves: it is recorded under the caller whose token this server holds, and opens a draft only where the deployment marks that caller as an approver; otherwise it is a recommendation, recorded for an approver to see, and the item stays a draft.",
       "input": {
         "description": "A route's path key and the rest of its input together, as one tool's input.",
         "properties": {
@@ -4640,6 +4982,17 @@
               "null"
             ]
           },
+          "noticesOff": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NoticesOffGiven"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Switches notices of the item off with a reason, or on again with null."
+          },
           "position": {
             "format": "int64",
             "type": [
@@ -4655,6 +5008,13 @@
             ]
           },
           "queueName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "description": "Why the item is held: required with a state that moves it to held, and taken with nothing else.",
             "type": [
               "string",
               "null"

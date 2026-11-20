@@ -159,6 +159,18 @@ fn the_old_words_read_as_the_targets_states() {
 }
 
 #[test]
+fn a_held_todo_carries_its_reason_as_the_hold_and_any_other_none() {
+  let held = |extra: Value| import::hold(&todo(5, "\u{B300}\u{AE30}", 0, 600, extra));
+  assert_eq!(
+    held(json!({"held_at": 650, "held_reason": "waits on the vendor"})),
+    Some(("waits on the vendor".to_owned(), 650_000))
+  );
+  assert_eq!(held(json!({"held_at": 650})), None, "held with no reason");
+  assert_eq!(held(json!({"held_at": 650, "held_reason": " "})), None, "held with a blank reason");
+  assert_eq!(held(json!({"held_reason": "waits"})), None, "not held");
+}
+
+#[test]
 fn the_question_states_read_from_how_it_settled() {
   assert_eq!(
     import::question_state(&json!({"settled_at": 1, "chosen": 1, "answer": null})),

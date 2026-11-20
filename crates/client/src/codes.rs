@@ -25,6 +25,9 @@ pub enum Code {
   NotAChoice,
   QueueNotOpen,
   NotTheAddressee,
+  LabelValueUnknown,
+  ReasonRequired,
+  ReasonWithoutHold,
   Failed,
 }
 
@@ -43,6 +46,9 @@ impl Code {
       Self::NotAChoice => "not-a-choice",
       Self::QueueNotOpen => "queue-not-open",
       Self::NotTheAddressee => "not-the-addressee",
+      Self::LabelValueUnknown => "label_value_unknown",
+      Self::ReasonRequired => "reason_required",
+      Self::ReasonWithoutHold => "reason_without_hold",
       Self::Failed => "failed",
     }
   }
@@ -50,13 +56,13 @@ impl Code {
   /// The status the code is answered at.
   pub fn status(self) -> u16 {
     match self {
-      Self::BadRequest => 400,
+      Self::BadRequest | Self::ReasonRequired | Self::ReasonWithoutHold => 400,
       Self::Unauthorized => 401,
       Self::NotTheAddressee => 403,
       Self::NoRoute | Self::NotFound => 404,
       Self::Conflict | Self::ItemFrozen => 409,
       Self::Gone => 410,
-      Self::UnknownItem | Self::NotAChoice | Self::QueueNotOpen => 422,
+      Self::UnknownItem | Self::NotAChoice | Self::QueueNotOpen | Self::LabelValueUnknown => 422,
       Self::Failed => 500,
     }
   }

@@ -71,7 +71,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief. An approval is recorded under the caller the token names; it opens a draft only where that caller is an approver, and is otherwise a recommendation that leaves the item a draft. */
+        /** Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief, labels, and whether notices of it are switched off. An approval is recorded under the caller the token names; it opens a draft only where that caller is an approver, and is otherwise a recommendation that leaves the item a draft. A hold carries its reason in the same change, which the item keeps and writes as its held report. */
         patch: operations["changeItemsByItemId"];
         trace?: never;
     };
@@ -198,6 +198,42 @@ export interface paths {
         head?: never;
         /** Move a task: current, done, skipped, waiting again, or to another stage. */
         patch: operations["changeItemsWorkOrderTasksByItemIdTaskId"];
+        trace?: never;
+    };
+    "/label-values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every label key's list of values, in key order. */
+        get: operations["listLabelValues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/label-values/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The values one label key may take. */
+        get: operations["readLabelValuesByKey"];
+        /** Publish the values a label key may take, replacing the list that stood; an item then takes only a value on it under that key. */
+        put: operations["putLabelValuesByKey"];
+        post?: never;
+        /** Remove a label key's list of values; the key is checked no more. */
+        delete: operations["deleteLabelValuesByKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/leases": {
@@ -540,6 +576,11 @@ export interface components {
              * @description Epoch milliseconds.
              */
             endedAt: number | null;
+            /**
+             * @description Why it is held, while it is; null otherwise.
+             * @default null
+             */
+            hold: components["schemas"]["ItemHold"] | null;
             /** Format: int64 */
             id: number;
             /** @description The caller's own metadata. */
@@ -550,6 +591,12 @@ export interface components {
             leaseId: number | null;
             /** Format: int64 */
             mergedInto: number | null;
+            /**
+             * @description Why notices of it are switched off, while they are; null while they are on. What a notice is is the
+             *     caller's to decide.
+             * @default null
+             */
+            noticesOff: components["schemas"]["NoticesOff"] | null;
             /** Format: int64 */
             position: number;
             /** Format: int64 */
@@ -582,11 +629,15 @@ export interface components {
             } | null;
             /** Format: int64 */
             mergedInto?: number | null;
+            /** @description Switches notices of the item off with a reason, or on again with null. */
+            noticesOff?: components["schemas"]["NoticesOffGiven"] | null;
             /** Format: int64 */
             position?: number | null;
             /** Format: int64 */
             priority?: number | null;
             queueName?: string | null;
+            /** @description Why the item is held: required with a state that moves it to held, and taken with nothing else. */
+            reason?: string | null;
             requesterName?: string | null;
             scope?: string | null;
             state?: components["schemas"]["ItemState"] | null;
@@ -597,6 +648,18 @@ export interface components {
          * @enum {string}
          */
         ItemField: "title" | "brief" | "queueName" | "priority" | "position" | "assigneeName" | "requesterName" | "scope";
+        /** @description Why an item is held, kept from the change that held it until it moves out of `held`. */
+        ItemHold: {
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            at: number;
+            /** @description The caller the request's token named; null for the shared token. */
+            callerName: string | null;
+            /** @description The reason the change that held it carried. */
+            reason: string;
+        };
         /** @description One page of a list, and whether anything stands past its last member. */
         ItemPage: {
             items: components["schemas"]["Item"][];
@@ -607,6 +670,27 @@ export interface components {
          * @enum {string}
          */
         ItemState: "draft" | "open" | "leased" | "held" | "done" | "dropped" | "merged";
+        /** @description The values one label key may take. */
+        LabelValues: {
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            changedAt: number;
+            key: string;
+            /** @description Each trimmed, kept once, in sorted order. */
+            values: string[];
+        };
+        /** @description A key's list published whole, replacing the one that stood. */
+        LabelValuesBody: {
+            /** @description The values the key may take; each is trimmed, a blank one dropped, and each kept once. */
+            values: string[];
+        };
+        /** @description One page of a list, and whether anything stands past its last member. */
+        LabelValuesPage: {
+            items: components["schemas"]["LabelValues"][];
+            more: boolean;
+        };
         /** @description A lease and the item it holds. */
         Lease: {
             /**
@@ -835,6 +919,25 @@ export interface components {
         };
         /** @description A route that answers nothing. */
         Nothing: Record<string, never>;
+        /** @description Why notices of an item are switched off, kept until a change switches them on again. */
+        NoticesOff: {
+            /**
+             * Format: int64
+             * @description Epoch milliseconds.
+             */
+            at: number;
+            /** @description The caller the request's token named; null for the shared token. */
+            callerName: string | null;
+            /** @description The reason the change that switched them off carried. */
+            reason: string;
+        };
+        /**
+         * @description Notices of an item switched off as a change gives it: the reason alone. Who switched them off is the caller
+         *     the request's token names, and when is the time of the change.
+         */
+        NoticesOffGiven: {
+            reason: string;
+        };
         /** @description A question, about an item or on its own. */
         Question: {
             /**
@@ -1807,6 +1910,103 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Task"];
                 };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listLabelValues: {
+        parameters: {
+            query?: {
+                /** @description The key of the last list read; the page continues past it. */
+                after?: string;
+                /** @description How many lists at most, 50 where left out and at most 500. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of lists. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelValuesPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    readLabelValuesByKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelValues"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    putLabelValuesByKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LabelValuesBody"];
+            };
+        };
+        responses: {
+            /** @description The list as kept. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelValues"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteLabelValuesByKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The list is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Error"];
         };

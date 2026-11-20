@@ -3,7 +3,8 @@
 //! from version 2, the item an item was raised from, filled from its `raised-by` label where that label is the
 //! key of another standing item, and the caller who holds a lease; from version 3, whether a question's asker
 //! tells of it and what it was handed; from version 6, what a lease holds of its item fixed; from version 7, who a
-//! question is put to and the wait it was asked with (docs/schema.md).
+//! question is put to and the wait it was asked with; from version 8, an item's hold and notice switch-off, null
+//! on every item standing then, and the label keys' lists of values (docs/schema.md).
 
 use bmo_job::{Clock, Store};
 use sqlx::Row;
@@ -78,7 +79,7 @@ async fn migrated(directory: &tempfile::TempDir, schema: &str, version: i64) -> 
 
   let pool = sqlx::SqlitePool::connect(&url).await.expect("the store");
   let version: i64 = sqlx::query_scalar("PRAGMA user_version").fetch_one(&pool).await.expect("the version");
-  assert_eq!(version, 8);
+  assert_eq!(version, 9);
   pool
 }
 
@@ -160,6 +161,18 @@ async fn a_version_two_store_fills_raised_by_from_a_label_naming_a_standing_item
     .await
     .expect("the lease");
   assert_eq!(frozen, None, "a lease standing then holds nothing of its item fixed");
+  let kept: i64 = sqlx::query_scalar(
+    "SELECT COUNT(*) FROM items WHERE hold_reason IS NOT NULL OR notices_off_reason IS NOT NULL",
+  )
+  .fetch_one(&pool)
+  .await
+  .expect("the items");
+  assert_eq!(kept, 0, "no item standing then carries a hold or a switch-off");
+  let lists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM label_values")
+    .fetch_one(&pool)
+    .await
+    .expect("the lists");
+  assert_eq!(lists, 0, "no list of label values is made");
 }
 
 #[tokio::test]

@@ -89,7 +89,11 @@ async fn each_move_tells_the_state_it_left_and_the_caller_who_made_it() {
 
   service.approver().change_item(item.id, &approval()).await.expect("opened");
   leased(&caller, "build", item.id, 60_000).await;
-  caller.change_item(item.id, &moved(ItemState::Held)).await.expect("held");
+  let held = ItemChange {
+    reason: Some("waits on a decision".to_owned()),
+    ..moved(ItemState::Held)
+  };
+  caller.change_item(item.id, &held).await.expect("held");
   shared.change_item(item.id, &moved(ItemState::Open)).await.expect("open again");
   let retitled = ItemChange {
     title: Some("the parser".to_owned()),

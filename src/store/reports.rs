@@ -1,12 +1,12 @@
 //! Reports on an item (docs/api.md, "Reports").
 
-use bmo_job_client::{EventKind, NewReport, Page, Report, ReportKind};
+use bmo_job_client::{EventKind, Item, NewReport, Page, Report, ReportKind};
 use sqlx::Row;
 use sqlx::sqlite::SqliteRow;
 
 use super::events::emit;
 use super::items::{item_at, item_keys};
-use super::{Store, filled, from_json, page_limit, paged, stored, to_json};
+use super::{Store, Tx, filled, from_json, page_limit, paged, stored, to_json};
 use crate::refusal::Refusal;
 
 fn report_from(row: &SqliteRow) -> Result<Report, Refusal> {
@@ -19,6 +19,40 @@ fn report_from(row: &SqliteRow) -> Result<Report, Refusal> {
     labels: from_json(row.try_get::<&str, _>("labels")?)?,
     created_at: row.try_get("created_at")?,
   })
+}
+
+/// Writes a report on `item` at `now` and tells it.
+pub(crate) async fn write_report(
+  tx: &mut Tx,
+  now: i64,
+  item: &Item,
+  new: NewReport,
+) -> Result<Report, Refusal> {
+  filled("body", &new.body)?;
+  filled("actorName", &new.actor_name)?;
+  let id: i64 = sqlx::query_scalar(
+    "INSERT INTO reports (item_id, kind, body, actor_name, labels, created_at) VALUES ($1, $2, $3, $4, $5, $6) \
+     RETURNING id",
+  )
+  .bind(item.id)
+  .bind(new.kind.as_str())
+  .bind(&new.body)
+  .bind(&new.actor_name)
+  .bind(to_json(&new.labels))
+  .bind(now)
+  .fetch_one(&mut **tx)
+  .await?;
+  let report = Report {
+    id,
+    item_id: item.id,
+    kind: new.kind,
+    body: new.body,
+    actor_name: new.actor_name,
+    labels: new.labels,
+    created_at: now,
+  };
+  emit(tx, now, EventKind::ReportCreated.as_str(), &report, &item_keys(item)).await?;
+  Ok(report)
 }
 
 impl Store {
@@ -48,33 +82,10 @@ impl Store {
 
   /// Appends a report to the item.
   pub async fn add_report(&self, item_id: i64, new: NewReport) -> Result<Report, Refusal> {
-    filled("body", &new.body)?;
-    filled("actorName", &new.actor_name)?;
     let now = self.now();
     let mut tx = self.begin().await?;
     let item = item_at(&mut tx, item_id).await?;
-    let id: i64 = sqlx::query_scalar(
-      "INSERT INTO reports (item_id, kind, body, actor_name, labels, created_at) VALUES ($1, $2, $3, $4, $5, $6) \
-       RETURNING id",
-    )
-    .bind(item_id)
-    .bind(new.kind.as_str())
-    .bind(&new.body)
-    .bind(&new.actor_name)
-    .bind(to_json(&new.labels))
-    .bind(now)
-    .fetch_one(&mut *tx)
-    .await?;
-    let report = Report {
-      id,
-      item_id,
-      kind: new.kind,
-      body: new.body,
-      actor_name: new.actor_name,
-      labels: new.labels,
-      created_at: now,
-    };
-    emit(&mut tx, now, EventKind::ReportCreated.as_str(), &report, &item_keys(&item)).await?;
+    let report = write_report(&mut tx, now, &item, new).await?;
     self.commit(tx).await?;
     Ok(report)
   }

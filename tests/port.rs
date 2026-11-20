@@ -45,6 +45,7 @@ async fn moved(client: &JobClient, item: Item, state: ItemState) -> Item {
       item.id,
       &ItemChange {
         state: Some(state),
+        reason: (state == ItemState::Held).then(|| "waits on a decision".to_owned()),
         ..ItemChange::default()
       },
     )

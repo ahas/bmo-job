@@ -71,6 +71,38 @@ impl ApprovalGiven {
   }
 }
 
+/// Why an item is held, kept from the change that held it until it moves out of `held`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemHold {
+  /// The reason the change that held it carried.
+  pub reason: String,
+  /// The caller the request's token named; null for the shared token.
+  pub caller_name: Option<String>,
+  /// Epoch milliseconds.
+  pub at: i64,
+}
+
+/// Why notices of an item are switched off, kept until a change switches them on again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NoticesOff {
+  /// The reason the change that switched them off carried.
+  pub reason: String,
+  /// The caller the request's token named; null for the shared token.
+  pub caller_name: Option<String>,
+  /// Epoch milliseconds.
+  pub at: i64,
+}
+
+/// Notices of an item switched off as a change gives it: the reason alone. Who switched them off is the caller
+/// the request's token names, and when is the time of the change.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NoticesOffGiven {
+  pub reason: String,
+}
+
 /// An item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -100,6 +132,13 @@ pub struct Item {
   /// The item this one was raised from, fixed when it is raised; null where there is none.
   pub raised_by: Option<i64>,
   pub lease_id: Option<i64>,
+  /// Why it is held, while it is; null otherwise.
+  #[serde(default)]
+  pub hold: Option<ItemHold>,
+  /// Why notices of it are switched off, while they are; null while they are on. What a notice is is the
+  /// caller's to decide.
+  #[serde(default)]
+  pub notices_off: Option<NoticesOff>,
   /// Epoch milliseconds.
   pub created_at: i64,
   /// Epoch milliseconds.
@@ -175,6 +214,12 @@ pub struct ItemChange {
   /// The caller's own metadata, replaced whole.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub labels: Option<Labels>,
+  /// Why the item is held: required with a state that moves it to held, and taken with nothing else.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub reason: Option<String>,
+  /// Switches notices of the item off with a reason, or on again with null.
+  #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+  pub notices_off: Option<Option<NoticesOffGiven>>,
 }
 
 /// The filters of the item list.

@@ -51,6 +51,7 @@ mod events;
 mod fields;
 mod health;
 mod items;
+mod label_values;
 mod leases;
 mod notes;
 pub mod openapi;
@@ -71,8 +72,10 @@ pub use events::{Event, EventKind, EventQuery, NewEvent};
 pub use fields::Labels;
 pub use health::Health;
 pub use items::{
-  Approval, ApprovalGiven, ApprovalKind, Item, ItemChange, ItemEvent, ItemQuery, ItemState, NewItem,
+  Approval, ApprovalGiven, ApprovalKind, Item, ItemChange, ItemEvent, ItemHold, ItemQuery, ItemState,
+  NewItem, NoticesOff, NoticesOffGiven,
 };
+pub use label_values::{LabelValues, LabelValuesBody, LabelValuesQuery};
 pub use leases::{Frozen, ItemField, Lease, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait};
 pub use notes::{NewNote, Note, WaitQuery};
 pub use page::{Page, PageQuery};

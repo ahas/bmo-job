@@ -6,15 +6,17 @@ and the error table are the bmo conventions bmo-chat keeps; this document states
 serves on them, and repeats none of it.
 
 The service is a todo kept as middleware, in the way Redis is one: it stores items, their notes, reports,
-reviews and work orders, the queues the items wait in, leases on items, questions and their replies, and subscriptions,
-and serves them through this API and nothing else. It never executes: it launches no process or run, calls no
-other unit and registers nothing anywhere. The one call it makes is a delivery to the address a subscriber
-registered. Who a member belongs to is opaque to it: `scope`, `assigneeName`, `requesterName`, `holderName`,
-`askerName` and `actorName` are the caller's strings, and `labels` the caller's metadata, none of which it reads
-but for one thing: an item raised with a label the settings name unattended opens at once (Items, "Unattended
-labels").
+reviews and work orders, the queues the items wait in, leases on items, questions and their replies,
+subscriptions, and the values a label key may take, and serves them through this API and nothing else. It never
+executes: it launches no process or run, calls no other unit and registers nothing anywhere. The one call it
+makes is a delivery to the address a subscriber registered. Who a member belongs to is opaque to it: `scope`,
+`assigneeName`, `requesterName`, `holderName`, `askerName` and `actorName` are the caller's strings, and `labels`
+the caller's metadata, none of which it reads but for two things: an item raised with a label the settings name
+unattended opens at once (Items, "Unattended labels"), and a label key a caller published a list of values for
+takes only a value on that list (Label values).
 The names it does not take from a body are the caller's the request's token names: who gave an approval
-(Items, "Approvals"), who changed an item as its events tell it (Events), and who holds a lease (Leases).
+(Items, "Approvals"), who changed an item as its events tell it (Events), who held an item and who switched its
+notices off (Items, "Held, and why" and "Notices switched off"), and who holds a lease (Leases).
 
 ## Access
 
@@ -23,11 +25,12 @@ The names it does not take from a body are the caller's the request's token name
   `unauthorized`.
 - **The token names the caller.** A request with a caller's own token is that caller's, known to the service
   by the caller's name in the settings; a request with the shared token is no named caller's. Every route
-  answers either alike but for four readings of who the caller is: the kind of an approval it gives (Items,
-  "Approvals"), the `changedBy` the events of an item it writes carry (Events), the `raisedBy` an item it
-  raises takes from the lease it holds (Items, "Raised from an item"), and whether it may settle a
-  question put to the supervisor, ask a person, put a question to a person or take it back (Questions and
-  replies, "The addressee").
+  answers either alike but for five readings of who the caller is: the kind of an approval it gives (Items,
+  "Approvals"), the `changedBy` the events of an item it writes carry (Events), the `callerName` an item's
+  `hold` and `noticesOff` keep and the `actorName` of the held report its hold writes (Items, "Held, and why"
+  and "Notices switched off"), the `raisedBy` an item it raises takes from the lease it holds (Items, "Raised
+  from an item"), and whether it may settle a question put to the supervisor, ask a person, put a question to a
+  person or take it back (Questions and replies, "The addressee").
 - **A method and path no route answers** is answered 404 `no-route`.
 - **A body or query not of the route's shape** is answered 400 `bad-request`, the sentence naming what is
   wrong.
@@ -37,9 +40,9 @@ The names it does not take from a body are the caller's the request's token name
 - **A list is a page,** `{"items": [...], "more": boolean}`, read with `after` and `limit`.
 - **`limit`** is 50 where it is left out and at most 500; a larger one is taken as 500.
 - **`after`** is the key of the last member the caller read, and the page continues past it in the list's own
-  order. Items are in queue order, tasks by stage and then key, queues by name (their `after` is a name), and
-  every other list in key order, oldest first. An item or task key that names nothing in its list is
-  answered 400 `bad-request`.
+  order. Items are in queue order, tasks by stage and then key, queues by name (their `after` is a name), label
+  values by key (their `after` is a key), and every other list in key order, oldest first. An item or task key
+  that names nothing in its list is answered 400 `bad-request`.
 - **A filter taking several values** takes them comma-separated (`state=open,leased`).
 
 ## Waiting for an answer
@@ -69,6 +72,8 @@ and who is to take it, the caller's scope and labels, its approvals and its stat
 | `mergedInto` | The item a merged item was folded into, or null |
 | `raisedBy` | The item it was raised from, or null (below) |
 | `leaseId` | The lease standing on it, or null |
+| `hold` | Why it is held, while it is: `reason`, `callerName` and `at`, or null (below) |
+| `noticesOff` | Why notices of it are switched off, while they are: `reason`, `callerName` and `at`, or null (below) |
 | `createdAt`, `changedAt`, `endedAt` | When it was raised, last changed, and reached `done`, `dropped` or `merged` |
 
 ### Its place in a queue
@@ -118,6 +123,29 @@ and who is to take it, the caller's scope and labels, its approvals and its stat
 - **A label is not it.** A label naming an item, such as `raised-by`, is the caller's metadata like any other;
   `raisedBy` is what a reader of the item reads.
 
+### Held, and why
+
+- **A move to `held` carries its reason.** A change whose `state` moves the item to `held` carries `reason`, a
+  sentence that is not blank; one without is answered 400 `reason_required`. A `reason` on a change that does
+  not move the item to `held`, one on an item already held among them, is answered 400 `reason_without_hold`.
+- **The item keeps it as `hold`:** `reason` as it was given, `callerName`, the caller the request's token names
+  (Access), null for the shared token, and `at`, the time of the change. Any move out of `held` clears it, and
+  `hold` is null on every item that is not held. An item held with no reason kept, such as one held before the
+  service kept reasons or one imported with none, reads `hold` null while it stays held.
+- **The same change writes the held report.** The move writes a report of the kind `held` whose `body` is the
+  reason (Reports), its `actorName` the caller the token names, or `bmo-job` for the shared token, which names
+  none. The report is told as `report.created` before the item's `item.changed`.
+
+### Notices switched off
+
+- **A caller may switch notices of an item off,** with a change carrying `noticesOff`, `{"reason"}`: the item
+  keeps it as `noticesOff`, `reason` as given, `callerName`, the caller the request's token names, null for the
+  shared token, and `at`, the time of the change. A blank reason is answered 400 `reason_required`. A change
+  carrying it again replaces it; one carrying `noticesOff` null switches notices back on, and `noticesOff` reads
+  null.
+- **What a notice is, and which notices a switch-off holds back, is the caller's to decide.** The service keeps
+  the switch and its reason, answers them on every read and event of the item, and sends no notice itself.
+
 ### While leased
 
 An item a lease stands on keeps what its holder took it with until that lease ends.
@@ -140,7 +168,7 @@ An item a lease stands on keeps what its holder took it with until that lease en
 | `draft` | `open` | an approval of the kind `approval`: a change carrying `approval` from an approver, with or without `state: "open"` |
 | `open` | `leased` | a lease, `POST /leases`, and by nothing else |
 | `leased` | `open` | the lease given back or run out |
-| `open`, `leased` | `held` | `state: "held"`; a lease standing on the item ends |
+| `open`, `leased` | `held` | `state: "held"` with `reason` (above); a lease standing on the item ends |
 | `held` | `open` | `state: "open"` |
 | `leased` | `done` | `state: "done"`; the lease ends |
 | any but `done`, `dropped`, `merged` | `dropped` | `state: "dropped"`; a standing lease ends |
@@ -159,12 +187,35 @@ to an item past `draft` is recorded beside the others and moves nothing.
 | Method and path | Does |
 |---|---|
 | `GET /items` | Items in queue order, filtered by `state`, `queueName`, `assigneeName`, `scope`, `label` (a key, or `key=value`), `ids`, `raisedBy` (the items raised from that item) and `q` (words found in the title or the brief, in any case) |
-| `POST /items` | Raises an item as a `draft`, or `open` where it carries an unattended label (above): `title`, `brief` and `queueName` required, `priority`, `assigneeName`, `requesterName`, `scope`, `labels` and `raisedBy` optional, `raisedBy` taken from the caller's one standing lease where it is left out (above). A `raisedBy` naming no item is answered 422 `unknown-item`. Answers 201 and the item |
+| `POST /items` | Raises an item as a `draft`, or `open` where it carries an unattended label (above): `title`, `brief` and `queueName` required, `priority`, `assigneeName`, `requesterName`, `scope`, `labels` and `raisedBy` optional, `raisedBy` taken from the caller's one standing lease where it is left out (above). A `raisedBy` naming no item is answered 422 `unknown-item`, and a label value off its key's list 422 `label_value_unknown` (Label values). Answers 201 and the item |
 | `GET /items/{itemId}` | One item |
-| `PATCH /items/{itemId}` | Changes an item as a merge patch: `state`, `approval` (`at`, which is the time of the change where left out; the caller is the token's), `mergedInto`, `title`, `brief`, `queueName`, `priority`, `position`, `assigneeName`, `requesterName`, `scope`, `labels`. A nullable field set to null is cleared. A leased item changes as "While leased" (above) says |
+| `PATCH /items/{itemId}` | Changes an item as a merge patch: `state`, `approval` (`at`, which is the time of the change where left out; the caller is the token's), `mergedInto`, `title`, `brief`, `queueName`, `priority`, `position`, `assigneeName`, `requesterName`, `scope`, `labels`, `reason` (with a move to `held`, above), `noticesOff` (above). A nullable field set to null is cleared. A label value new or changed off its key's list is answered 422 `label_value_unknown` (Label values). A leased item changes as "While leased" (above) says |
 
 A queue comes to stand with the first item raised or moved into it. A queue name is 1 to 64 letters, digits,
 dots, underscores and hyphens.
+
+## Label values
+
+A caller may publish, for a label key, the values that key may take; the service then takes on an item only a
+value of that key that stands on the list. A list is `key`, `values` and `changedAt`.
+
+- **The list is kept as given, tidied:** each value trimmed, a blank one dropped, each kept once, in sorted order.
+  A list with no values takes no value of its key. A blank key is answered 400 `bad-request`.
+- **What is checked:** on `POST /items`, every label whose key has a list and whose value is not blank; on
+  `PATCH /items/{itemId}` with `labels`, only such a label whose value is new or differs from the one the item
+  carries. The value, trimmed, must stand on the key's list; otherwise the change is answered 422
+  `label_value_unknown`, the sentence naming the key, the value and the values on the list, for the first such
+  label in key order, and nothing is written.
+- **What is not:** a key with no list, a blank value, and a value the item already carried unchanged, so an item
+  raised before a list was published, or before a value left it, stays changeable in every other way. A list
+  published or changed later checks nothing already stored.
+
+| Method and path | Does |
+|---|---|
+| `GET /label-values` | Every list, in key order, past `after`, a key |
+| `GET /label-values/{key}` | One list. None for the key is answered 404 `not-found` |
+| `PUT /label-values/{key}` | Replaces the key's list whole, or makes it: `values` required. Answers 200 and the list |
+| `DELETE /label-values/{key}` | Removes the key's list; the key is checked no more. None for the key is answered 404 `not-found`. Answers 204 |
 
 ## Notes
 
@@ -181,7 +232,8 @@ A note is words added to an item after it was raised: `id`, `itemId`, `text`, `a
 
 A report is what the one doing an item tells of it: `id`, `itemId`, `kind` (`progress`, `final` or `held`, why
 the item waits), `body`, `actorName`, `labels`, `createdAt`. A report moves no state: the one reporting
-changes the item itself. Its `body` is kept and answered exactly as it was written, in whatever language the one
+changes the item itself. A move to `held` writes the `held` report of its reason in the same change (Items,
+"Held, and why"). Its `body` is kept and answered exactly as it was written, in whatever language the one
 reporting wrote it, whole: the service cuts nothing of it and reads none of its words, so a worker's account in
 the requester's language stands as the worker wrote it, and a screen shows it as it stands.
 
@@ -425,7 +477,7 @@ with the events still to come; a page asked with none starts at the oldest the w
 |---|---|
 | `item.created`, `item.changed`, `item.deleted` | An item raised, changed in any field or state, or let go with its scope; the first two carry `previousState` and `changedBy` (above) |
 | `note.created`, `note.deleted` | A note appended or taken back |
-| `report.created` | A report appended |
+| `report.created` | A report appended, or written by a move to `held` |
 | `review.created` | An entry appended to an item's review |
 | `work-order.changed` | A work order saved or changed |
 | `task.changed` | A task moved, made or removed by a save (a removed task is told with its key alone) |

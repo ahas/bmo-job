@@ -9,6 +9,7 @@ use crate::codes::Code;
 use crate::events::{Event, EventQuery, NewEvent};
 use crate::health::Health;
 use crate::items::{Item, ItemChange, ItemQuery, NewItem};
+use crate::label_values::{LabelValues, LabelValuesBody, LabelValuesQuery};
 use crate::leases::{Lease, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait};
 use crate::notes::{NewNote, Note, WaitQuery};
 use crate::page::{Page, PageQuery};
@@ -210,7 +211,7 @@ pub fn routes() -> Vec<Route> {
       None,
       Some(referred::<NewItem>),
       vec![json::<Item>(201, "The item raised.")],
-      &[BadRequest, UnknownItem],
+      &[BadRequest, UnknownItem, LabelValueUnknown],
     ),
     route(Get, "/items/{itemId}", "readItemsByItemId", "items", "One item: brief, state, approvals, queue place.")
       .with(None, None, vec![json::<Item>(200, "The item.")], &[NotFound]),
@@ -219,15 +220,26 @@ pub fn routes() -> Vec<Route> {
       "/items/{itemId}",
       "changeItemsByItemId",
       "items",
-      "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief. \
-       An approval is recorded under the caller the token names; it opens a draft only where that caller is an \
-       approver, and is otherwise a recommendation that leaves the item a draft.",
+      "Change an item: its state (approve, hold, release, done, drop, merge), priority, position, assignee, brief, \
+       labels, and whether notices of it are switched off. An approval is recorded under the caller the token \
+       names; it opens a draft only where that caller is an approver, and is otherwise a recommendation that \
+       leaves the item a draft. A hold carries its reason in the same change, which the item keeps and writes as \
+       its held report.",
     )
     .with(
       None,
       Some(referred::<ItemChange>),
       vec![json::<Item>(200, "The item changed.")],
-      &[BadRequest, NotFound, Conflict, ItemFrozen, UnknownItem],
+      &[
+        BadRequest,
+        ReasonRequired,
+        ReasonWithoutHold,
+        NotFound,
+        Conflict,
+        ItemFrozen,
+        UnknownItem,
+        LabelValueUnknown,
+      ],
     ),
     route(
       Get,
@@ -349,6 +361,37 @@ pub fn routes() -> Vec<Route> {
       vec![json::<Task>(200, "The task moved.")],
       &[BadRequest, NotFound, Conflict],
     ),
+    route(Get, "/label-values", "listLabelValues", "label-values", "Every label key's list of values, in key order.")
+      .with(
+        Some(object::<LabelValuesQuery>),
+        None,
+        vec![json::<Page<LabelValues>>(200, "A page of lists.")],
+        &[BadRequest],
+      ),
+    route(Get, "/label-values/{key}", "readLabelValuesByKey", "label-values", "The values one label key may take.")
+      .with(None, None, vec![json::<LabelValues>(200, "The list.")], &[NotFound]),
+    route(
+      Put,
+      "/label-values/{key}",
+      "putLabelValuesByKey",
+      "label-values",
+      "Publish the values a label key may take, replacing the list that stood; an item then takes only a value on \
+       it under that key.",
+    )
+    .with(
+      None,
+      Some(referred::<LabelValuesBody>),
+      vec![json::<LabelValues>(200, "The list as kept.")],
+      &[BadRequest],
+    ),
+    route(
+      Delete,
+      "/label-values/{key}",
+      "deleteLabelValuesByKey",
+      "label-values",
+      "Remove a label key's list of values; the key is checked no more.",
+    )
+    .with(None, None, vec![empty("The list is removed.")], &[NotFound]),
     route(Get, "/queues", "listQueues", "queues", "Every queue with its state and holds.").with(
       Some(object::<QueueQuery>),
       None,

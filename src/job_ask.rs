@@ -1,11 +1,12 @@
 //! `bmo job ask` from a job's own shell (docs/cli.md): a question put to the job's supervisor in the middle of a
-//! job, which settles it itself or puts it to the owner, and the job's run waiting for it to be settled. Its run is
-//! what waits, holding its checkout, so nothing else is held up.
+//! job, in the item's room, which settles it itself or puts it to the owner, and the job's run waiting for it to be
+//! settled. Its run is what waits, holding its checkout, so nothing else is held up.
 //!
 //! The wait ends on an event and on nothing else: a settling reply the supervisor or a person gave, the question
 //! withdrawn, the run told to stop, or the supervisor or the owner talking instead of settling. No clock settles
 //! it. A recommendation is shown to whoever answers and comes back only where a person settled the question with
-//! it. A supervisor's notice the receiver lets go untaken puts the question to the owner instead.
+//! it. A supervisor's notice the receiver lets go untaken wakes the supervisor again, and the question stays with
+//! it.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -48,6 +49,9 @@ const STANDING: &str = "open,paused,answered";
 
 // The most of a list one read takes.
 const MOST: i64 = 500;
+
+// The most items the search for a question's room reads, the item asked about and those it was raised from.
+const MOST_RAISERS: usize = 16;
 
 /// How a wait ended, as the job reads it. A question that cannot be answered any more is an `Err`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -626,7 +630,43 @@ async fn title_of(
   }
 }
 
-/// A new question opened in the owner's private room for its supervisor, handed to that supervisor and waited on.
+// A scope read as a room's number: an integer other than zero.
+fn room_of(scope: Option<&str>) -> Option<i64> {
+  scope.and_then(|scope| scope.trim().parse::<i64>().ok()).filter(|room| *room != 0)
+}
+
+// The room the item's own scope names, else the one the nearest item it was raised from names, following `raisedBy`
+// through at most `MOST_RAISERS` items and stopping at one met twice or one the service refuses to read
+// (docs/cli.md, 「`bmo-job job ask`」); none where no such item names one, and a failure where the run was told to
+// stop.
+async fn item_room(
+  client: &JobClient,
+  item: i64,
+  mut stop: std::pin::Pin<&mut impl Future<Output = ()>>,
+) -> Result<Option<i64>, ()> {
+  let mut met = Vec::new();
+  let mut next = Some(item);
+
+  while let Some(id) = next.filter(|id| met.len() < MOST_RAISERS && !met.contains(id)) {
+    met.push(id);
+
+    let read = match until_answered("ask", stop.as_mut(), || client.item(id)).await {
+      Ok(read) => read,
+      Err(Halt::Answered(_)) => return Ok(None),
+      Err(Halt::Stopped) => return Err(()),
+    };
+
+    if let Some(room) = room_of(read.scope.as_deref()) {
+      return Ok(Some(room));
+    }
+
+    next = read.raised_by;
+  }
+
+  Ok(None)
+}
+
+/// A new question opened in the item's room for its supervisor, handed to that supervisor and waited on.
 /// A question that could not be handed over is closed `unsent` and comes back as a failure: no option goes out with
 /// it.
 pub async fn ask(
@@ -695,15 +735,21 @@ pub async fn ask(
     return stood(client, receiver, question, stop).await;
   }
 
-  // Nothing is opened until the room it goes to is known, so a receiver that refuses to name it leaves no
-  // question.
-  let room =
-    until_answered("ask", stop.as_mut(), || receiver.owner_room())
-      .await
-      .map_err(|halt| match halt {
-        Halt::Answered(why) => format!("ask: the question was not put, and nothing was opened: {why}"),
-        Halt::Stopped => "ask: the run was told to stop, and nothing was opened".to_owned(),
-      })?;
+  // Nothing is opened until the room it goes to is known: the item's, else the owner's private room, so a
+  // receiver that refuses to name that leaves no question.
+  let stopped = || "ask: the run was told to stop, and nothing was opened".to_owned();
+  let room = match item_room(client, item, stop.as_mut()).await {
+    Ok(Some(room)) => room,
+    Ok(None) => {
+      until_answered("ask", stop.as_mut(), || receiver.owner_room())
+        .await
+        .map_err(|halt| match halt {
+          Halt::Answered(why) => format!("ask: the question was not put, and nothing was opened: {why}"),
+          Halt::Stopped => stopped(),
+        })?
+    }
+    Err(()) => return Err(stopped()),
+  };
   opening.scope = Some(room.to_string());
 
   let (question, watch) =

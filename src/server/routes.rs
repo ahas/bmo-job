@@ -10,10 +10,10 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use bmo_job_client::{
-  Health, ItemChange, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait, NewEvent, NewItem, NewNote,
-  NewQuestion, NewReply, NewReport, NewReview, NewSubscription, Page, PageQuery, QuestionChange,
-  QuestionQuery, QueueChange, QueueQuery, ReviewQuery, ScopeDeletion, SubscriptionChange,
-  SubscriptionQuery, TaskChange, TaskQuery, WaitQuery, WorkOrderBody, WorkOrderChange,
+  Health, ItemChange, LabelValuesBody, LabelValuesQuery, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait,
+  NewEvent, NewItem, NewNote, NewQuestion, NewReply, NewReport, NewReview, NewSubscription, Page,
+  PageQuery, QuestionChange, QuestionQuery, QueueChange, QueueQuery, ReviewQuery, ScopeDeletion,
+  SubscriptionChange, SubscriptionQuery, TaskChange, TaskQuery, WaitQuery, WorkOrderBody, WorkOrderChange,
 };
 use serde::Serialize;
 use tokio::time::Instant;
@@ -61,6 +61,11 @@ pub(super) fn routes() -> Router<App> {
     )
     .route("/items/{itemId}/work-order/tasks", get(tasks))
     .route("/items/{itemId}/work-order/tasks/{taskId}", get(task).patch(change_task))
+    .route("/label-values", get(label_values_list))
+    .route(
+      "/label-values/{key}",
+      get(label_values).put(put_label_values).delete(delete_label_values),
+    )
     .route("/queues", get(queues))
     .route("/queues/{queueName}", get(queue).patch(change_queue))
     .route("/leases", get(leases).post(take_lease))
@@ -233,6 +238,27 @@ async fn change_task(
   InBody(change): InBody<TaskChange>,
 ) -> Answer {
   ok(app.store.change_task(item_id, task_id, change).await?)
+}
+
+async fn label_values_list(State(app): State<App>, InQuery(query): InQuery<LabelValuesQuery>) -> Answer {
+  ok(app.store.label_values_list(&query).await?)
+}
+
+async fn label_values(State(app): State<App>, InPath(key): InPath<String>) -> Answer {
+  ok(app.store.label_values(&key).await?)
+}
+
+async fn put_label_values(
+  State(app): State<App>,
+  InPath(key): InPath<String>,
+  InBody(body): InBody<LabelValuesBody>,
+) -> Answer {
+  ok(app.store.put_label_values(&key, body).await?)
+}
+
+async fn delete_label_values(State(app): State<App>, InPath(key): InPath<String>) -> Answer {
+  app.store.delete_label_values(&key).await?;
+  none()
 }
 
 async fn queues(State(app): State<App>, InQuery(query): InQuery<QueueQuery>) -> Answer {

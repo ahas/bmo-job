@@ -375,6 +375,8 @@ async fn recorder() -> (String, mpsc::UnboundedReceiver<Value>, tokio::task::Joi
           merged_into: None,
           raised_by: None,
           lease_id: None,
+          hold: None,
+          notices_off: None,
           created_at: 0,
           changed_at: 0,
           ended_at: None,

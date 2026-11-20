@@ -234,7 +234,7 @@ flowchart TD
 `bmo job ask` runs this. It is what a job's own run waits on: nothing ends the wait but what is listed here, and
 no clock is among it.
 
-A job asks its supervisor, never the owner directly. The question is opened in the owner's private room as the
+A job asks its supervisor, never the owner directly. The question is opened in the item's room as the
 supervisor's (docs/api.md, 「The addressee」) and handed to that room's supervisor at once, which judges what it
 is: it does or finds what is asked and settles the question with the result, talks it over with the job, or puts
 it to the owner in its own words, and from then on it is the owner's question as any other. Only the supervisor's
@@ -242,7 +242,7 @@ own move puts a job's question before the owner: nothing the verb does, and no s
 
 | Form | What it does |
 |---|---|
-| `--todo <item> --question <words> --why <words> [--option <words> --option <words> --recommend <n>]` | Opens the question for the supervisor of the owner's private room, hands it to that supervisor and waits |
+| `--todo <item> --question <words> --why <words> [--option <words> --option <words> --recommend <n>]` | Opens the question for the supervisor of the item's room (below), hands it to that supervisor and waits |
 | `--talk <question> --say <words>` | Puts the job's answer to the supervisor's or the owner's talk in the same room, then waits on the same question |
 | `--talk <question> --say <words> --option <words> --option <words> --recommend <n> [--question <words>] [--why <words>]` | The same, with the question put again in other words |
 | `--talk <question> --say <words> --ack` | Writes words that ask nothing on the question, an acknowledgement such as that the job waits, hands them to nobody and waits on the same question |
@@ -276,11 +276,16 @@ own move puts a job's question before the owner: nothing the verb does, and no s
   line, the option he took or his own words. A recommendation settles the question where the owner's due time
   passes with no answer from him, and comes back as his would, one line, with a line on the standard error saying
   it was the recommendation.
-- **Putting the question.** The verb reads the owner's private room from the receiver's `GET /owner`, opens the
-  question there for the supervisor with `toldByAsker` (docs/api.md, "Questions and replies"), and hands it to the
-  room's supervisor through the receiver's `POST /instructions`, an order under the sort `job` of the kind
+- **Putting the question.** The verb finds the room the question goes to, opens the question there for the
+  supervisor with `toldByAsker` (docs/api.md, "Questions and replies"), and hands it to the room's supervisor
+  through the receiver's `POST /instructions`, an order under the sort `job` of the kind
   `question-for-supervisor`. An answer other than a queued instruction is a failed send. A question that is
   settled, put to the owner or stopped has its instruction withdrawn where it has not reached the supervisor yet.
+- **The question's room is the item's.** It is the item's own `scope` where that reads as a room's number, an
+  integer other than zero; else the scope of the item it was raised from, read the same way, following
+  `raisedBy` up from item to item, at most 16 items, never past an item met twice nor one the service refuses
+  to read; else the owner's private room, which the receiver's `GET /owner` names. The room is the question's
+  `scope`, so every notice of it, a wake, a talk and a withdrawal, goes to that same room.
 - **What a turn carries.** An order carries the notice's kind and number, the item's number and title, and the data
   it is about: the question, its options numbered with the recommended one marked or the word that it is open, and
   why it is asked; or the job's words in a talk, with the question's words and options again where the talk changed
@@ -324,13 +329,13 @@ own move puts a job's question before the owner: nothing the verb does, and no s
   supervisor's again: the verb says so on the standard error once and waits on it with no notice to watch, since
   the supervisor took it itself.
 - **A restart is no answer.** Every call the verb makes, reading the item's questions and the answer one was
-  settled with, reading the owner's room, opening the question, reading the item's title, handing the order or
-  the talk over, reading the order, keeping the job's words and where it heard through, closing the question, and
-  every read while it waits, is made again while the service or the receiver does not answer: nothing at its
-  address, a connection cut, or a 5xx. It is made again after a quarter of a second at first and every five
-  seconds at most. The run told to stop ends it as above. Only an answer ends a call: while the question is put, a
-  refusal closes it `unsent`; while it is waited on, only a question the service no longer holds ends the wait,
-  with 1.
+  settled with, reading the item and the items it was raised from, reading the owner's room, opening the
+  question, reading the item's title, handing the order or the talk over, reading the order, keeping the job's
+  words and where it heard through, closing the question, and every read while it waits, is made again while the
+  service or the receiver does not answer: nothing at its address, a connection cut, or a 5xx. It is made again
+  after a quarter of a second at first and every five seconds at most. The run told to stop ends it as above.
+  Only an answer ends a call: while the question is put, a refusal closes it `unsent`; while it is waited on, only
+  a question the service no longer holds ends the wait, with 1.
 - **One question, one row, told once.** Before anything is opened, the item's questions are read, and the last
   one of the same asker, words and options that is not `withdrawn` or `unsent` is the question this ask
   stands as. One `open` or `paused` is waited on as it stands, told to nobody again, and the standard error

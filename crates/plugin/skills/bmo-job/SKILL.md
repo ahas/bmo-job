@@ -104,8 +104,9 @@ and go on with the rest. Do not copy the missing part here.
 
 - **Done:** `job_report` with `kind: "final"` and the account of the work, then `job_item_update` with
   `state: "done"`. The lease ends with it.
-- **Cannot go on now:** `job_report` with `kind: "held"` saying why, then `job_item_update` with
-  `state: "held"`. Whoever can release it sets it back to `open`.
+- **Cannot go on now:** `job_item_update` with `state: "held"` and `reason` saying why, in the one change. The
+  item keeps the reason as its `hold`, and the same change writes it as the item's `held` report; a hold without
+  a reason is refused 400 `reason_required`. Whoever can release it sets it back to `open`.
 - **Giving it back undone:** `job_lease_release`; the item is open again for the next taker.
 
 ## Raising work
@@ -125,4 +126,5 @@ each one is.
 A refused call comes back as a tool error whose text is the service's `status`, `code` and `error` sentence.
 `not-found` names nothing at that key; `conflict` is a move the member's state does not allow; `gone` is a
 lease or subscription that has ended; `queue-not-open` is a queue paused or under a hold; `not-the-addressee` is a
-question whose addressee your token may not settle or move.
+question whose addressee your token may not settle or move; `label_value_unknown` is a label value off the list
+of values published for its key, the sentence naming the values it takes.

@@ -4,6 +4,7 @@
 
 mod events;
 mod items;
+mod label_values;
 mod leases;
 mod notes;
 mod questions;
@@ -34,11 +35,11 @@ pub use subscriptions::{Delivery, Kept};
 pub(crate) type Tx = Transaction<'static, Sqlite>;
 
 /// The schema's version, kept in the database's own user version.
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 /// The steps that bring a store of an older version up to this one, each from the version it reads; a store
 /// with no tables takes the whole schema instead.
-const MIGRATIONS: [(i64, &str); 7] = [
+const MIGRATIONS: [(i64, &str); 8] = [
   (1, include_str!("migrate_v1.sql")),
   (2, include_str!("migrate_v2.sql")),
   (3, include_str!("migrate_v3.sql")),
@@ -46,6 +47,7 @@ const MIGRATIONS: [(i64, &str); 7] = [
   (5, include_str!("migrate_v5.sql")),
   (6, include_str!("migrate_v6.sql")),
   (7, include_str!("migrate_v7.sql")),
+  (8, include_str!("migrate_v8.sql")),
 ];
 
 /// The name the service writes its own changes under: the notes it writes and the changes its sweep makes.

@@ -1522,3 +1522,56 @@ async fn the_supervisor_cannot_answer_what_it_put_to_the_owner_and_its_word_ther
   assert!(out.starts_with("The supervisor talked"), "{out}");
   assert!(!out.contains("The owner"), "the word is the supervisor's, not the owner's: {out}");
 }
+
+// The question the running command opened about `item`, once the room has been handed `orders` orders.
+async fn opened_about(client: &JobClient, heard: &Heard, orders: usize, item: i64) -> Question {
+  for _ in 0..600 {
+    if heard.orders.lock().expect("the orders").len() >= orders {
+      return rows(client, item).await.last().expect("the question stands").clone();
+    }
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+  }
+
+  panic!("the question was never handed to a room");
+}
+
+#[tokio::test]
+async fn the_question_goes_to_the_items_own_room_else_to_the_room_of_the_item_it_was_raised_from() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let raise = |title: &str, scope: &str, raised_by: Option<i64>| NewItem {
+    title: title.to_owned(),
+    brief: "ask".to_owned(),
+    queue_name: "todo".to_owned(),
+    scope: Some(scope.to_owned()),
+    raised_by,
+    ..NewItem::default()
+  };
+  let first = client.create_item(&raise("the first", "77", None)).await.expect("raised").id;
+  let between = client.create_item(&raise("between", "0", Some(first))).await.expect("raised").id;
+  let follow_up = client
+    .create_item(&raise("a follow-up", "no room", Some(between)))
+    .await
+    .expect("raised")
+    .id;
+  let own = client.create_item(&raise("its own room", "88", Some(first))).await.expect("raised").id;
+
+  for (at, item, room) in [(0, follow_up, 77), (1, own, 88)] {
+    let child = asked(&service, &address, item);
+    let question = opened_about(&client, &heard, at + 1, item).await;
+
+    assert_eq!(question.scope, Some(room.to_string()));
+    assert_eq!(heard.orders.lock().expect("the orders")[at]["room"], room);
+
+    service
+      .supervisor()
+      .reply(question.id, &person(None, "settled"))
+      .await
+      .expect("the supervisor settles it");
+
+    let (code, _, err) = ended(child).await;
+    assert_eq!(code, 0, "{err}");
+  }
+}

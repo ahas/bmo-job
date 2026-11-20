@@ -1,21 +1,27 @@
 //! Items: raised, read in queue order, and changed by the moves docs/api.md lists (docs/api.md, "Items").
 
 use bmo_job_client::{
-  Approval, ApprovalKind, Code, EventKind, Item, ItemChange, ItemEvent, ItemQuery, ItemState, NewItem, Page,
+  Approval, ApprovalKind, Code, EventKind, Item, ItemChange, ItemEvent, ItemHold, ItemQuery, ItemState,
+  NewItem, NewReport, NoticesOff, Page, ReportKind,
 };
 use serde::Deserialize;
 use sqlx::sqlite::SqliteRow;
 use sqlx::{QueryBuilder, Row, Sqlite};
 
 use super::events::{EventKeys, emit};
+use super::label_values::refuse_unknown_label_values;
 use super::leases::{end_standing_lease, held_lease_item, refuse_frozen_change};
 use super::queues::ensure_queue;
-use super::{Store, Tx, filled, from_json, listed, page_limit, paged, queue_name, stored, to_json};
+use super::reports::write_report;
+use super::{
+  OWN_NAME, Store, Tx, filled, from_json, listed, page_limit, paged, queue_name, stored, to_json,
+};
 use crate::access::Caller;
 use crate::refusal::Refusal;
 
 const ITEM_COLUMNS: &str = "id, title, brief, state, queue_name, position, priority, assignee_name, requester_name, \
   scope, labels, approvals, merged_into, raised_by, lease_id, created_at, changed_at, ended_at, \
+  hold_reason, hold_caller_name, hold_at, notices_off_reason, notices_off_caller_name, notices_off_at, \
   (SELECT COUNT(*) FROM reviews WHERE reviews.item_id = items.id AND reviews.kind = 'rejection') AS rejections";
 
 /// An approval as the store holds it. One held with no kind, such as one imported, reads as an approval of no
@@ -48,6 +54,30 @@ fn approvals_from(text: &str) -> Result<Vec<Approval>, Refusal> {
   )
 }
 
+/// An item's hold as its columns keep it: a reason and a time where it is held.
+fn hold_from(row: &SqliteRow) -> Result<Option<ItemHold>, Refusal> {
+  let reason: Option<String> = row.try_get("hold_reason")?;
+  let caller_name: Option<String> = row.try_get("hold_caller_name")?;
+  let at: Option<i64> = row.try_get("hold_at")?;
+  Ok(reason.zip(at).map(|(reason, at)| ItemHold {
+    reason,
+    caller_name,
+    at,
+  }))
+}
+
+/// An item's notices switched off as its columns keep it: a reason and a time where they are off.
+fn notices_off_from(row: &SqliteRow) -> Result<Option<NoticesOff>, Refusal> {
+  let reason: Option<String> = row.try_get("notices_off_reason")?;
+  let caller_name: Option<String> = row.try_get("notices_off_caller_name")?;
+  let at: Option<i64> = row.try_get("notices_off_at")?;
+  Ok(reason.zip(at).map(|(reason, at)| NoticesOff {
+    reason,
+    caller_name,
+    at,
+  }))
+}
+
 fn item_from(row: &SqliteRow) -> Result<Item, Refusal> {
   Ok(Item {
     id: row.try_get("id")?,
@@ -66,6 +96,8 @@ fn item_from(row: &SqliteRow) -> Result<Item, Refusal> {
     merged_into: row.try_get("merged_into")?,
     raised_by: row.try_get("raised_by")?,
     lease_id: row.try_get("lease_id")?,
+    hold: hold_from(row)?,
+    notices_off: notices_off_from(row)?,
     created_at: row.try_get("created_at")?,
     changed_at: row.try_get("changed_at")?,
     ended_at: row.try_get("ended_at")?,
@@ -93,7 +125,9 @@ pub(crate) async fn save_item(tx: &mut Tx, item: &Item) -> Result<(), Refusal> {
   sqlx::query(
     "UPDATE items SET title = $1, brief = $2, state = $3, queue_name = $4, position = $5, priority = $6, \
      assignee_name = $7, requester_name = $8, scope = $9, labels = $10, approvals = $11, \
-     merged_into = $12, lease_id = $13, changed_at = $14, ended_at = $15 WHERE id = $16",
+     merged_into = $12, lease_id = $13, changed_at = $14, ended_at = $15, hold_reason = $16, \
+     hold_caller_name = $17, hold_at = $18, notices_off_reason = $19, notices_off_caller_name = $20, \
+     notices_off_at = $21 WHERE id = $22",
   )
   .bind(&item.title)
   .bind(&item.brief)
@@ -110,6 +144,12 @@ pub(crate) async fn save_item(tx: &mut Tx, item: &Item) -> Result<(), Refusal> {
   .bind(item.lease_id)
   .bind(item.changed_at)
   .bind(item.ended_at)
+  .bind(item.hold.as_ref().map(|hold| &hold.reason))
+  .bind(item.hold.as_ref().and_then(|hold| hold.caller_name.as_ref()))
+  .bind(item.hold.as_ref().map(|hold| hold.at))
+  .bind(item.notices_off.as_ref().map(|off| &off.reason))
+  .bind(item.notices_off.as_ref().and_then(|off| off.caller_name.as_ref()))
+  .bind(item.notices_off.as_ref().map(|off| off.at))
   .bind(item.id)
   .execute(&mut **tx)
   .await?;
@@ -158,6 +198,18 @@ async fn raised_from(tx: &mut Tx, given: Option<i64>, caller: &Caller) -> Result
   }
 }
 
+fn reason_required(sentence: &str) -> Refusal {
+  Refusal::new(Code::ReasonRequired, sentence)
+}
+
+/// A reason a hold or a switch-off carries, which may not be blank.
+fn reason_given(reason: &str) -> Result<(), Refusal> {
+  if reason.trim().is_empty() {
+    return Err(reason_required("The reason is blank; say why in it."));
+  }
+  Ok(())
+}
+
 /// Whether a state may move to another by a change (docs/api.md, "States and moves"); `leased` is reached
 /// only by a lease.
 fn may_move(from: ItemState, to: ItemState) -> bool {
@@ -185,6 +237,7 @@ impl Store {
     let now = self.now();
     let mut tx = self.begin().await?;
     let raised_by = raised_from(&mut tx, new.raised_by, caller).await?;
+    refuse_unknown_label_values(&mut tx, None, &new.labels).await?;
     ensure_queue(&mut tx, &new.queue_name, now).await?;
     let position: i64 =
       sqlx::query_scalar("SELECT COALESCE(MAX(position), 0) + 1 FROM items WHERE queue_name = $1")
@@ -391,6 +444,19 @@ impl Store {
       item.labels = labels;
     }
     refuse_frozen_change(&mut tx, &before, &item).await?;
+    refuse_unknown_label_values(&mut tx, Some(&before.labels), &item.labels).await?;
+    match change.notices_off {
+      Some(Some(off)) => {
+        reason_given(&off.reason)?;
+        item.notices_off = Some(NoticesOff {
+          reason: off.reason,
+          caller_name: caller.name.clone(),
+          at: now,
+        });
+      }
+      Some(None) => item.notices_off = None,
+      None => {}
+    }
 
     let approved = change.approval.is_some() && caller.approves;
     if let Some(approval) = change.approval {
@@ -409,6 +475,21 @@ impl Store {
     if change.merged_into.is_some() && target != Some(ItemState::Merged) {
       return Err(Refusal::bad_request("A mergedInto goes with the state merged."));
     }
+    let holding = target == Some(ItemState::Held) && item.state != ItemState::Held;
+    let hold_reason = match (holding, change.reason) {
+      (true, Some(reason)) => {
+        reason_given(&reason)?;
+        Some(reason)
+      }
+      (true, None) => return Err(reason_required("A hold carries its reason, as reason.")),
+      (false, Some(_)) => {
+        return Err(Refusal::new(
+          Code::ReasonWithoutHold,
+          "A reason goes with a change that moves the item to held.",
+        ));
+      }
+      (false, None) => None,
+    };
     if let Some(target) = target
       && target != item.state
     {
@@ -454,7 +535,22 @@ impl Store {
       if target.is_final() {
         item.ended_at = Some(now);
       }
+      item.hold = None;
       item.state = target;
+    }
+    if let Some(reason) = hold_reason {
+      let held = NewReport {
+        kind: ReportKind::Held,
+        body: reason.clone(),
+        actor_name: caller.name.clone().unwrap_or_else(|| OWN_NAME.to_owned()),
+        labels: Default::default(),
+      };
+      write_report(&mut tx, now, &item, held).await?;
+      item.hold = Some(ItemHold {
+        reason,
+        caller_name: caller.name.clone(),
+        at: now,
+      });
     }
 
     item.changed_at = now;

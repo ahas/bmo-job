@@ -6,8 +6,8 @@ use crate::support;
 use std::collections::BTreeMap;
 
 use bmo_job_client::{
-  ApprovalGiven, ApprovalKind, ItemChange, ItemQuery, ItemState, LeaseAsk, LeaseWait, NewItem, NewReport,
-  ReportKind,
+  ApprovalGiven, ApprovalKind, EventQuery, ItemChange, ItemEvent, ItemHold, ItemQuery, ItemState, LeaseAsk,
+  LeaseWait, NewItem, NewReport, NoticesOff, NoticesOffGiven, PageQuery, ReportKind,
 };
 
 use support::{APPROVER, CALLER, CALLER_TOKEN, START, Service};
@@ -24,6 +24,22 @@ fn raised(queue: &str, title: &str) -> NewItem {
 fn moved(state: ItemState) -> ItemChange {
   ItemChange {
     state: Some(state),
+    ..ItemChange::default()
+  }
+}
+
+fn held_for(reason: &str) -> ItemChange {
+  ItemChange {
+    reason: Some(reason.to_owned()),
+    ..moved(ItemState::Held)
+  }
+}
+
+fn notices_off(reason: &str) -> ItemChange {
+  ItemChange {
+    notices_off: Some(Some(NoticesOffGiven {
+      reason: reason.to_owned(),
+    })),
     ..ItemChange::default()
   }
 }
@@ -156,7 +172,7 @@ async fn the_moves_follow_the_table() {
     .expect_err("a lease alone leases");
   assert_eq!(refused.status(), Some(409));
 
-  let held = client.change_item(item.id, &moved(ItemState::Held)).await.expect("held");
+  let held = client.change_item(item.id, &held_for("waits on a decision")).await.expect("held");
   assert_eq!(held.state, ItemState::Held);
   let open = client.change_item(item.id, &moved(ItemState::Open)).await.expect("released");
   assert_eq!(open.state, ItemState::Open);
@@ -493,4 +509,122 @@ async fn with_no_unattended_labels_every_item_is_raised_a_draft() {
   let mut review = raised("base", "review the pull request");
   review.labels = BTreeMap::from([("lane".to_owned(), "pr-review".to_owned())]);
   assert_eq!(service.client().create_item(&review).await.expect("raised").state, ItemState::Draft);
+}
+
+#[tokio::test]
+async fn a_hold_carries_its_reason_which_the_item_keeps_and_writes_as_its_held_report() {
+  let service = Service::start().await;
+  let caller = service.client_with(CALLER_TOKEN);
+  let item = service.open_item("build", "parser").await;
+
+  let refusals = [
+    (moved(ItemState::Held), "reason_required"),
+    (held_for("  "), "reason_required"),
+    (
+      ItemChange {
+        reason: Some("no hold".to_owned()),
+        title: Some("the parser".to_owned()),
+        ..ItemChange::default()
+      },
+      "reason_without_hold",
+    ),
+  ];
+  for (change, code) in refusals {
+    let refused = caller.change_item(item.id, &change).await.expect_err(code);
+    assert_eq!((refused.status(), refused.code()), (Some(400), Some(code)));
+  }
+  let untouched = caller.item(item.id).await.expect("read");
+  assert_eq!(
+    (untouched.state, untouched.title.as_str(), untouched.hold),
+    (ItemState::Open, "parser", None)
+  );
+
+  service.clock.advance(5);
+  let held = caller
+    .change_item(item.id, &held_for("waits on the vendor's answer"))
+    .await
+    .expect("held");
+  let hold = ItemHold {
+    reason: "waits on the vendor's answer".to_owned(),
+    caller_name: Some(CALLER.to_owned()),
+    at: START + 5,
+  };
+  assert_eq!((held.state, held.hold.as_ref()), (ItemState::Held, Some(&hold)));
+  assert_eq!(caller.item(item.id).await.expect("read").hold.as_ref(), Some(&hold));
+
+  let reports = caller.reports(item.id, &PageQuery::default()).await.expect("its reports").items;
+  assert_eq!(reports.len(), 1, "only the hold wrote a report");
+  assert_eq!(
+    (
+      reports[0].kind,
+      reports[0].body.as_str(),
+      reports[0].actor_name.as_str(),
+      reports[0].created_at
+    ),
+    (ReportKind::Held, "waits on the vendor's answer", CALLER, START + 5)
+  );
+
+  // The report is told before the move, and the move's event carries the hold.
+  let query = EventQuery {
+    kinds: Some("report.created,item.changed".to_owned()),
+    limit: Some(500),
+    ..EventQuery::default()
+  };
+  let events = caller.events_page(&query).await.expect("the events").items;
+  let kinds: Vec<&str> = events.iter().rev().take(2).map(|event| event.kind.as_str()).collect();
+  assert_eq!(kinds, ["item.changed", "report.created"]);
+  let told: ItemEvent =
+    serde_json::from_value(events.last().expect("told").data.clone().into()).expect("an item");
+  assert_eq!(told.item.hold.as_ref(), Some(&hold));
+
+  let again = caller.change_item(item.id, &held_for("still waits")).await.expect_err("held already");
+  assert_eq!(again.code(), Some("reason_without_hold"));
+
+  let open = caller.change_item(item.id, &moved(ItemState::Open)).await.expect("released");
+  assert_eq!((open.state, open.hold), (ItemState::Open, None));
+
+  // The shared token names no caller: the report is the service's own, and the hold names nobody.
+  let shared = service.client().change_item(item.id, &held_for("waits again")).await.expect("held");
+  assert_eq!(shared.hold.as_ref().map(|hold| hold.caller_name.clone()), Some(None));
+  let reports = caller.reports(item.id, &PageQuery::default()).await.expect("its reports").items;
+  assert_eq!(reports.last().map(|report| report.actor_name.as_str()), Some("bmo-job"));
+}
+
+#[tokio::test]
+async fn notices_are_switched_off_with_a_reason_and_on_again_with_null() {
+  let service = Service::start().await;
+  let caller = service.client_with(CALLER_TOKEN);
+  let item = caller.create_item(&raised("build", "parser")).await.expect("raised");
+  assert_eq!(item.notices_off, None);
+
+  let blank = caller.change_item(item.id, &notices_off(" ")).await.expect_err("a blank reason");
+  assert_eq!((blank.status(), blank.code()), (Some(400), Some("reason_required")));
+  let unknown = service
+    .raw(reqwest::Method::PATCH, &format!("/items/{}", item.id))
+    .json(&serde_json::json!({ "noticesOff": { "reason": "quiet", "until": 5 } }))
+    .send()
+    .await
+    .expect("answered");
+  assert_eq!(unknown.status(), 400);
+
+  service.clock.advance(7);
+  let off = caller
+    .change_item(item.id, &notices_off("the vendor answers by mail"))
+    .await
+    .expect("off");
+  let kept = NoticesOff {
+    reason: "the vendor answers by mail".to_owned(),
+    caller_name: Some(CALLER.to_owned()),
+    at: START + 7,
+  };
+  assert_eq!(off.notices_off.as_ref(), Some(&kept));
+  let listed = caller.items(&ItemQuery::default()).await.expect("the list").items;
+  assert_eq!(listed[0].notices_off.as_ref(), Some(&kept));
+  assert_eq!(off.state, ItemState::Draft, "the switch moves nothing else");
+
+  let on = ItemChange {
+    notices_off: Some(None),
+    ..ItemChange::default()
+  };
+  assert_eq!(caller.change_item(item.id, &on).await.expect("on").notices_off, None);
 }

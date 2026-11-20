@@ -8,7 +8,8 @@ from fills it, for each item standing then, from the item's `raised-by` label wh
 another standing item, and leaves it null otherwise; a lease standing then is held by no named caller, and
 holds nothing of its item fixed. Bringing it up to the version that keeps who a question is put to makes every
 question standing then a person's, its wait the span between its asking and its due time, or a minute where it
-has none.
+has none. Bringing it up to the version that keeps an item's hold and notice switch-off leaves both null on every
+item standing then, a held one among them, and makes no list of label values.
 
 ## The rules of every table
 
@@ -16,7 +17,7 @@ has none.
   goes.
 - **A time is epoch milliseconds,** and a yes-or-no is `0` or `1`.
 - **Lists and maps are JSON text:** labels, approvals, steps, holds, choices, recommendation, what a
-  subscription matches, and what a lease holds fixed.
+  subscription matches, what a lease holds fixed, and a label key's values.
 - **No foreign keys.** A row names another by its key, and the code that writes it keeps the reference.
 - **One connection writes.** Every change runs alone in one transaction, with the events it tells, so a lease
   raced for by several holders goes to one.
@@ -25,7 +26,7 @@ has none.
 
 | Table | One row is |
 |---|---|
-| `items` | An item: its words, state, queue and place there, the names and scope the caller gave, its labels, approvals, merge, the item it was raised from, and standing lease |
+| `items` | An item: its words, state, queue and place there, the names and scope the caller gave, its labels, approvals, merge, the item it was raised from, standing lease, the reason, caller and time of its hold while it is held, and the reason, caller and time of its notices switched off while they are |
 | `notes` | A note on an item |
 | `reports` | A report on an item |
 | `reviews` | An entry of an item's review: the run it examines, its stage and round, its kind, words and labels |
@@ -36,4 +37,5 @@ has none.
 | `questions` | A question: its words and choices, the recommendation it carries and why, who it is put to, its state, the wait it was asked with, its due time, the time its clock had left when paused, whether its due time was told, whether its asker tells of it itself, the last reply its asker was handed, and who put it to a person in the supervisor's place and when, and the asker's reference to the notice it told it with |
 | `replies` | A reply to a question: its choice and words, who gave it, whether it settled, and where the recommendation gave it, that source and its reason |
 | `subscriptions` | A subscription, standing or ended: what it matches, where it posts and its secret, its state, span, failures, and the events it starts after and has handed over |
+| `label_values` | The values one label key may take, keyed by the key, and when the list last changed |
 | `events` | An event told, with the queue, scope and item it is narrowed by, kept for the window |
