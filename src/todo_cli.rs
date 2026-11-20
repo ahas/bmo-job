@@ -102,9 +102,14 @@ async fn review_open(client: &JobClient, item: i64) -> Result<bool, String> {
   }
 }
 
-/// The run's account of the finished work left on the item: its unfinished note kept as a held report and its
-/// account as a final report. The item's state stays as it stands: it is done once whoever ordered the work takes
-/// it — its review, or whoever puts a waiting commit live —, and the last line says which it waits on.
+/// The label that names a held report the unfinished note of finished work (docs/cli.md, 「`bmo-job todo`」),
+/// telling it from a hold's reason and a stop-here account, both held reports with no labels. The service does
+/// not read it; whoever shows the item's reports does.
+pub const UNFINISHED_ACCOUNT_LABEL: (&str, &str) = ("account", "unfinished");
+
+/// The run's account of the finished work left on the item: its unfinished note kept as a held report labelled
+/// so and its account as a final report. The item's state stays as it stands: it is done once whoever ordered the
+/// work takes it — its review, or whoever puts a waiting commit live —, and the last line says which it waits on.
 /// Each answer is printed as its JSON on a line.
 pub async fn close(client: &JobClient, args: &TodoArgs) -> Result<Vec<String>, String> {
   if args.done <= 0 {
@@ -128,13 +133,15 @@ pub async fn close(client: &JobClient, args: &TodoArgs) -> Result<Vec<String>, S
   let mut lines = vec![];
 
   if let Some(unfinished) = args.unfinished.as_deref().map(str::trim).filter(|said| !said.is_empty()) {
-    let kept = report(client, args.done, ReportKind::Held, unfinished, by).await?;
+    let (key, value) = UNFINISHED_ACCOUNT_LABEL;
+    let labels = BTreeMap::from([(key.to_owned(), value.to_owned())]);
+    let kept = report(client, args.done, ReportKind::Held, unfinished, by, labels).await?;
 
     lines.push(serde_json::to_string(&kept).unwrap_or_default());
   }
 
-  if let Some(report) = args.report.as_deref().map(str::trim).filter(|said| !said.is_empty()) {
-    let kept = report_line(client, args.done, ReportKind::Final, report, by).await?;
+  if let Some(account) = args.report.as_deref().map(str::trim).filter(|said| !said.is_empty()) {
+    let kept = report(client, args.done, ReportKind::Final, account, by, BTreeMap::new()).await?;
 
     lines.push(serde_json::to_string(&kept).unwrap_or_default());
   }
@@ -170,6 +177,7 @@ async fn report(
   kind: ReportKind,
   body: &str,
   by: &str,
+  labels: BTreeMap<String, String>,
 ) -> Result<Report, String> {
   client
     .add_report(
@@ -178,21 +186,11 @@ async fn report(
         kind,
         body: body.to_owned(),
         actor_name: by.to_owned(),
-        labels: BTreeMap::new(),
+        labels,
       },
     )
     .await
     .map_err(|why| format!("item {item} did not keep its report: {why}"))
-}
-
-async fn report_line(
-  client: &JobClient,
-  item: i64,
-  kind: ReportKind,
-  body: &str,
-  by: &str,
-) -> Result<Report, String> {
-  report(client, item, kind, body, by).await
 }
 
 /// What a job leaves on an item it stops short on: its account of what is finished and where the next run picks
@@ -222,7 +220,7 @@ pub async fn stop_here(client: &JobClient, args: &StopHereArgs) -> Result<Vec<St
     return Err(refusal);
   }
 
-  let kept = report(client, args.item, ReportKind::Held, account, by).await?;
+  let kept = report(client, args.item, ReportKind::Held, account, by, BTreeMap::new()).await?;
 
   Ok(vec![serde_json::to_string(&kept).unwrap_or_default()])
 }

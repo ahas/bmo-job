@@ -237,6 +237,12 @@ changes the item itself. A move to `held` writes the `held` report of its reason
 reporting wrote it, whole: the service cuts nothing of it and reads none of its words, so a worker's account in
 the requester's language stands as the worker wrote it, and a screen shows it as it stands.
 
+Its `labels` are the writer's, and the service reads none of them. Of the reports the service's own writers make,
+one carries a label: the unfinished note `bmo-job todo --done` keeps carries `account` at `unfinished` (docs/cli.md,
+「`bmo-job todo`」). The `held` report a hold writes, the `final` account `--done` keeps and a `--stop-here` account
+carry none, so a `held` report with that label is the note on what finished work left undone, and one without it a
+reason the item waits.
+
 | Method and path | Does |
 |---|---|
 | `GET /items/{itemId}/reports` | The item's reports, oldest first |

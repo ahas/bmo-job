@@ -74,9 +74,15 @@ async fn a_closing_leaves_its_reports_and_moves_no_state() {
   assert_eq!(reports.items[0].kind, ReportKind::Held);
   assert_eq!(reports.items[0].body, "No hardware to reach.");
   assert_eq!(reports.items[0].actor_name, "helper");
+  assert_eq!(
+    reports.items[0].labels,
+    BTreeMap::from([("account".to_owned(), "unfinished".to_owned())]),
+    "the note is labelled the unfinished one"
+  );
   assert_eq!(reports.items[1].kind, ReportKind::Final);
   assert_eq!(reports.items[1].body, "The work is done.");
   assert_eq!(reports.items[1].actor_name, "helper");
+  assert!(reports.items[1].labels.is_empty(), "the account carries no label");
 }
 
 #[tokio::test]
@@ -333,6 +339,10 @@ async fn a_stop_here_leaves_the_account_on_the_item_and_moves_no_state() {
 
   assert_eq!(reports.items.len(), 2);
   assert!(reports.items.iter().all(|report| report.kind == ReportKind::Held));
+  assert!(
+    reports.items.iter().all(|report| report.labels.is_empty()),
+    "a stop-here account is no unfinished note"
+  );
 }
 
 #[tokio::test]
