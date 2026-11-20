@@ -66,23 +66,28 @@ that would give any of them another value is refused 409 `item-frozen` with that
    wait for the next one, or subscribe to `note.created` on the item.
 4. `job_report` with `kind: "progress"` as you go, so whoever watches the item knows where it stands.
 5. Blocked on a decision that is not yours: `job_question_ask` with the `itemId`, your name as `askerName`,
-   the `text` and the `choices` (empty for an open question), then `job_replies` with a `waitMs` until a reply
-   settles it. Keep the lease meanwhile. Give `recommendation` as `{answer, why}` only where you can make the
+   the `text` and the `choices` (empty for an open question, which only the supervisor takes), then
+   `job_replies` with a `waitMs` until a reply settles it. Write it for someone who knows nothing of the work, since
+   it may reach a person: what the work is, what each choice does, how the choices differ and what follows under
+   each, with no step number or internal term left unexplained. Keep the lease meanwhile. Give `recommendation` as `{answer, why}` only where you can make the
    case for that answer on the merits of the work and the rules; never the safe or timid answer by default.
    Leave it out where you cannot make the case. Where your token is not a caller the deployment marks as
    supervising the work, the question goes to the supervisor, which settles it or puts it to a person, and it
-   waits for the supervisor however long that takes. `waitMs` says how long a question put to a person waits for
-   him, a minute where left out: then its recommendation settles it, as a reply with `source` `recommendation`,
-   or, with none, it is told of as due and waits on. Name a choice in `recommendation.answer` word for word, with
-   no mark beside it.
+   waits for the supervisor however long that takes. A question asked of a person offers two choices or more, or
+   is refused 422 `no-choices`. `waitMs` says how long a question asked of a person waits for him, a minute where
+   left out, so name one he can meet: then its recommendation settles it, as a reply with `source`
+   `recommendation`, or, with none, it is told of as due and waits on. Name a choice in `recommendation.answer`
+   word for word, with no mark beside it.
 6. Holding a question put to the supervisor (`addressee` `supervisor`), where your token is a caller the
    deployment marks as supervising the work: do or find what it asks and settle it with `job_reply`, what you did
    or found as its `text`; talk it over with its asker by a `job_reply` that settles nothing; or, where the
    choice is a person's to make, put it to a person with `job_question_change`, `addressee` `person`, and the
-   `text`, `choices` and `recommendation` in your own words. Its clock starts then, and the recommendation you
-   give settles it where the person has not answered by its due time. A question put to a person
-   that nobody has settled, which you would rather settle yourself, you take back with `job_question_change`,
-   `addressee` `supervisor`; its clock stops, and it is yours again.
+   `text`, two to four `choices` and a `recommendation` in your own words, written for someone who knows nothing
+   of the work: what the work is, what each choice does, how they differ and what follows under each. A move with
+   fewer than two choices is refused 422 `no-choices`, and one with no recommendation 422 `no-recommendation`.
+   The question then has no due time: the recommendation is only shown, and the person settles it. A question put
+   to a person that nobody has settled, which you would rather settle yourself, you take back with
+   `job_question_change`, `addressee` `supervisor`, and it is yours again.
 
 ## A base library missing a part
 

@@ -1,7 +1,8 @@
 //! What a job's question may hold (docs/cli.md, 「`bmo-job job ask`」): what the job cannot settle or do itself,
 //! said in words read at a glance, in a few lines, with options of one short line each. A script, a block of code or
 //! a long unbroken token — an encoded payload, a hash, a long address — is no such words and is refused, as is a
-//! question too long to read at a glance.
+//! question too long to read at a glance, and an option that is a bare label or a step number, which says nothing to
+//! a person who has not read the rest.
 
 /// The most characters the question's own words may run to.
 pub const QUESTION_MOST: usize = 500;
@@ -13,11 +14,23 @@ pub const OPTION_MOST: usize = 160;
 pub const WHY_MOST: usize = 240;
 /// The longest run of characters with no space a word of a question may be.
 pub const WORD_MOST: usize = 80;
+/// The fewest words an option says what it does in, each of two letters or more.
+pub const OPTION_WORDS_LEAST: usize = 2;
 
 // What carries code, a command or a payload rather than words: a fenced block, or one unbroken token longer than
 // any word a person writes.
 fn carries_code(text: &str) -> bool {
   text.contains("```") || text.split_whitespace().any(|word| word.chars().count() > WORD_MOST)
+}
+
+// What names an option rather than saying what it does: fewer words of two letters or more than an option needs, as
+// a number, a letter or "Step 12" is.
+fn bare_label(option: &str) -> bool {
+  let words = option
+    .split_whitespace()
+    .filter(|word| word.chars().filter(|ch| ch.is_alphabetic()).count() >= 2)
+    .count();
+  words < OPTION_WORDS_LEAST
 }
 
 /// The refusal of a question's words, or none where they are a question read and settled at a glance.
@@ -45,8 +58,16 @@ pub fn words_refusal(question: &str, options: &[String], why: &str) -> Option<St
     return Some(format!("an option is one short line: at most {OPTION_MOST} characters."));
   }
 
-  (why.trim().chars().count() > WHY_MOST)
-    .then(|| format!("the reason is one line: at most {WHY_MOST} characters."))
+  if why.trim().chars().count() > WHY_MOST {
+    return Some(format!("the reason is one line: at most {WHY_MOST} characters."));
+  }
+
+  options.iter().any(|option| bare_label(option)).then(|| {
+    format!(
+      "an option says what it does in words of its own, at least {OPTION_WORDS_LEAST} of them: a bare label or a \
+       step number (1, B, Option 2, Step 12) says nothing to someone who knows nothing of the work."
+    )
+  })
 }
 
 /// The refusal of the job's answer to the owner's talk where it carries code, a command or a payload; its length is

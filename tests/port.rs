@@ -451,6 +451,10 @@ async fn a_question_the_supervisor_holds_is_neither_listed_settled_nor_talked_ov
       held.id,
       &QuestionChange {
         addressee: Some(QuestionAddressee::Person),
+        recommendation: Some(QuestionRecommendation {
+          answer: "a".into(),
+          why: "it keeps the change small".into(),
+        }),
         ..QuestionChange::default()
       },
     )
@@ -458,7 +462,7 @@ async fn a_question_the_supervisor_holds_is_neither_listed_settled_nor_talked_ov
     .expect("put to the owner");
   assert_eq!(
     open().await,
-    json!([{ "id": held.id, "options": ["a", "b"], "recommendation": null, "why": null, "talks": true }])
+    json!([{ "id": held.id, "options": ["a", "b"], "recommendation": "a", "why": "it keeps the change small", "talks": true }])
   );
   let settled = service
     .raw(Method::POST, "/question")

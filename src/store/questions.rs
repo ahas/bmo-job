@@ -25,7 +25,7 @@ const LEAST_ASK_WAIT_MS: i64 = 1_000;
 const LONGEST_ASK_WAIT_MS: i64 = 86_400_000;
 
 /// A question as it is kept: the member, the time its clock had left when it was paused, and the wait it was
-/// asked with, which its clock takes when the supervisor puts it to a person.
+/// asked with, which its clock runs again where it is opened past its due time.
 struct Kept {
   question: Question,
   remaining_ms: Option<i64>,
@@ -136,6 +136,36 @@ fn judged_choices(choices: &[String]) -> Result<(), Refusal> {
     if !seen.insert(choice.as_str()) {
       return Err(Refusal::bad_request(format!("The choice {choice:?} stands twice.")));
     }
+  }
+  Ok(())
+}
+
+/// The fewest choices a question put to a person offers: he decides between named answers, never an open question.
+const LEAST_CHOICES_FOR_A_PERSON: usize = 2;
+
+/// The choices a question put to a person offers: two or more (docs/api.md, 「The addressee」).
+fn offered_to_a_person(choices: &[String]) -> Result<(), Refusal> {
+  if choices.len() < LEAST_CHOICES_FOR_A_PERSON {
+    return Err(Refusal::new(
+      Code::NoChoices,
+      format!(
+        "A question put to a person offers {LEAST_CHOICES_FOR_A_PERSON} choices or more, each saying what it does; \
+         an open question stays with the supervisor."
+      ),
+    ));
+  }
+  Ok(())
+}
+
+/// What a question put to a person must offer: its choices and, where the supervisor moves it to him, a
+/// recommendation.
+fn judged_for_a_person(question: &Question, moved: bool) -> Result<(), Refusal> {
+  offered_to_a_person(&question.choices)?;
+  if moved && question.recommendation.is_none() {
+    return Err(Refusal::new(
+      Code::NoRecommendation,
+      "A question put before a person carries the supervisor's recommendation: the choice it would take, and why.",
+    ));
   }
   Ok(())
 }
@@ -297,6 +327,13 @@ impl Store {
     if let Some(recommendation) = &new.recommendation {
       judged_recommendation(recommendation, &new.choices)?;
     }
+    let addressee = match new.addressee.unwrap_or_default() {
+      QuestionAddressee::Person if !caller.supervises => QuestionAddressee::Supervisor,
+      named => named,
+    };
+    if addressee == QuestionAddressee::Person {
+      offered_to_a_person(&new.choices)?;
+    }
     let wait = new.wait_ms.unwrap_or(DEFAULT_ASK_WAIT_MS);
     if !(LEAST_ASK_WAIT_MS..=LONGEST_ASK_WAIT_MS).contains(&wait) {
       return Err(Refusal::bad_request(format!(
@@ -314,10 +351,6 @@ impl Store {
         scope = item.scope;
       }
     }
-    let addressee = match new.addressee.unwrap_or_default() {
-      QuestionAddressee::Person if !caller.supervises => QuestionAddressee::Supervisor,
-      named => named,
-    };
     let due_at = (addressee == QuestionAddressee::Person).then_some(now + wait);
     let id: i64 = sqlx::query_scalar(
       "INSERT INTO questions (item_id, asker_name, scope, addressee, text, choices, recommendation, state, \
@@ -398,6 +431,8 @@ impl Store {
     }
     let mut due_told = kept.due_told;
     let mut moved = false;
+    let to_a_person = addressee == Some(QuestionAddressee::Person);
+    let choices_given = choices.is_some();
     if let Some(addressee) = addressee {
       readdressed(&mut kept, addressee, caller, now)?;
       due_told = false;
@@ -427,6 +462,10 @@ impl Store {
         judged_recommendation(recommendation, &kept.question.choices)?;
       }
       moved = true;
+    }
+    // Judged as the question stands once the change is made, since the move may carry the words it is put in.
+    if to_a_person || (choices_given && kept.question.addressee == QuestionAddressee::Person) {
+      judged_for_a_person(&kept.question, to_a_person)?;
     }
     if let Some(heard) = heard_through {
       kept.question.heard_through = Some(kept.question.heard_through.map_or(heard, |had| had.max(heard)));
@@ -532,8 +571,8 @@ impl Store {
   }
 }
 
-/// Puts a question the supervisor holds to a person: only a caller that supervises the work may, only while it
-/// waits, and never back to the supervisor. Its clock starts then with the wait it was asked with.
+/// Puts a question the supervisor holds to a person, or takes one back: only a caller that supervises the work may,
+/// and only while it waits. Either way it has no due time then (docs/api.md, 「The due time」).
 fn readdressed(
   kept: &mut Kept,
   addressee: QuestionAddressee,
@@ -563,19 +602,18 @@ fn readdressed(
   question.state = QuestionState::Open;
   kept.remaining_ms = None;
   match addressee {
-    // Put to a person: his clock counts from now.
+    // Put to a person: the asker's wait was one for the supervisor, so nothing settles it in his place.
     QuestionAddressee::Person => {
       question.readdressed_by = caller.name.clone();
       question.readdressed_at = Some(now);
-      question.due_at = Some(now + kept.wait_ms);
     }
-    // Taken back while nobody settled it: the supervisor's again, with no clock.
+    // Taken back while nobody settled it: the supervisor's again.
     QuestionAddressee::Supervisor => {
       question.readdressed_by = None;
       question.readdressed_at = None;
-      question.due_at = None;
     }
   }
+  question.due_at = None;
   Ok(())
 }
 

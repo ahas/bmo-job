@@ -23,6 +23,8 @@ pub enum Code {
   Gone,
   UnknownItem,
   NotAChoice,
+  NoChoices,
+  NoRecommendation,
   QueueNotOpen,
   NotTheAddressee,
   LabelValueUnknown,
@@ -44,6 +46,8 @@ impl Code {
       Self::Gone => "gone",
       Self::UnknownItem => "unknown-item",
       Self::NotAChoice => "not-a-choice",
+      Self::NoChoices => "no-choices",
+      Self::NoRecommendation => "no-recommendation",
       Self::QueueNotOpen => "queue-not-open",
       Self::NotTheAddressee => "not-the-addressee",
       Self::LabelValueUnknown => "label_value_unknown",
@@ -62,7 +66,12 @@ impl Code {
       Self::NoRoute | Self::NotFound => 404,
       Self::Conflict | Self::ItemFrozen => 409,
       Self::Gone => 410,
-      Self::UnknownItem | Self::NotAChoice | Self::QueueNotOpen | Self::LabelValueUnknown => 422,
+      Self::UnknownItem
+      | Self::NotAChoice
+      | Self::NoChoices
+      | Self::NoRecommendation
+      | Self::QueueNotOpen
+      | Self::LabelValueUnknown => 422,
       Self::Failed => 500,
     }
   }

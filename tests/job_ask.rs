@@ -15,8 +15,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use bmo_job_client::{
-  JobClient, NewItem, NewReply, Question, QuestionAddressee, QuestionChange, QuestionQuery, QuestionState,
-  WaitQuery,
+  JobClient, NewItem, NewReply, Question, QuestionAddressee, QuestionChange, QuestionQuery,
+  QuestionRecommendation, QuestionState, WaitQuery,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -249,8 +249,9 @@ fn person(choice: Option<&str>, text: &str) -> NewReply {
   }
 }
 
-// The supervisor puts the question it holds to the owner, as its judgement does with a choice that is his; one
-// already put to him stays as it is.
+// The supervisor puts the question it holds to the owner, as its judgement does with a choice that is his, naming
+// its first choice where the job recommended none, since a move carries a recommendation; one already put to him
+// stays as it is.
 async fn to_owner(service: &Service, id: i64) {
   let question = service.client().question(id).await.expect("the question");
 
@@ -264,6 +265,10 @@ async fn to_owner(service: &Service, id: i64) {
       id,
       &QuestionChange {
         addressee: Some(QuestionAddressee::Person),
+        recommendation: question.recommendation.is_none().then(|| QuestionRecommendation {
+          answer: question.choices[0].clone(),
+          why: "it is the smaller step".to_owned(),
+        }),
         ..QuestionChange::default()
       },
     )
@@ -384,7 +389,7 @@ async fn a_receiver_restarting_is_no_answer_and_the_question_goes_out_once() {
 }
 
 #[tokio::test]
-async fn the_owners_due_time_settles_the_question_on_its_recommendation_and_the_supervisors_never_does() {
+async fn no_clock_settles_the_question_with_the_supervisor_or_the_owner_and_his_answer_comes_back() {
   let service = Service::start().await;
   let client = service.client();
   let (address, heard) = receiver(false).await;
@@ -400,18 +405,21 @@ async fn the_owners_due_time_settles_the_question_on_its_recommendation_and_the_
   service.pass(30 * 24 * 3_600_000).await;
   assert_eq!(client.question(question.id).await.expect("the question").state, QuestionState::Open);
 
-  // Put to the owner, his minute runs, and the recommendation settles it when nobody answered.
+  // Put to the owner it has no due time either: the recommendation is only shown, and he settles it.
   to_owner(&service, question.id).await;
-  service.pass(60_000).await;
+  service.pass(30 * 24 * 3_600_000).await;
+  let waiting = client.question(question.id).await.expect("the question");
+  assert_eq!((waiting.state, waiting.due_at), (QuestionState::Open, None));
+  client
+    .reply(question.id, &person(Some("loose grammar"), "loose grammar"))
+    .await
+    .expect("he answers");
 
   let (code, out, err) = ended(child).await;
 
   assert_eq!(code, 0, "{err}");
-  assert_eq!(out, "strict grammar\n", "the recommendation, as the owner's own answer would come back");
-  assert!(
-    err.contains(&format!("question #{} was settled on its recommendation", question.id)),
-    "{err}"
-  );
+  assert_eq!(out, "loose grammar\n", "the owner's own choice, not the recommendation");
+  assert!(!err.contains("settled on its recommendation"), "{err}");
   assert_eq!(*heard.withdrawn.lock().expect("the withdrawals"), [1]);
 }
 
@@ -544,9 +552,9 @@ async fn talk_exits_3_the_question_stays_open_and_the_answer_waits_on_it_again()
       "--say",
       "it costs the same.",
       "--option",
-      "strict",
+      "strict rules",
       "--option",
-      "loose",
+      "loose rules",
       "--recommend",
       "2",
     ],
@@ -555,15 +563,18 @@ async fn talk_exits_3_the_question_stays_open_and_the_answer_waits_on_it_again()
   .expect("runs");
 
   opened(&client, &heard, 3).await;
-  assert_eq!(client.question(question.id).await.expect("the question").choices, ["strict", "loose"]);
+  assert_eq!(
+    client.question(question.id).await.expect("the question").choices,
+    ["strict rules", "loose rules"]
+  );
 
   let put_again = order_text(&heard, 2);
 
   assert!(put_again.starts_with(&format!("question-talk #{}", question.id)), "{put_again}");
   assert!(put_again.contains("it costs the same."), "the job's words: {put_again}");
   assert!(put_again.contains("question now stands as:"), "{put_again}");
-  assert!(put_again.contains("1. strict"), "{put_again}");
-  assert!(put_again.contains("2. loose (recommended)"), "{put_again}");
+  assert!(put_again.contains("1. strict rules"), "{put_again}");
+  assert!(put_again.contains("2. loose rules (recommended)"), "{put_again}");
 
   for instruction in ["asks the owner", "Put it to him", "Never answer it", "never choose"] {
     assert!(
@@ -572,12 +583,15 @@ async fn talk_exits_3_the_question_stays_open_and_the_answer_waits_on_it_again()
     );
   }
   to_owner(&service, question.id).await;
-  client.reply(question.id, &person(Some("strict"), "strict")).await.expect("answered");
+  client
+    .reply(question.id, &person(Some("strict rules"), "strict rules"))
+    .await
+    .expect("answered");
 
   let (code, out, err) = ended(child).await;
 
   assert_eq!(code, 0, "{err}");
-  assert_eq!(out, "strict\n");
+  assert_eq!(out, "strict rules\n");
 }
 
 #[tokio::test]

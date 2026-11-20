@@ -284,8 +284,8 @@ pub fn tools() -> Vec<JobTool> {
     tool::<NewQuestion, Question, _, _>(
       "job_question_ask",
       "Ask a question about an item, with choices or open; a recommendation shown to whoever answers, and why. \
-       Only a caller the deployment marks as supervising the work asks a person; any other caller's question goes \
-       to the supervisor.",
+       Only a caller the deployment marks as supervising the work asks a person, with two choices or more; any other \
+       caller's question goes to the supervisor.",
       "POST /questions",
       |harness, question| async move { harness.client.ask(&question).await },
     ),
@@ -311,7 +311,8 @@ pub fn tools() -> Vec<JobTool> {
     tool::<Keyed<QuestionKey, QuestionChange>, Question, _, _>(
       "job_question_change",
       "Change a question while it waits: its state, its words, choices and recommendation; with addressee person, \
-       put a question the supervisor holds to a person, in your own words in the same change; with addressee \
+       put a question the supervisor holds to a person, in your own words, with two choices or more and a \
+       recommendation, in the same change, and it has no due time then; with addressee \
        supervisor, take a question put to a person back while nobody has settled it. Only a caller the deployment \
        marks as supervising the work moves the addressee.",
       "PATCH /questions/{questionId}",

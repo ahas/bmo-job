@@ -717,8 +717,8 @@ pub async fn ask(
     text: asked.question.clone(),
     choices: asked.options.clone(),
     recommendation: recommendation(&asked.options, recommend, &asked.why),
-    // The service's own due time stands (docs/api.md, 「Questions and replies」): it counts once the question is
-    // put to a person, paces the one notice of a question left unanswered and settles nothing.
+    // No wait is named: the question goes to the supervisor, which holds it with no due time, and one it puts to
+    // the owner has none either, so no clock settles it in his place (docs/api.md, 「The due time」).
     wait_ms: None,
     told_by_asker: true,
   };

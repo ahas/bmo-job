@@ -237,8 +237,9 @@ no clock is among it.
 A job asks its supervisor, never the owner directly. The question is opened in the item's room as the
 supervisor's (docs/api.md, 「The addressee」) and handed to that room's supervisor at once, which judges what it
 is: it does or finds what is asked and settles the question with the result, talks it over with the job, or puts
-it to the owner in its own words, and from then on it is the owner's question as any other. Only the supervisor's
-own move puts a job's question before the owner: nothing the verb does, and no silence of the supervisor's, does.
+it to the owner in its own words, with two choices or more and its recommendation, and from then on it is the
+owner's question as any other. Only the supervisor's own move puts a job's question before the owner: nothing
+the verb does, and no silence of the supervisor's, does.
 
 | Form | What it does |
 |---|---|
@@ -255,7 +256,7 @@ own move puts a job's question before the owner: nothing the verb does, and no s
   |---|---|---|---|
   | The supervisor settled it | Its answer, as it wrote it | | 0 |
   | A person settled it, once the supervisor put it to him | One line: the option's words, or his own | | 0 |
-  | The owner's due time passed and the question was settled on its recommendation | One line: the recommendation's answer | `ask: question #<n> was settled on its recommendation, the owner's time having run out` | 0 |
+  | The service settled it on its recommendation, a due time having passed | One line: the recommendation's answer | `ask: question #<n> was settled on its recommendation, the owner's time having run out` | 0 |
   | Somebody settled the same question before this run | The same answer | `ask: question #<n> was settled before; its answer stands` | 0 |
   | The supervisor or the owner talked instead of settling; the question stays open | Their words, each under the voice that said it, and the call that answers them | | 3 |
   | The question could not be put, the receiver refusing it; it is closed `unsent` | Nothing | Why | 1 |
@@ -266,16 +267,24 @@ own move puts a job's question before the owner: nothing the verb does, and no s
   that is not the job's, or something only the supervisor's reach grants, such as a command on a node the job's
   account does not reach or a deployment the work cannot go on without. A choice puts two options or more with
   the one the job would take; a request the supervisor answers in its own words puts none. Either way it says
-  why the job cannot settle it itself. Its words are refused, and no question opened, where any of them carries
-  a fenced block of code or a token of more than 80 characters with no space — a script, an encoded payload, a
-  hash or a long address — or where the question runs past 500 characters or 5 lines, an option past 160
-  characters, or the reason past 240. A long reading goes into the archive and its address into the question.
-  The job's answer to a talk is refused on code the same way, its length its own.
+  why the job cannot settle it itself.
+- **It is written for someone who knows nothing of the work,** since the supervisor may put it before the owner:
+  what the work is, what each option does and how the options differ, and what follows under each, with no step
+  number, internal name or term left unexplained. An option says what it does in words of its own, so the owner
+  can take it without reading anything else.
+- **What is refused.** Its words are refused, and no question opened, where any of them carries a fenced block of
+  code or a token of more than 80 characters with no space — a script, an encoded payload, a hash or a long
+  address — or where the question runs past 500 characters or 5 lines, an option past 160 characters, or the
+  reason past 240. An option is refused where it is a bare label or a step number, said in fewer than two words
+  of two letters or more: `1`, `B`, `Option 2` and `Step 12` say nothing to someone who has not read the rest. A
+  long reading goes into the archive and its address into the question. The job's answer to a talk is refused
+  on code the same way, its length its own.
 - **An answer comes back as it was given,** read by the voice the service heard it in (docs/api.md, "Questions
   and replies"). The supervisor's is printed as it wrote it, a result of several lines among it; a person's is one
-  line, the option he took or his own words. A recommendation settles the question where the owner's due time
-  passes with no answer from him, and comes back as his would, one line, with a line on the standard error saying
-  it was the recommendation.
+  line, the option he took or his own words. A recommendation is shown to the owner and settles nothing in his
+  place: a question the supervisor puts to him has no due time (docs/api.md, 「The due time」). An answer the
+  service wrote from a recommendation, on a question that had a due time, comes back as his would, one line, with
+  a line on the standard error saying it was the recommendation.
 - **Putting the question.** The verb finds the room the question goes to, opens the question there for the
   supervisor with `toldByAsker` (docs/api.md, "Questions and replies"), and hands it to the room's supervisor
   through the receiver's `POST /instructions`, an order under the sort `job` of the kind
@@ -321,9 +330,8 @@ own move puts a job's question before the owner: nothing the verb does, and no s
   question the supervisor holds is a notice of its own, `question-talk`, kept the same way, and the rules above
   hold for the turn it wakes.
 - **Once it is the owner's,** put to him by the supervisor, the verb says so on the standard error once and waits
-  on his answer: the due time the service counts from that moment, a minute where the ask named none, settles
-  the question on its recommendation where nobody has answered by then (docs/api.md, 「When the due time
-  passes」). The job's talk on it goes to the room's supervisor as
+  on his answer however long it takes: a question the supervisor puts to him has no due time, so nothing settles
+  it in his place (docs/api.md, 「The due time」). The job's talk on it goes to the room's supervisor as
   `question-talk`, which puts it before him; an acknowledgement goes nowhere.
 - **Taken back by the supervisor** while the owner has not settled it (docs/api.md, 「The addressee」), it is the
   supervisor's again: the verb says so on the standard error once and waits on it with no notice to watch, since

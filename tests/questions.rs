@@ -9,6 +9,11 @@ use bmo_job_client::{
 
 use support::{START, Service};
 
+// Two choices, the fewest a question put to a person offers (docs/api.md, 「The addressee」).
+fn either() -> Vec<String> {
+  vec!["go ahead".into(), "hold off".into()]
+}
+
 fn reply(choice: Option<&str>, text: &str) -> NewReply {
   NewReply {
     choice: choice.map(str::to_owned),
@@ -93,6 +98,7 @@ async fn the_clock_pauses_resumes_and_tells_once_when_due() {
     .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
+      choices: either(),
       text: "May I go ahead?".into(),
       wait_ms: Some(10_000),
       ..NewQuestion::default()
@@ -166,8 +172,8 @@ async fn the_clock_pauses_resumes_and_tells_once_when_due() {
 async fn an_open_question_is_settled_by_its_first_reply_and_a_wait_ends_on_it() {
   let service = Service::start().await;
   let client = service.client();
-  let question = service
-    .supervisor()
+  // An open question is the supervisor's alone: a person is never asked one.
+  let question = client
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "What should it be called?".into(),
@@ -175,6 +181,7 @@ async fn an_open_question_is_settled_by_its_first_reply_and_a_wait_ends_on_it() 
     })
     .await
     .expect("asked");
+  assert_eq!(question.addressee, QuestionAddressee::Supervisor);
   let waiting = {
     let client = client.clone();
     tokio::spawn(async move {
@@ -189,7 +196,11 @@ async fn an_open_question_is_settled_by_its_first_reply_and_a_wait_ends_on_it() 
         .await
     })
   };
-  client.reply(question.id, &reply(None, "call it reader")).await.expect("answered");
+  service
+    .supervisor()
+    .reply(question.id, &reply(None, "call it reader"))
+    .await
+    .expect("answered");
   let replies = waiting.await.expect("the wait ends").expect("read");
   assert!(replies.items[0].settles);
   assert_eq!(client.question(question.id).await.expect("read").state, QuestionState::Answered);
@@ -202,6 +213,7 @@ async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_another() {
     .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
+      choices: either(),
       text: "May I?".into(),
       ..NewQuestion::default()
     })
@@ -213,6 +225,7 @@ async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_another() {
     .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
+      choices: either(),
       text: "May I?".into(),
       wait_ms: Some(120_000),
       ..NewQuestion::default()
@@ -225,6 +238,7 @@ async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_another() {
     .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
+      choices: either(),
       text: "May I?".into(),
       wait_ms: Some(999),
       ..NewQuestion::default()
@@ -373,6 +387,7 @@ async fn a_due_question_without_a_recommendation_stays_open_and_tells_once_until
     .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
+      choices: either(),
       text: "May I?".into(),
       wait_ms: Some(1_000),
       ..NewQuestion::default()
@@ -455,7 +470,7 @@ async fn a_recommendation_carries_an_answer_and_a_reason() {
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "Which?".into(),
-      choices: vec!["a".into()],
+      choices: vec!["a".into(), "b".into()],
       recommendation: Some(QuestionRecommendation {
         answer: " ".into(),
         why: "because".into(),
@@ -471,7 +486,7 @@ async fn a_recommendation_carries_an_answer_and_a_reason() {
     .ask(&NewQuestion {
       asker_name: "builder".into(),
       text: "Which?".into(),
-      choices: vec!["a".into()],
+      choices: vec!["a".into(), "b".into()],
       recommendation: Some(QuestionRecommendation {
         answer: "a".into(),
         why: " ".into(),
@@ -725,6 +740,7 @@ async fn the_list_filters_by_addressee() {
     .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
+      choices: either(),
       text: "Which way?".into(),
       ..NewQuestion::default()
     })
@@ -786,7 +802,7 @@ async fn only_the_supervising_caller_settles_a_question_the_supervisor_holds() {
 }
 
 #[tokio::test]
-async fn the_supervisor_puts_its_question_to_a_person_in_its_own_words_and_the_clock_starts_then() {
+async fn the_supervisor_puts_its_question_to_a_person_in_its_own_words_with_no_due_time() {
   let service = Service::start().await;
   let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
   let to_person = QuestionChange {
@@ -815,8 +831,16 @@ async fn the_supervisor_puts_its_question_to_a_person_in_its_own_words_and_the_c
     .expect("put to a person");
   assert_eq!(put.addressee, QuestionAddressee::Person);
   assert_eq!((put.readdressed_by.as_deref(), put.readdressed_at), (Some("lead"), Some(START + 5_000)));
-  assert_eq!(put.due_at, Some(START + 5_000 + 30_000), "the clock takes the ask's wait from the move");
+  assert_eq!(put.due_at, None, "the asker's wait is not a person's");
   assert_eq!((put.text.as_str(), put.choices.len()), ("Deploy the new unit tonight?", 2));
+
+  service.pass(86_400_000).await;
+  let waiting = service.client().question(question.id).await.expect("read");
+  assert_eq!(
+    (waiting.state, waiting.due_at),
+    (QuestionState::Open, None),
+    "nothing settles it in his place"
+  );
 
   let again = service
     .supervisor()
@@ -827,6 +851,105 @@ async fn the_supervisor_puts_its_question_to_a_person_in_its_own_words_and_the_c
 
   let answered = service.approver().reply(question.id, &reply(Some("tomorrow"), "tomorrow")).await;
   assert!(answered.expect("a person answers it now").settles);
+}
+
+#[tokio::test]
+async fn a_person_is_never_asked_an_open_question() {
+  let service = Service::start().await;
+  let asked = |addressee: Option<QuestionAddressee>, choices: Vec<String>| NewQuestion {
+    asker_name: "lead".into(),
+    addressee,
+    text: "Which way?".into(),
+    choices,
+    ..NewQuestion::default()
+  };
+
+  for addressee in [None, Some(QuestionAddressee::Person)] {
+    for choices in [vec![], vec!["go ahead".to_owned()]] {
+      let refused =
+        service.supervisor().ask(&asked(addressee, choices)).await.expect_err("too few choices");
+      assert_eq!(refused.code(), Some("no-choices"));
+    }
+  }
+  let held = service
+    .client()
+    .ask(&asked(Some(QuestionAddressee::Person), vec![]))
+    .await
+    .expect("asked");
+  assert_eq!(held.addressee, QuestionAddressee::Supervisor, "an open question goes to the supervisor");
+  let open = service
+    .supervisor()
+    .ask(&asked(Some(QuestionAddressee::Supervisor), vec![]))
+    .await
+    .expect("the supervisor holds an open question");
+  assert_eq!(open.addressee, QuestionAddressee::Supervisor);
+}
+
+#[tokio::test]
+async fn a_move_to_a_person_offers_two_choices_and_a_recommendation() {
+  let service = Service::start().await;
+  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+  let moved =
+    |choices: Option<Vec<String>>, recommendation: Option<QuestionRecommendation>| QuestionChange {
+      addressee: Some(QuestionAddressee::Person),
+      choices,
+      recommendation,
+      ..QuestionChange::default()
+    };
+
+  for choices in [None, Some(vec!["go ahead".to_owned()])] {
+    let refused = service
+      .supervisor()
+      .change_question(question.id, &moved(choices, recommended("go ahead")))
+      .await
+      .expect_err("too few choices");
+    assert_eq!(refused.code(), Some("no-choices"));
+  }
+  let unrecommended = service
+    .supervisor()
+    .change_question(question.id, &moved(Some(either()), None))
+    .await
+    .expect_err("no recommendation");
+  assert_eq!(unrecommended.code(), Some("no-recommendation"));
+
+  let standing = service.client().question(question.id).await.expect("read");
+  assert_eq!(
+    (standing.addressee, standing.choices.len()),
+    (QuestionAddressee::Supervisor, 0),
+    "nothing changed"
+  );
+}
+
+#[tokio::test]
+async fn a_persons_question_keeps_two_choices_and_no_clock_through_a_pause() {
+  let service = Service::start().await;
+  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+  put_to_a_person(&service, question.id).await;
+
+  for choices in [vec![], vec!["go ahead".to_owned()]] {
+    let narrowed = QuestionChange {
+      choices: Some(choices),
+      ..QuestionChange::default()
+    };
+    let refused = service.supervisor().change_question(question.id, &narrowed).await.expect_err("too few");
+    assert_eq!(refused.code(), Some("no-choices"));
+  }
+
+  let state = |state: QuestionState| QuestionChange {
+    state: Some(state),
+    ..QuestionChange::default()
+  };
+  service
+    .client()
+    .change_question(question.id, &state(QuestionState::Paused))
+    .await
+    .expect("paused");
+  let open = service
+    .client()
+    .change_question(question.id, &state(QuestionState::Open))
+    .await
+    .expect("open");
+  assert_eq!((open.state, open.due_at), (QuestionState::Open, None));
 }
 
 #[tokio::test]
@@ -854,6 +977,8 @@ async fn put_to_a_person(service: &Service, id: i64) -> bmo_job_client::Question
       id,
       &QuestionChange {
         addressee: Some(QuestionAddressee::Person),
+        choices: Some(either()),
+        recommendation: recommended("go ahead"),
         ..QuestionChange::default()
       },
     )
@@ -889,7 +1014,7 @@ async fn the_supervisor_never_settles_what_it_put_to_a_person_and_its_word_there
 
   let answer = service
     .approver()
-    .reply(question.id, &reply(None, "the rack one"))
+    .reply(question.id, &reply(Some("go ahead"), "go ahead"))
     .await
     .expect("the console answers");
   assert_eq!((answer.settles, answer.source), (true, ReplySource::Person));
@@ -1002,6 +1127,7 @@ async fn a_question_paused_past_its_due_time_runs_a_whole_wait_again_and_is_not_
     .supervisor()
     .ask(&NewQuestion {
       asker_name: "builder".into(),
+      choices: either(),
       text: "May I go ahead?".into(),
       wait_ms: Some(10_000),
       ..NewQuestion::default()
