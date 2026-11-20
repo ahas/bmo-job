@@ -802,7 +802,7 @@ async fn only_the_supervising_caller_settles_a_question_the_supervisor_holds() {
 }
 
 #[tokio::test]
-async fn the_supervisor_puts_its_question_to_a_person_in_its_own_words_with_no_due_time() {
+async fn the_supervisor_puts_its_question_to_a_person_in_its_own_words_and_his_minute_settles_it() {
   let service = Service::start().await;
   let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
   let to_person = QuestionChange {
@@ -831,16 +831,8 @@ async fn the_supervisor_puts_its_question_to_a_person_in_its_own_words_with_no_d
     .expect("put to a person");
   assert_eq!(put.addressee, QuestionAddressee::Person);
   assert_eq!((put.readdressed_by.as_deref(), put.readdressed_at), (Some("lead"), Some(START + 5_000)));
-  assert_eq!(put.due_at, None, "the asker's wait is not a person's");
+  assert_eq!(put.due_at, Some(START + 5_000 + 60_000), "a minute from the move, not the asker's wait");
   assert_eq!((put.text.as_str(), put.choices.len()), ("Deploy the new unit tonight?", 2));
-
-  service.pass(86_400_000).await;
-  let waiting = service.client().question(question.id).await.expect("read");
-  assert_eq!(
-    (waiting.state, waiting.due_at),
-    (QuestionState::Open, None),
-    "nothing settles it in his place"
-  );
 
   let again = service
     .supervisor()
@@ -849,8 +841,59 @@ async fn the_supervisor_puts_its_question_to_a_person_in_its_own_words_with_no_d
     .expect_err("already a person's");
   assert_eq!(again.code(), Some("conflict"));
 
-  let answered = service.approver().reply(question.id, &reply(Some("tomorrow"), "tomorrow")).await;
-  assert!(answered.expect("a person answers it now").settles);
+  service.pass(59_999).await;
+  assert_eq!(service.client().question(question.id).await.expect("read").state, QuestionState::Open);
+  service.pass(1).await;
+  assert_eq!(
+    service.client().question(question.id).await.expect("read").state,
+    QuestionState::Answered
+  );
+  let replies = service
+    .client()
+    .replies(question.id, &WaitQuery::default())
+    .await
+    .expect("replies")
+    .items;
+  assert_eq!(
+    replies.iter().map(|reply| (reply.source, reply.choice.as_deref())).collect::<Vec<_>>(),
+    [(ReplySource::Recommendation, Some("tomorrow"))]
+  );
+}
+
+#[tokio::test]
+async fn a_move_to_a_person_names_his_wait_and_only_a_move_does() {
+  let service = Service::start().await;
+  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+  let moved = |wait_ms: i64| QuestionChange {
+    addressee: Some(QuestionAddressee::Person),
+    choices: Some(either()),
+    recommendation: recommended("go ahead"),
+    wait_ms: Some(wait_ms),
+    ..QuestionChange::default()
+  };
+
+  for wait_ms in [999, 86_400_001] {
+    let refused = service
+      .supervisor()
+      .change_question(question.id, &moved(wait_ms))
+      .await
+      .expect_err("out of range");
+    assert_eq!(refused.code(), Some("bad-request"));
+  }
+  let put = service.supervisor().change_question(question.id, &moved(600_000)).await.expect("put");
+  assert_eq!(put.due_at, Some(START + 600_000));
+
+  let without_a_move = QuestionChange {
+    text: Some("Which way, again?".into()),
+    wait_ms: Some(600_000),
+    ..QuestionChange::default()
+  };
+  let refused = service
+    .supervisor()
+    .change_question(question.id, &without_a_move)
+    .await
+    .expect_err("no move");
+  assert_eq!(refused.code(), Some("bad-request"));
 }
 
 #[tokio::test]
@@ -921,7 +964,7 @@ async fn a_move_to_a_person_offers_two_choices_and_a_recommendation() {
 }
 
 #[tokio::test]
-async fn a_persons_question_keeps_two_choices_and_no_clock_through_a_pause() {
+async fn a_persons_question_keeps_two_choices_and_its_time_through_a_pause() {
   let service = Service::start().await;
   let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
   put_to_a_person(&service, question.id).await;
@@ -939,17 +982,28 @@ async fn a_persons_question_keeps_two_choices_and_no_clock_through_a_pause() {
     state: Some(state),
     ..QuestionChange::default()
   };
+  service.pass(20_000).await;
   service
     .client()
     .change_question(question.id, &state(QuestionState::Paused))
     .await
     .expect("paused");
+  service.pass(3_600_000).await;
   let open = service
     .client()
     .change_question(question.id, &state(QuestionState::Open))
     .await
     .expect("open");
-  assert_eq!((open.state, open.due_at), (QuestionState::Open, None));
+  assert_eq!(
+    (open.state, open.due_at),
+    (QuestionState::Open, Some(START + 20_000 + 3_600_000 + 40_000)),
+    "the forty seconds it had left"
+  );
+  service.pass(40_000).await;
+  assert_eq!(
+    service.client().question(question.id).await.expect("read").state,
+    QuestionState::Answered
+  );
 }
 
 #[tokio::test]

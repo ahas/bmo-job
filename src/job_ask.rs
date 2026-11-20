@@ -717,8 +717,8 @@ pub async fn ask(
     text: asked.question.clone(),
     choices: asked.options.clone(),
     recommendation: recommendation(&asked.options, recommend, &asked.why),
-    // No wait is named: the question goes to the supervisor, which holds it with no due time, and one it puts to
-    // the owner has none either, so no clock settles it in his place (docs/api.md, 「The due time」).
+    // No wait is named: the question goes to the supervisor, which holds it with no due time, and the owner's due
+    // time is the one the supervisor's move gives him (docs/api.md, 「The due time」).
     wait_ms: None,
     told_by_asker: true,
   };

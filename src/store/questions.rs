@@ -19,13 +19,13 @@ const QUESTION_COLUMNS: &str = "id, item_id, asker_name, scope, addressee, text,
   due_at, remaining_ms, due_told, told_by_asker, heard_through, wait_ms, readdressed_by, readdressed_at, told_as, \
   created_at";
 
-/// The wait a question gets where the asker names none, and the least and longest it may name.
-const DEFAULT_ASK_WAIT_MS: i64 = 60_000;
-const LEAST_ASK_WAIT_MS: i64 = 1_000;
-const LONGEST_ASK_WAIT_MS: i64 = 86_400_000;
+/// The wait a person is given where the ask or the move names none, and the least and longest either may name.
+const DEFAULT_WAIT_MS: i64 = 60_000;
+const LEAST_WAIT_MS: i64 = 1_000;
+const LONGEST_WAIT_MS: i64 = 86_400_000;
 
-/// A question as it is kept: the member, the time its clock had left when it was paused, and the wait it was
-/// asked with, which its clock runs again where it is opened past its due time.
+/// A question as it is kept: the member, the time its clock had left when it was paused, and the wait its due time
+/// was last counted with, which its clock runs again where it is opened past its due time.
 struct Kept {
   question: Question,
   remaining_ms: Option<i64>,
@@ -102,7 +102,7 @@ async fn save_question(tx: &mut Tx, kept: &Kept, due_told: bool) -> Result<(), R
   sqlx::query(
     "UPDATE questions SET state = $1, due_at = $2, remaining_ms = $3, due_told = $4, recommendation = $5, \
      text = $6, choices = $7, heard_through = $8, addressee = $9, readdressed_by = $10, readdressed_at = $11, \
-     told_as = $12 WHERE id = $13",
+     told_as = $12, wait_ms = $13 WHERE id = $14",
   )
   .bind(kept.question.state.as_str())
   .bind(kept.question.due_at)
@@ -116,6 +116,7 @@ async fn save_question(tx: &mut Tx, kept: &Kept, due_told: bool) -> Result<(), R
   .bind(&kept.question.readdressed_by)
   .bind(kept.question.readdressed_at)
   .bind(&kept.question.told_as)
+  .bind(kept.wait_ms)
   .bind(kept.question.id)
   .execute(&mut **tx)
   .await?;
@@ -126,6 +127,17 @@ async fn told_question(tx: &mut Tx, at: i64, kind: EventKind, question: &Questio
   let keys = question_keys(tx, question).await?;
   emit(tx, at, kind.as_str(), question, &keys).await?;
   Ok(())
+}
+
+/// The wait a person is given, as an ask or a move names it, or a minute where it names none.
+fn judged_wait(named: Option<i64>) -> Result<i64, Refusal> {
+  let wait = named.unwrap_or(DEFAULT_WAIT_MS);
+  if !(LEAST_WAIT_MS..=LONGEST_WAIT_MS).contains(&wait) {
+    return Err(Refusal::bad_request(format!(
+      "A question's wait is {LEAST_WAIT_MS} to {LONGEST_WAIT_MS} milliseconds."
+    )));
+  }
+  Ok(wait)
 }
 
 /// What a question's choices must be: each filled, none twice.
@@ -334,12 +346,7 @@ impl Store {
     if addressee == QuestionAddressee::Person {
       offered_to_a_person(&new.choices)?;
     }
-    let wait = new.wait_ms.unwrap_or(DEFAULT_ASK_WAIT_MS);
-    if !(LEAST_ASK_WAIT_MS..=LONGEST_ASK_WAIT_MS).contains(&wait) {
-      return Err(Refusal::bad_request(format!(
-        "A question's wait is {LEAST_ASK_WAIT_MS} to {LONGEST_ASK_WAIT_MS} milliseconds."
-      )));
-    }
+    let wait = judged_wait(new.wait_ms)?;
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut scope = new.scope;
@@ -399,6 +406,7 @@ impl Store {
       recommendation,
       heard_through,
       addressee,
+      wait_ms,
       told_as,
       if_addressee,
     } = change;
@@ -414,6 +422,10 @@ impl Store {
         "A change names a state, words, what the asker was handed, who the question is put to, or how it was told.",
       ));
     }
+    if wait_ms.is_some() && addressee != Some(QuestionAddressee::Person) {
+      return Err(Refusal::bad_request("waitMs goes with a change that puts the question to a person."));
+    }
+    let wait = judged_wait(wait_ms)?;
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut kept = kept_at(&mut tx, id).await?;
@@ -434,7 +446,7 @@ impl Store {
     let to_a_person = addressee == Some(QuestionAddressee::Person);
     let choices_given = choices.is_some();
     if let Some(addressee) = addressee {
-      readdressed(&mut kept, addressee, caller, now)?;
+      readdressed(&mut kept, addressee, wait, caller, now)?;
       due_told = false;
       moved = true;
     }
@@ -571,11 +583,13 @@ impl Store {
   }
 }
 
-/// Puts a question the supervisor holds to a person, or takes one back: only a caller that supervises the work may,
-/// and only while it waits. Either way it has no due time then (docs/api.md, 「The due time」).
+/// Puts a question the supervisor holds to a person, his due time counted with `wait` from now, or takes one back
+/// with no due time: only a caller that supervises the work may, and only while it waits (docs/api.md, 「The due
+/// time」).
 fn readdressed(
   kept: &mut Kept,
   addressee: QuestionAddressee,
+  wait: i64,
   caller: &Caller,
   now: i64,
 ) -> Result<(), Refusal> {
@@ -602,18 +616,21 @@ fn readdressed(
   question.state = QuestionState::Open;
   kept.remaining_ms = None;
   match addressee {
-    // Put to a person: the asker's wait was one for the supervisor, so nothing settles it in his place.
+    // Put to a person: his clock counts from now with the move's wait, the asker's having been one for the
+    // supervisor.
     QuestionAddressee::Person => {
       question.readdressed_by = caller.name.clone();
       question.readdressed_at = Some(now);
+      question.due_at = Some(now + wait);
+      kept.wait_ms = wait;
     }
-    // Taken back while nobody settled it: the supervisor's again.
+    // Taken back while nobody settled it: the supervisor's again, with no clock.
     QuestionAddressee::Supervisor => {
       question.readdressed_by = None;
       question.readdressed_at = None;
+      question.due_at = None;
     }
   }
-  question.due_at = None;
   Ok(())
 }
 

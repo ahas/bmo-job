@@ -372,28 +372,30 @@ recommendation's reason. The source is the voice a reply is heard in, whatever `
   move is answered 409 `conflict`. `withdrawn` is a question its asker took back or stopped waiting on; `unsent`
   is one that never reached anybody, because putting it to them failed. Neither waits for an answer, and neither
   is ever answered.
-- **The due time.** `waitMs` is how long the asker lets the question go unanswered by a person before its due
-  time passes, from 1 000 to 86 400 000 milliseconds, and 60 000 where left out. A question asked of a person
-  has its `dueAt` that far from when it was asked: its asker chose that wait for a person. One put to the
-  supervisor has none while the supervisor holds it, and is never told of as due there; and one the supervisor
-  puts to a person has none either. Its asker's wait was a wait for the supervisor, a minute where the asker named
-  none, which no person can meet, and the asker waits on the answer however long it takes; so nothing settles it
-  in the person's place, and its recommendation is only shown. Pausing a question keeps the time it had left and
-  reads `dueAt` as null; opening it again sets `dueAt` that far from then, or a whole `waitMs` from then where it
-  had no time left, as a question paused past its due time has, and leaves a question that had no due time
-  without one. A question is told of as due once each time it is put to a person: a pause and an opening again
-  tell nothing of a question already told of, whose due time has passed, and the `dueAt` it reads after opening
-  again passes untold. A paused question has no due time, so its time passes only once it is open again.
+- **The due time.** `waitMs` is how long a question goes unanswered by a person before its due time passes, from
+  1 000 to 86 400 000 milliseconds, and 60 000, one minute, where left out. Every question put to a person has a
+  due time, and it is counted from the moment it is put to him:
+  - **asked of a person,** its `dueAt` is the ask's `waitMs` from when it was asked;
+  - **put to a person by the supervisor,** its `dueAt` is the move's own `waitMs` from the moment of the move, a
+    minute where the move names none (「The addressee」 below). The asker's wait is not carried over: it was a wait
+    for the supervisor, which holds the question with no due time;
+  - **held by the supervisor,** a question has no due time and is never told of as due there.
+
+  Pausing a question keeps the time it had left and reads `dueAt` as null; opening it again sets `dueAt` that far
+  from then, or a whole wait from then where it had no time left, as a question paused past its due time has, the
+  wait being the one its due time was last counted with, and leaves a question the supervisor holds without one.
+  A question is told of as due once each time it is put to a person: a pause and an opening again tell nothing of
+  a question already told of, whose due time has passed, and the `dueAt` it reads after opening again passes
+  untold. A paused question has no due time, so its time passes only once it is open again.
 - **The recommendation.** `recommendation` is `{answer, why}`: `answer` is one of the question's choices, word
   for word, or a free answer where the choices do not cover it, and `why` is the one line saying why that is the
-  answer. It is shown to whoever answers, and it settles the question where nobody has by its due time, on a
-  question that has one. The
-  asker sets it only where it can make the case for that answer on the merits of the work and the rules; it is
-  never the safe option by default, and it is left null where it cannot make the case. An answer and a reason
-  are both required where it is given. An answer that is no choice but opens or closes on a choice's words, as a
-  choice with a mark or a remark beside it does, is answered 422 `not-a-choice`, whenever the recommendation or
-  the choices are given: the answer settles the question by itself, so it names a choice exactly or is plainly a
-  free answer.
+  answer. It is shown to whoever answers, and it settles a question put to a person where nobody has by its due
+  time (「When the due time passes」 below). The asker sets it only where it can make the case for that answer on
+  the merits of the work and the rules; it is never the safe option by default, and it is left null where it
+  cannot make the case. An answer and a reason are both required where it is given. An answer that is no choice
+  but opens or closes on a choice's words, as a choice with a mark or a remark beside it does, is answered 422
+  `not-a-choice`, whenever the recommendation or the choices are given: the answer settles the question by
+  itself, so it names a choice exactly or is plainly a free answer.
 - **When the due time passes** on an open question put to a person:
   - **with a recommendation,** the service settles it with that recommendation: a settling reply whose `source`
     is `recommendation`, whose `why` is the recommendation's reason, whose `choice` and `text` are the
@@ -431,17 +433,20 @@ recommendation's reason. The source is the voice a reply is heard in, whatever `
   - **who puts it to a person:** a change naming `addressee` `person` puts an `open` or `paused` question from the
     supervisor before a person, with that same token alone, any other caller's answered 403 `not-the-addressee`.
     It may carry the question in the supervisor's own words, choices and recommendation in the same change, and it
-    is judged as it stands once the change is made (what a person is offered, above). The question then stands
-    `open` with no due time (「The due time」 above), its `readdressedBy` the caller and its `readdressedAt` the
-    moment, and it is told as `question.changed`;
+    is judged as it stands once the change is made (what a person is offered, above). It may name `waitMs`, how
+    long the person has, judged as an ask's is and a minute where left out; `waitMs` on any other change is
+    answered 400 `bad-request`. The question then stands `open` with its `dueAt` that wait from the moment
+    (「The due time」 above), its `readdressedBy` the caller and its `readdressedAt` the moment, and it is told as
+    `question.changed`;
   - **who takes it back:** a change naming `addressee` `supervisor` takes an `open` or `paused` question put to a
     person back to the supervisor while no person has settled it, whoever put it there, with that same token
     alone, any other caller's answered 403 `not-the-addressee`. The question then stands `open` for the
     supervisor with no due time, its `readdressedBy` and `readdressedAt` null, and it is told as
     `question.changed`. A settled question is put nowhere, and a change naming the addressee the question
     already has is answered 409 `conflict`;
-  - **its clock:** a question the supervisor holds, and one it put to a person, has no due time (「The due time」
-    above);
+  - **its clock:** a question the supervisor holds has no due time, and one put to a person has one, counted from
+    the moment it is put to him and settling it on its recommendation once it passes (「The due time」 and 「When
+    the due time passes」 above);
   - **the list's filter,** `addressee`, one or several comma-separated;
   - **the bmo-receiver port,** which reads only the questions put to a person (「The bmo-receiver port」).
 - **Who tells of it.** A consumer that watches the events tells of a new question, except one asked with
@@ -466,7 +471,7 @@ recommendation's reason. The source is the voice a reply is heard in, whatever `
 | `GET /questions` | Questions filtered by `scope`, `itemId`, `addressee` and `state` |
 | `POST /questions` | Asks: `askerName`, `text` and `choices` required, `itemId`, `scope`, `addressee`, `recommendation`, `waitMs` and `toldByAsker` optional; a caller that does not supervise asks the supervisor whatever addressee it names. An `itemId` naming no item is answered 422 `unknown-item`; a question for a person with fewer than two choices 422 `no-choices`. Answers 201 |
 | `GET /questions/{questionId}` | One question |
-| `PATCH /questions/{questionId}` | Pauses it, opens it again, withdraws it or closes it unsent, with `state`; puts it again in other words with `text`, `choices` and `recommendation`; moves what its asker was handed with `heardThrough`; puts a question to the supervisor before a person, or takes one put to a person back to the supervisor, with `addressee`. A person's question left with fewer than two choices is answered 422 `no-choices`, and a move to a person with no recommendation 422 `no-recommendation` |
+| `PATCH /questions/{questionId}` | Pauses it, opens it again, withdraws it or closes it unsent, with `state`; puts it again in other words with `text`, `choices` and `recommendation`; moves what its asker was handed with `heardThrough`; puts a question to the supervisor before a person, with `addressee` and an optional `waitMs`, a minute where left out, or takes one put to a person back to the supervisor, with `addressee`. A person's question left with fewer than two choices is answered 422 `no-choices`, and a move to a person with no recommendation 422 `no-recommendation` |
 | `GET /questions/{questionId}/replies` | Its replies in key order, past `after`; `waitMs` waits for one |
 | `POST /questions/{questionId}/replies` | Replies: `text` and `actorName` required, `choice` and `settles` optional. Answers 201 |
 

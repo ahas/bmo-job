@@ -34,7 +34,7 @@ item standing then, a held one among them, and makes no list of label values.
 | `tasks` | A task of a work order: its stage, title, state and assignee |
 | `queues` | A queue by its name: its state and holds |
 | `leases` | A lease, standing or ended, the caller whose token took it, and what of its item it holds fixed; an ended one is kept so its key is answered `gone` |
-| `questions` | A question: its words and choices, the recommendation it carries and why, who it is put to, its state, the wait it was asked with, its due time, the time its clock had left when paused, whether its due time was told, whether its asker tells of it itself, the last reply its asker was handed, and who put it to a person in the supervisor's place and when, and the asker's reference to the notice it told it with |
+| `questions` | A question: its words and choices, the recommendation it carries and why, who it is put to, its state, the wait its due time is counted with (the ask's, or the move's once the supervisor puts it to a person), its due time, the time its clock had left when paused, whether its due time was told, whether its asker tells of it itself, the last reply its asker was handed, and who put it to a person in the supervisor's place and when, and the asker's reference to the notice it told it with |
 | `replies` | A reply to a question: its choice and words, who gave it, whether it settled, and where the recommendation gave it, that source and its reason |
 | `subscriptions` | A subscription, standing or ended: what it matches, where it posts and its secret, its state, span, failures, and the events it starts after and has handed over |
 | `label_values` | The values one label key may take, keyed by the key, and when the list last changed |

@@ -85,7 +85,8 @@ that would give any of them another value is refused 409 `item-frozen` with that
    `text`, two to four `choices` and a `recommendation` in your own words, written for someone who knows nothing
    of the work: what the work is, what each choice does, how they differ and what follows under each. A move with
    fewer than two choices is refused 422 `no-choices`, and one with no recommendation 422 `no-recommendation`.
-   The question then has no due time: the recommendation is only shown, and the person settles it. A question put
+   Give `waitMs` for how long the person has, a minute where left out, so name one he can meet: once it passes
+   unanswered, the recommendation settles the question, as a reply with `source` `recommendation`. A question put
    to a person that nobody has settled, which you would rather settle yourself, you take back with
    `job_question_change`, `addressee` `supervisor`, and it is yours again.
 

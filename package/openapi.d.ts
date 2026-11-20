@@ -816,10 +816,10 @@ export interface components {
             toldByAsker?: boolean;
             /**
              * Format: int64
-             * @description How long the question goes unanswered by a person before its due time passes, 1 000 to 86 400 000
-             *     milliseconds; 60 000 where left out. It counts from the ask, or for a question put to the supervisor from
-             *     the moment the supervisor puts it to a person. Its recommendation settles it then; with none, it is told of
-             *     as due and waits on.
+             * @description How long a question asked of a person goes unanswered by him before its due time passes, 1 000 to 86 400 000
+             *     milliseconds, counted from the ask; 60 000 where left out. Its recommendation settles it then; with none, it
+             *     is told of as due and waits on. A question put to the supervisor takes the wait the supervisor's move names
+             *     once it is put to a person, and none of this one.
              */
             waitMs?: number | null;
         };
@@ -1025,6 +1025,12 @@ export interface components {
             text?: string | null;
             /** @description The asker's reference to the notice it put the question before whoever answers it with, set or replaced. */
             toldAs?: string | null;
+            /**
+             * Format: int64
+             * @description With `addressee` `person` alone: how long the person has before its due time passes, 1 000 to 86 400 000
+             *     milliseconds from the move; 60 000 where left out. Its recommendation settles it then.
+             */
+            waitMs?: number | null;
         };
         /** @description One page of a list, and whether anything stands past its last member. */
         QuestionPage: {

@@ -389,7 +389,7 @@ async fn a_receiver_restarting_is_no_answer_and_the_question_goes_out_once() {
 }
 
 #[tokio::test]
-async fn no_clock_settles_the_question_with_the_supervisor_or_the_owner_and_his_answer_comes_back() {
+async fn the_owners_due_time_settles_the_question_on_its_recommendation_and_the_supervisors_never_does() {
   let service = Service::start().await;
   let client = service.client();
   let (address, heard) = receiver(false).await;
@@ -405,21 +405,18 @@ async fn no_clock_settles_the_question_with_the_supervisor_or_the_owner_and_his_
   service.pass(30 * 24 * 3_600_000).await;
   assert_eq!(client.question(question.id).await.expect("the question").state, QuestionState::Open);
 
-  // Put to the owner it has no due time either: the recommendation is only shown, and he settles it.
+  // Put to the owner, his minute runs, and the recommendation settles it when nobody answered.
   to_owner(&service, question.id).await;
-  service.pass(30 * 24 * 3_600_000).await;
-  let waiting = client.question(question.id).await.expect("the question");
-  assert_eq!((waiting.state, waiting.due_at), (QuestionState::Open, None));
-  client
-    .reply(question.id, &person(Some("loose grammar"), "loose grammar"))
-    .await
-    .expect("he answers");
+  service.pass(60_000).await;
 
   let (code, out, err) = ended(child).await;
 
   assert_eq!(code, 0, "{err}");
-  assert_eq!(out, "loose grammar\n", "the owner's own choice, not the recommendation");
-  assert!(!err.contains("settled on its recommendation"), "{err}");
+  assert_eq!(out, "strict grammar\n", "the recommendation, as the owner's own answer would come back");
+  assert!(
+    err.contains(&format!("question #{} was settled on its recommendation", question.id)),
+    "{err}"
+  );
   assert_eq!(*heard.withdrawn.lock().expect("the withdrawals"), [1]);
 }
 

@@ -958,7 +958,7 @@
             "type": "boolean"
           },
           "waitMs": {
-            "description": "How long the question goes unanswered by a person before its due time passes, 1 000 to 86 400 000\nmilliseconds; 60 000 where left out. It counts from the ask, or for a question put to the supervisor from\nthe moment the supervisor puts it to a person. Its recommendation settles it then; with none, it is told of\nas due and waits on.",
+            "description": "How long a question asked of a person goes unanswered by him before its due time passes, 1 000 to 86 400 000\nmilliseconds, counted from the ask; 60 000 where left out. Its recommendation settles it then; with none, it\nis told of as due and waits on. A question put to the supervisor takes the wait the supervisor's move names\nonce it is put to a person, and none of this one.",
             "format": "int64",
             "type": [
               "integer",
@@ -1459,6 +1459,14 @@
             "description": "The asker's reference to the notice it put the question before whoever answers it with, set or replaced.",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "waitMs": {
+            "description": "With `addressee` `person` alone: how long the person has before its due time passes, 1 000 to 86 400 000\nmilliseconds from the move; 60 000 where left out. Its recommendation settles it then.",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           }
@@ -5505,7 +5513,7 @@
             "type": "boolean"
           },
           "waitMs": {
-            "description": "How long the question goes unanswered by a person before its due time passes, 1 000 to 86 400 000\nmilliseconds; 60 000 where left out. It counts from the ask, or for a question put to the supervisor from\nthe moment the supervisor puts it to a person. Its recommendation settles it then; with none, it is told of\nas due and waits on.",
+            "description": "How long a question asked of a person goes unanswered by him before its due time passes, 1 000 to 86 400 000\nmilliseconds, counted from the ask; 60 000 where left out. Its recommendation settles it then; with none, it\nis told of as due and waits on. A question put to the supervisor takes the wait the supervisor's move names\nonce it is put to a person, and none of this one.",
             "format": "int64",
             "type": [
               "integer",
@@ -5635,7 +5643,7 @@
       "route": "POST /questions/{questionId}/replies"
     },
     {
-      "description": "Change a question while it waits: its state, its words, choices and recommendation; with addressee person, put a question the supervisor holds to a person, in your own words, with two choices or more and a recommendation, in the same change, and it has no due time then; with addressee supervisor, take a question put to a person back while nobody has settled it. Only a caller the deployment marks as supervising the work moves the addressee.",
+      "description": "Change a question while it waits: its state, its words, choices and recommendation; with addressee person, put a question the supervisor holds to a person, in your own words, with two choices or more and a recommendation, in the same change, and waitMs for how long the person has, a minute where left out, after which the recommendation settles it; with addressee supervisor, take a question put to a person back while nobody has settled it. Only a caller the deployment marks as supervising the work moves the addressee.",
       "input": {
         "description": "A route's path key and the rest of its input together, as one tool's input.",
         "properties": {
@@ -5712,6 +5720,14 @@
             "description": "The asker's reference to the notice it put the question before whoever answers it with, set or replaced.",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "waitMs": {
+            "description": "With `addressee` `person` alone: how long the person has before its due time passes, 1 000 to 86 400 000\nmilliseconds from the move; 60 000 where left out. Its recommendation settles it then.",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           }

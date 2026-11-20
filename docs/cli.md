@@ -256,7 +256,7 @@ the verb does, and no silence of the supervisor's, does.
   |---|---|---|---|
   | The supervisor settled it | Its answer, as it wrote it | | 0 |
   | A person settled it, once the supervisor put it to him | One line: the option's words, or his own | | 0 |
-  | The service settled it on its recommendation, a due time having passed | One line: the recommendation's answer | `ask: question #<n> was settled on its recommendation, the owner's time having run out` | 0 |
+  | The owner's due time passed and the question was settled on its recommendation | One line: the recommendation's answer | `ask: question #<n> was settled on its recommendation, the owner's time having run out` | 0 |
   | Somebody settled the same question before this run | The same answer | `ask: question #<n> was settled before; its answer stands` | 0 |
   | The supervisor or the owner talked instead of settling; the question stays open | Their words, each under the voice that said it, and the call that answers them | | 3 |
   | The question could not be put, the receiver refusing it; it is closed `unsent` | Nothing | Why | 1 |
@@ -281,10 +281,9 @@ the verb does, and no silence of the supervisor's, does.
   on code the same way, its length its own.
 - **An answer comes back as it was given,** read by the voice the service heard it in (docs/api.md, "Questions
   and replies"). The supervisor's is printed as it wrote it, a result of several lines among it; a person's is one
-  line, the option he took or his own words. A recommendation is shown to the owner and settles nothing in his
-  place: a question the supervisor puts to him has no due time (docs/api.md, 「The due time」). An answer the
-  service wrote from a recommendation, on a question that had a due time, comes back as his would, one line, with
-  a line on the standard error saying it was the recommendation.
+  line, the option he took or his own words. A recommendation settles the question where the owner's due time
+  passes with no answer from him, and comes back as his would, one line, with a line on the standard error saying
+  it was the recommendation.
 - **Putting the question.** The verb finds the room the question goes to, opens the question there for the
   supervisor with `toldByAsker` (docs/api.md, "Questions and replies"), and hands it to the room's supervisor
   through the receiver's `POST /instructions`, an order under the sort `job` of the kind
@@ -330,9 +329,10 @@ the verb does, and no silence of the supervisor's, does.
   question the supervisor holds is a notice of its own, `question-talk`, kept the same way, and the rules above
   hold for the turn it wakes.
 - **Once it is the owner's,** put to him by the supervisor, the verb says so on the standard error once and waits
-  on his answer however long it takes: a question the supervisor puts to him has no due time, so nothing settles
-  it in his place (docs/api.md, 「The due time」). The job's talk on it goes to the room's supervisor as
-  `question-talk`, which puts it before him; an acknowledgement goes nowhere.
+  on his answer: the due time the service counts from that moment, the wait the supervisor's move named or a
+  minute where it named none, settles the question on its recommendation where nobody has answered by then
+  (docs/api.md, 「The due time」 and 「When the due time passes」). The job's talk on it goes to the room's
+  supervisor as `question-talk`, which puts it before him; an acknowledgement goes nowhere.
 - **Taken back by the supervisor** while the owner has not settled it (docs/api.md, 「The addressee」), it is the
   supervisor's again: the verb says so on the standard error once and waits on it with no notice to watch, since
   the supervisor took it itself.
