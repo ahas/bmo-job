@@ -313,7 +313,7 @@ pub fn tools() -> Vec<JobTool> {
       "Change a question while it waits: its state, its words, choices and recommendation; with addressee person, \
        put a question the supervisor holds to a person, in your own words, with two choices or more and a \
        recommendation, in the same change, and waitMs for how long the person has, held to the deployment's \
-       person wait, a minute unless its settings name another, which also stands where left out, after which the \
+       question wait, a minute unless its settings name another, which also stands where left out, after which the \
        recommendation settles it; with addressee supervisor, take a question put to a person back while \
        nobody has settled it. Only a caller the deployment marks as supervising the work moves the addressee.",
       "PATCH /questions/{questionId}",

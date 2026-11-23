@@ -80,21 +80,21 @@ fn the_unattended_labels_are_read_and_one_naming_no_key_is_refused() {
 }
 
 #[test]
-fn the_person_wait_is_read_a_minute_where_left_out_and_one_out_of_range_is_refused() {
+fn the_question_wait_is_read_a_minute_where_left_out_and_one_out_of_range_is_refused() {
   let example = Settings::load(&Path::new(ROOT).join("settings.example.toml")).expect("the example loads");
-  assert_eq!(example.questions.person_wait_ms, 60_000);
+  assert_eq!(example.questions.wait_ms, 60_000);
 
   let dir = tempfile::tempdir().expect("a scratch directory");
   let settings = |questions: &str| {
     format!("[server]\nlisten = \"x\"\ntoken_file = \"t\"\n{questions}[database]\nurl = \"sqlite://a\"\n")
   };
   let none = Settings::load(&written(dir.path(), "none.toml", &settings(""))).expect("loads");
-  assert_eq!(none.questions.person_wait_ms, 60_000, "left out, a minute");
-  let named = written(dir.path(), "named.toml", &settings("[questions]\nperson_wait_ms = 600000\n"));
-  assert_eq!(Settings::load(&named).expect("loads").questions.person_wait_ms, 600_000);
+  assert_eq!(none.questions.wait_ms, 60_000, "left out, a minute");
+  let named = written(dir.path(), "named.toml", &settings("[questions]\nwait_ms = 600000\n"));
+  assert_eq!(Settings::load(&named).expect("loads").questions.wait_ms, 600_000);
   for (name, wait) in [("short.toml", 999), ("long.toml", 86_400_001)] {
-    let refused = written(dir.path(), name, &settings(&format!("[questions]\nperson_wait_ms = {wait}\n")));
-    assert!(Settings::load(&refused).expect_err("out of range").contains("person wait"));
+    let refused = written(dir.path(), name, &settings(&format!("[questions]\nwait_ms = {wait}\n")));
+    assert!(Settings::load(&refused).expect_err("out of range").contains("question wait"));
   }
   let unknown = written(dir.path(), "unknown.toml", &settings("[questions]\nwait = 1\n"));
   assert!(Settings::load(&unknown).expect_err("an unknown key").contains("wait"));

@@ -19,9 +19,10 @@ const QUESTION_COLUMNS: &str = "id, item_id, asker_name, scope, addressee, text,
   due_at, remaining_ms, due_told, told_by_asker, heard_through, wait_ms, readdressed_by, readdressed_at, told_as, \
   created_at";
 
-/// The person wait where the deployment names none: the wait a person is given where the ask or the move names
-/// none, and the longest he is given where one names more (docs/settings.md, `[questions]`).
-pub const PERSON_WAIT_MS: i64 = 60_000;
+/// The question wait where the deployment names none: how long the supervisor holds a question before the service
+/// puts it to a person, the wait a person is given where the ask or the move names none, and the longest he is
+/// given where one names more (docs/settings.md, `[questions]`).
+pub const QUESTION_WAIT_MS: i64 = 60_000;
 /// The least and longest wait an ask, a move or the deployment may name.
 pub const LEAST_WAIT_MS: i64 = 1_000;
 pub const LONGEST_WAIT_MS: i64 = 86_400_000;
@@ -131,18 +132,19 @@ async fn told_question(tx: &mut Tx, at: i64, kind: EventKind, question: &Questio
   Ok(())
 }
 
-/// The wait a person is given: the one an ask or a move names, held to the deployment's person wait, or the person
-/// wait where it names none. No caller keeps a question waiting on a person longer than the deployment allows.
-fn judged_wait(named: Option<i64>, person_wait_ms: i64) -> Result<i64, Refusal> {
+/// The wait a person is given: the one an ask or a move names, held to the deployment's question wait, or the
+/// question wait where it names none. No caller keeps a question waiting on a person longer than the deployment
+/// allows.
+fn judged_wait(named: Option<i64>, question_wait_ms: i64) -> Result<i64, Refusal> {
   let Some(named) = named else {
-    return Ok(person_wait_ms);
+    return Ok(question_wait_ms);
   };
   if !(LEAST_WAIT_MS..=LONGEST_WAIT_MS).contains(&named) {
     return Err(Refusal::bad_request(format!(
       "A question's wait is {LEAST_WAIT_MS} to {LONGEST_WAIT_MS} milliseconds."
     )));
   }
-  Ok(named.min(person_wait_ms))
+  Ok(named.min(question_wait_ms))
 }
 
 /// What a question's choices must be: each filled, none twice.
@@ -237,12 +239,15 @@ pub(crate) async fn delete_question(tx: &mut Tx, id: i64, now: i64) -> Result<()
 /// The actor a reply the due time settled carries; its source says the recommendation gave it.
 const DUE_TIME_ACTOR: &str = "due time";
 
-/// Settles each open question whose due time has passed by `now` with its recommendation, one told of as due before
-/// it was given one among them, and tells once of each such question that has none, which stays open for a person.
-pub(crate) async fn tell_due_questions(tx: &mut Tx, now: i64) -> Result<usize, Refusal> {
+/// Puts each open question the supervisor holds whose due time has passed by `now` to a person, his due time
+/// `wait` from now; settles each open question put to a person whose due time has passed with its recommendation,
+/// one told of as due before it was given one among them, and tells once of each such question that has none,
+/// which stays open for a person (docs/api.md, 「When the due time passes」).
+pub(crate) async fn tell_due_questions(tx: &mut Tx, now: i64, wait: i64) -> Result<usize, Refusal> {
+  let handed = hand_over_due_questions(tx, now, wait).await?;
   let rows = sqlx::query(&format!(
-    "SELECT {QUESTION_COLUMNS} FROM questions WHERE state = 'open' AND due_at IS NOT NULL AND due_at <= $1 \
-     AND (due_told = 0 OR recommendation IS NOT NULL)"
+    "SELECT {QUESTION_COLUMNS} FROM questions WHERE state = 'open' AND addressee = 'person' AND due_at IS NOT NULL \
+     AND due_at <= $1 AND (due_told = 0 OR recommendation IS NOT NULL)"
   ))
   .bind(now)
   .fetch_all(&mut **tx)
@@ -256,6 +261,35 @@ pub(crate) async fn tell_due_questions(tx: &mut Tx, now: i64) -> Result<usize, R
         told_question(tx, now, EventKind::QuestionDue, &kept.question).await?;
       }
     }
+  }
+  Ok(handed + rows.len())
+}
+
+/// Puts each open question the supervisor has held past its due time to a person as it stands, with the asker's
+/// recommendation or none, his due time `wait` from now. A question the supervisor holds with no due time, paused
+/// or open, which only a store from before the supervisor had one keeps, is opened with one `wait` from now.
+async fn hand_over_due_questions(tx: &mut Tx, now: i64, wait: i64) -> Result<usize, Refusal> {
+  let rows = sqlx::query(&format!(
+    "SELECT {QUESTION_COLUMNS} FROM questions WHERE state IN ('open', 'paused') AND addressee = 'supervisor' \
+     AND (due_at IS NULL OR due_at <= $1)"
+  ))
+  .bind(now)
+  .fetch_all(&mut **tx)
+  .await?;
+  for row in &rows {
+    let mut kept = kept_from(row)?;
+    let question = &mut kept.question;
+    if question.due_at.is_some() {
+      question.addressee = QuestionAddressee::Person;
+      question.readdressed_by = Some(DUE_TIME_ACTOR.to_owned());
+      question.readdressed_at = Some(now);
+    }
+    question.state = QuestionState::Open;
+    question.due_at = Some(now + wait);
+    kept.remaining_ms = None;
+    kept.wait_ms = wait;
+    save_question(tx, &kept, false).await?;
+    told_question(tx, now, EventKind::QuestionChanged, &kept.question).await?;
   }
   Ok(rows.len())
 }
@@ -351,7 +385,7 @@ impl Store {
     if addressee == QuestionAddressee::Person {
       offered_to_a_person(&new.choices)?;
     }
-    let wait = judged_wait(new.wait_ms, self.person_wait_ms)?;
+    let wait = judged_wait(new.wait_ms, self.question_wait_ms)?;
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut scope = new.scope;
@@ -363,7 +397,12 @@ impl Store {
         scope = item.scope;
       }
     }
-    let due_at = (addressee == QuestionAddressee::Person).then_some(now + wait);
+    // The supervisor holds it for the question wait whatever the ask names, which is a person's wait.
+    let wait = match addressee {
+      QuestionAddressee::Person => wait,
+      QuestionAddressee::Supervisor => self.question_wait_ms,
+    };
+    let due_at = Some(now + wait);
     let id: i64 = sqlx::query_scalar(
       "INSERT INTO questions (item_id, asker_name, scope, addressee, text, choices, recommendation, state, \
        due_at, due_told, told_by_asker, wait_ms, created_at) \
@@ -430,7 +469,7 @@ impl Store {
     if wait_ms.is_some() && addressee != Some(QuestionAddressee::Person) {
       return Err(Refusal::bad_request("waitMs goes with a change that puts the question to a person."));
     }
-    let wait = judged_wait(wait_ms, self.person_wait_ms)?;
+    let wait = judged_wait(wait_ms, self.question_wait_ms)?;
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut kept = kept_at(&mut tx, id).await?;
@@ -492,6 +531,14 @@ impl Store {
       match (from, state) {
         // A pause and an opening again keep whether the due time was told: a question is told of as due once
         // each time it is put to a person.
+        // The supervisor's wait runs whatever is said: it is never stopped.
+        (QuestionState::Open, QuestionState::Paused)
+          if kept.question.addressee == QuestionAddressee::Supervisor =>
+        {
+          return Err(Refusal::conflict(format!(
+            "Question {id} is held by the supervisor, whose wait is never paused."
+          )));
+        }
         (QuestionState::Open, QuestionState::Paused) => {
           kept.remaining_ms = kept.question.due_at.map(|due| (due - now).max(0));
           kept.question.due_at = None;
@@ -588,9 +635,9 @@ impl Store {
   }
 }
 
-/// Puts a question the supervisor holds to a person, his due time counted with `wait` from now, or takes one back
-/// with no due time: only a caller that supervises the work may, and only while it waits (docs/api.md, 「The due
-/// time」).
+/// Puts a question the supervisor holds to a person, or takes one back to the supervisor, the new holder's due time
+/// counted with `wait` from now: only a caller that supervises the work may, and only while it waits (docs/api.md,
+/// 「The due time」).
 fn readdressed(
   kept: &mut Kept,
   addressee: QuestionAddressee,
@@ -629,11 +676,12 @@ fn readdressed(
       question.due_at = Some(now + wait);
       kept.wait_ms = wait;
     }
-    // Taken back while nobody settled it: the supervisor's again, with no clock.
+    // Taken back while nobody settled it: the supervisor's again, for the question wait.
     QuestionAddressee::Supervisor => {
       question.readdressed_by = None;
       question.readdressed_at = None;
-      question.due_at = None;
+      question.due_at = Some(now + wait);
+      kept.wait_ms = wait;
     }
   }
   Ok(())

@@ -24,9 +24,10 @@ supervises = true
 [unattended]
 labels = ["lane=pr-review"]
 
-# How long a question put to a person waits for him at the most, and where its ask or move names no wait.
+# How long a question waits on the supervisor before it is put to a person, and on a person before its
+# recommendation settles it; no caller waits longer.
 [questions]
-person_wait_ms = 60000
+wait_ms = 60000
 
 [database]
 url = "sqlite://job.db?mode=rwc"

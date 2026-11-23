@@ -7,7 +7,7 @@ use bmo_job_client::Labels;
 use serde::Deserialize;
 
 use crate::access::{Access, Caller};
-use crate::store::{LEAST_WAIT_MS, LONGEST_WAIT_MS, PERSON_WAIT_MS};
+use crate::store::{LEAST_WAIT_MS, LONGEST_WAIT_MS, QUESTION_WAIT_MS};
 
 /// The variable naming the settings file.
 pub const SETTINGS_VARIABLE: &str = "BMO_JOB_SETTINGS";
@@ -24,31 +24,31 @@ pub struct Settings {
   /// The labels whose items open by themselves.
   #[serde(default)]
   pub unattended: Unattended,
-  /// How long a question put to a person waits for him.
+  /// How long a question waits on whoever holds it.
   #[serde(default)]
   pub questions: Questions,
 }
 
-/// How long a question put to a person waits for him (docs/settings.md, `[questions]`).
+/// How long a question waits on whoever holds it (docs/settings.md, `[questions]`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Questions {
-  /// The wait a question put to a person has where its ask or move names none, and the longest it has where one
-  /// names more.
-  #[serde(default = "Questions::default_person_wait_ms")]
-  pub person_wait_ms: i64,
+  /// The question wait: how long the supervisor holds a question before it is put to a person, and the longest a
+  /// person is given before its recommendation settles it.
+  #[serde(default = "Questions::default_wait_ms")]
+  pub wait_ms: i64,
 }
 
 impl Questions {
-  fn default_person_wait_ms() -> i64 {
-    PERSON_WAIT_MS
+  fn default_wait_ms() -> i64 {
+    QUESTION_WAIT_MS
   }
 }
 
 impl Default for Questions {
   fn default() -> Self {
     Self {
-      person_wait_ms: PERSON_WAIT_MS,
+      wait_ms: QUESTION_WAIT_MS,
     }
   }
 }
@@ -140,10 +140,10 @@ impl Settings {
         return Err(format!("{}: the unattended label {label:?} is not key=value", path.display()));
       }
     }
-    let person_wait = settings.questions.person_wait_ms;
-    if !(LEAST_WAIT_MS..=LONGEST_WAIT_MS).contains(&person_wait) {
+    let wait = settings.questions.wait_ms;
+    if !(LEAST_WAIT_MS..=LONGEST_WAIT_MS).contains(&wait) {
       return Err(format!(
-        "{}: the person wait {person_wait} is not {LEAST_WAIT_MS} to {LONGEST_WAIT_MS} milliseconds",
+        "{}: the question wait {wait} is not {LEAST_WAIT_MS} to {LONGEST_WAIT_MS} milliseconds",
         path.display()
       ));
     }

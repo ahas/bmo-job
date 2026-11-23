@@ -60,14 +60,14 @@ worker holds, which is filed with the label `lane` at `pr-review` (docs/base-lib
 
 ### `[questions]`
 
-How long a question put to a person waits for him (docs/api.md, 「Questions and replies」).
+How long a question waits on whoever holds it (docs/api.md, 「Questions and replies」).
 
 | Key | What it holds |
 |---|---|
-| `person_wait_ms` | The person wait, 1 000 to 86 400 000 milliseconds; left out, 60 000, a minute. It is the wait a question put to a person has where its ask or the supervisor's move names none, and the longest it has where one names more: once it passes unanswered, the question's recommendation settles it. A value outside the range is refused at start |
+| `wait_ms` | The question wait, 1 000 to 86 400 000 milliseconds; left out, 60 000, a minute. A question the supervisor holds waits on it this long, and is then put to a person by the service; a question put to a person waits on him this long where its ask or the supervisor's move names no shorter wait, and its recommendation then settles it. A value outside the range is refused at start |
 
-A deployment names here how long a person is given before the recommendation answers in his place. It binds every
-caller alike, a supervisor's move as much as an ask, so no caller can keep a question waiting on him longer.
+It binds every caller alike: an ask or a move naming a longer wait is held to it, and a question the supervisor
+holds is never paused, so no caller keeps a question waiting longer than the deployment says.
 
 ### `[database]`
 

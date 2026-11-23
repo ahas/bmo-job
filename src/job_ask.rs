@@ -33,6 +33,9 @@ pub const USAGE: &str = "usage: bmo job ask --todo <id> --question '<what is to 
        bmo job ask --show <question>
        bmo job ask --todo <id> --show";
 
+// The name a question put to the owner by the service, once the supervisor's time ran out, carries as who put it
+// there (docs/api.md, 「When the due time passes」).
+const DUE_TIME_ACTOR: &str = "due time";
 // How long one read of the replies is held open; the wait goes on past it. While the supervisor's notice is
 // watched, a read is held shorter, so a turn that ended with no word on the question is read soon after.
 const HELD_OPEN_MS: i64 = 60_000;
@@ -1268,14 +1271,21 @@ async fn wait_on(
       }
     };
 
-    // The supervisor put it to the owner: its notice is done with, and his answer is waited on.
+    // The supervisor, or the service once the supervisor's time ran out, put it to the owner: its notice is done
+    // with, and his answer is waited on.
     if question.addressee == QuestionAddressee::Supervisor && current.addressee == QuestionAddressee::Person
     {
       if let Some(notice) = watch.take().map(|watched| watched.notice) {
         receiver.withdraw(notice).await;
       }
 
-      eprintln!("ask: the supervisor put question #{id} to the owner; waiting on his answer");
+      if current.readdressed_by.as_deref() == Some(DUE_TIME_ACTOR) {
+        eprintln!(
+          "ask: the supervisor's time on question #{id} ran out, so the service put it to the owner; waiting on his answer"
+        );
+      } else {
+        eprintln!("ask: the supervisor put question #{id} to the owner; waiting on his answer");
+      }
     }
 
     // The supervisor took it back from the owner: it holds it itself, so there is no notice to watch.

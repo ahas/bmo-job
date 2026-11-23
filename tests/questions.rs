@@ -245,7 +245,7 @@ async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_a_shorter_one_never
     })
     .await
     .expect("asked");
-  assert_eq!(longer.due_at, Some(START + 60_000), "held to the person wait, a minute");
+  assert_eq!(longer.due_at, Some(START + 60_000), "held to the question wait, a minute");
 
   let too_short = service
     .supervisor()
@@ -717,30 +717,122 @@ async fn a_question_any_other_caller_asks_of_a_person_goes_to_the_supervisor_fir
 
     assert_eq!(
       (question.addressee, question.due_at),
-      (QuestionAddressee::Supervisor, None),
-      "{addressee:?} from a caller that does not supervise"
+      (QuestionAddressee::Supervisor, Some(START + 60_000)),
+      "{addressee:?} from a caller that does not supervise, held by the supervisor for the question wait"
     );
   }
 }
 
 #[tokio::test]
-async fn a_question_the_supervisor_holds_has_no_clock_and_is_never_told_due() {
+async fn a_question_the_supervisor_leaves_for_a_minute_goes_to_a_person_and_settles_a_minute_later() {
   let service = Service::start().await;
   let client = service.client();
   let asked = NewQuestion {
     choices: vec!["probe".into(), "skip".into()],
     recommendation: recommended("probe"),
+    wait_ms: Some(3_600_000),
     ..put_to_the_supervisor(None)
   };
   let question = client.ask(&asked).await.expect("asked");
-  assert_eq!((question.addressee, question.due_at), (QuestionAddressee::Supervisor, None));
+  assert_eq!(
+    (question.addressee, question.due_at),
+    (QuestionAddressee::Supervisor, Some(START + 60_000)),
+    "the supervisor has the question wait, whatever the ask names"
+  );
 
-  service.pass(86_400_000).await;
-  assert!(client.events_page(&kinds("question.due")).await.expect("read").items.is_empty());
+  // A word that settles nothing stops no clock.
+  let word = NewReply {
+    settles: Some(false),
+    ..reply(None, "deploying; I answer once it is live")
+  };
+  service.supervisor().reply(question.id, &word).await.expect("a word");
+  service.pass(59_999).await;
+  assert_eq!(
+    client.question(question.id).await.expect("read").addressee,
+    QuestionAddressee::Supervisor
+  );
+  service.pass(1).await;
+  let handed = client.question(question.id).await.expect("read");
+  assert_eq!(
+    (
+      handed.addressee,
+      handed.state,
+      handed.due_at,
+      handed.readdressed_by.as_deref(),
+      handed.readdressed_at
+    ),
+    (
+      QuestionAddressee::Person,
+      QuestionState::Open,
+      Some(START + 120_000),
+      Some("due time"),
+      Some(START + 60_000)
+    ),
+    "the service puts it to a person, who has the question wait"
+  );
+  let refused = service.supervisor().reply(question.id, &settling("probed")).await.expect_err("his now");
+  assert_eq!(refused.code(), Some("not-the-addressee"));
+
+  service.pass(60_000).await;
+  let replies = client.replies(question.id, &WaitQuery::default()).await.expect("replies").items;
+  assert_eq!(
+    replies
+      .iter()
+      .filter(|reply| reply.settles)
+      .map(|reply| (reply.source, reply.choice.as_deref()))
+      .collect::<Vec<_>>(),
+    [(ReplySource::Recommendation, Some("probe"))],
+    "the asker's recommendation settles it once his minute passes"
+  );
+}
+
+#[tokio::test]
+async fn an_open_question_the_supervisor_leaves_goes_to_a_person_as_it_stands_and_is_told_due() {
+  let service = Service::start().await;
+  let client = service.client();
+  let question = client.ask(&put_to_the_supervisor(None)).await.expect("asked");
+  assert!(question.choices.is_empty() && question.recommendation.is_none());
+
+  service.pass(60_000).await;
+  let handed = client.question(question.id).await.expect("read");
+  assert_eq!((handed.addressee, handed.due_at), (QuestionAddressee::Person, Some(START + 120_000)));
+  service.pass(60_000).await;
+  assert_eq!(client.events_page(&kinds("question.due")).await.expect("read").items.len(), 1);
   assert_eq!(
     client.question(question.id).await.expect("read").state,
     QuestionState::Open,
-    "nor settled"
+    "his to answer"
+  );
+}
+
+#[tokio::test]
+async fn the_supervisor_cannot_stop_its_own_clock() {
+  let service = Service::start().await;
+  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+  let pause = QuestionChange {
+    state: Some(QuestionState::Paused),
+    ..QuestionChange::default()
+  };
+  for client in [service.supervisor(), service.client()] {
+    let refused = client.change_question(question.id, &pause).await.expect_err("never paused");
+    assert_eq!(refused.code(), Some("conflict"));
+  }
+}
+
+#[tokio::test]
+async fn the_deployments_question_wait_is_the_supervisors_too() {
+  let service = Service::start_with_question_wait(600_000).await;
+  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+  assert_eq!(question.due_at, Some(START + 600_000));
+  service.pass(599_999).await;
+  assert_eq!(
+    service.client().question(question.id).await.expect("read").addressee,
+    QuestionAddressee::Supervisor
+  );
+  service.pass(1).await;
+  assert_eq!(
+    service.client().question(question.id).await.expect("read").addressee,
+    QuestionAddressee::Person
   );
 }
 
@@ -1164,7 +1256,8 @@ async fn the_supervisor_takes_back_a_question_put_to_a_person_that_nobody_settle
   let taken = service.supervisor().change_question(question.id, &back).await.expect("taken back");
   assert_eq!(
     (taken.addressee, taken.state, taken.due_at, taken.readdressed_by),
-    (QuestionAddressee::Supervisor, QuestionState::Open, None, None)
+    (QuestionAddressee::Supervisor, QuestionState::Open, Some(START + 60_000), None),
+    "the supervisor's again, for a new question wait"
   );
   let listed = service
     .client()
@@ -1244,7 +1337,7 @@ async fn a_question_paused_past_its_due_time_runs_a_whole_wait_again_and_is_not_
 }
 
 #[tokio::test]
-async fn a_supervisor_naming_a_longer_wait_than_the_person_wait_has_its_question_settled_once_that_wait_passes()
+async fn a_supervisor_naming_a_longer_wait_than_the_question_wait_has_its_question_settled_once_that_wait_passes()
  {
   let service = Service::start().await;
   let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
@@ -1256,7 +1349,7 @@ async fn a_supervisor_naming_a_longer_wait_than_the_person_wait_has_its_question
     ..QuestionChange::default()
   };
   let put = service.supervisor().change_question(question.id, &half_an_hour).await.expect("put");
-  assert_eq!(put.due_at, Some(START + 60_000), "the person wait, a minute, not the half hour named");
+  assert_eq!(put.due_at, Some(START + 60_000), "the question wait, a minute, not the half hour named");
 
   service.pass(59_999).await;
   assert_eq!(service.client().question(question.id).await.expect("read").state, QuestionState::Open);
@@ -1279,8 +1372,8 @@ async fn a_supervisor_naming_a_longer_wait_than_the_person_wait_has_its_question
 }
 
 #[tokio::test]
-async fn the_deployments_person_wait_is_the_wait_left_out_and_the_longest_named() {
-  let service = Service::start_with_person_wait(600_000).await;
+async fn the_deployments_question_wait_is_the_wait_left_out_and_the_longest_named() {
+  let service = Service::start_with_question_wait(600_000).await;
   let asked = |wait_ms: Option<i64>| NewQuestion {
     asker_name: "builder".into(),
     choices: either(),

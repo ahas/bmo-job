@@ -44,7 +44,7 @@ impl Store {
     let now = self.now();
     let mut tx = self.begin().await?;
     let told = expire_leases(&mut tx, now).await?
-      + tell_due_questions(&mut tx, now).await?
+      + tell_due_questions(&mut tx, now, self.question_wait_ms).await?
       + end_holds(&mut tx, now).await?
       + expire_subscriptions(&mut tx, now).await?;
     sqlx::query("DELETE FROM events WHERE at < $1")

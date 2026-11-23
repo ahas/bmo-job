@@ -63,8 +63,8 @@ pub struct Question {
   /// The answer the asker would take by itself, and why; null where it would not decide alone.
   pub recommendation: Option<QuestionRecommendation>,
   pub state: QuestionState,
-  /// Epoch milliseconds the asker wants a person's answer by, when its recommendation settles it; null while
-  /// paused, while the supervisor holds it, or where none was given.
+  /// Epoch milliseconds its holder's time runs out: while the supervisor holds it, when the service puts it to a
+  /// person; while a person holds it, when its recommendation settles it. Null while paused or once settled.
   pub due_at: Option<i64>,
   /// Whether the asker puts it before whoever answers it itself, so no consumer of the events tells of it.
   pub told_by_asker: bool,
@@ -74,7 +74,8 @@ pub struct Question {
   pub told_as: Option<String>,
   /// The last reply its asker has been handed; null where it has been handed none.
   pub heard_through: Option<i64>,
-  /// The caller that put it to a person in the supervisor's place; null where nobody did.
+  /// The caller that put it to a person in the supervisor's place, or `due time` where the service did once the
+  /// supervisor's time ran out; null where nobody did.
   #[serde(default)]
   pub readdressed_by: Option<String>,
   /// Epoch milliseconds it was put to a person in the supervisor's place; null where it was not.
@@ -105,7 +106,7 @@ pub struct NewQuestion {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub recommendation: Option<QuestionRecommendation>,
   /// How long a question asked of a person goes unanswered by him before its due time passes, 1 000 to 86 400 000
-  /// milliseconds, counted from the ask and held to the deployment's person wait, a minute unless its settings name
+  /// milliseconds, counted from the ask and held to the deployment's question wait, a minute unless its settings name
   /// another, which also stands where this is left out. Its recommendation settles it then; with none, it is told
   /// of as due and waits on. A question put to the supervisor takes the wait the supervisor's move names
   /// once it is put to a person, and none of this one.
@@ -137,7 +138,7 @@ pub struct QuestionChange {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub addressee: Option<QuestionAddressee>,
   /// With `addressee` `person` alone: how long the person has before its due time passes, 1 000 to 86 400 000
-  /// milliseconds from the move, held to the deployment's person wait, a minute unless its settings name another,
+  /// milliseconds from the move, held to the deployment's question wait, a minute unless its settings name another,
   /// which also stands where this is left out. Its recommendation settles it then.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub wait_ms: Option<i64>,

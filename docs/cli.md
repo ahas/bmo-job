@@ -231,15 +231,17 @@ flowchart TD
 
 ## `bmo-job job ask`
 
-`bmo job ask` runs this. It is what a job's own run waits on: nothing ends the wait but what is listed here, and
-no clock is among it.
+`bmo job ask` runs this. It is what a job's own run waits on: nothing ends the wait but what is listed here. The
+only clocks are the service's: the supervisor's question wait, after which the service puts the question to the
+owner, and the owner's, after which its recommendation settles it (docs/api.md, 「The due time」).
 
 A job asks its supervisor, never the owner directly. The question is opened in the item's room as the
 supervisor's (docs/api.md, 「The addressee」) and handed to that room's supervisor at once, which judges what it
 is: it does or finds what is asked and settles the question with the result, talks it over with the job, or puts
 it to the owner in its own words, with two choices or more and its recommendation, and from then on it is the
-owner's question as any other. Only the supervisor's own move puts a job's question before the owner: nothing
-the verb does, and no silence of the supervisor's, does.
+owner's question as any other. The supervisor's move puts a job's question before the owner, and so does the
+service once the supervisor has held it for the question wait, a minute unless the service's settings name
+another, with neither settling it nor putting it to him: nothing the verb does puts it there.
 
 | Form | What it does |
 |---|---|
@@ -255,7 +257,7 @@ the verb does, and no silence of the supervisor's, does.
   | What happened | Standard output | Standard error | Exit |
   |---|---|---|---|
   | The supervisor settled it | Its answer, as it wrote it | | 0 |
-  | A person settled it, once the supervisor put it to him | One line: the option's words, or his own | | 0 |
+  | A person settled it, once it was put to him | One line: the option's words, or his own | | 0 |
   | The owner's due time passed and the question was settled on its recommendation | One line: the recommendation's answer | `ask: question #<n> was settled on its recommendation, the owner's time having run out` | 0 |
   | Somebody settled the same question before this run | The same answer | `ask: question #<n> was settled before; its answer stands` | 0 |
   | The supervisor or the owner talked instead of settling; the question stays open | Their words, each under the voice that said it, and the call that answers them | | 3 |
@@ -300,11 +302,12 @@ the verb does, and no silence of the supervisor's, does.
   it. An order for the supervisor also names the tools that settle the question, talk on it and put it to the
   owner (docs/api.md, 「The tools」). It carries no other instruction, since how a notice is read stands in the
   receiving session's own instructions.
-- **While the supervisor holds it,** the question has no due time and no clock bounds the wait; the supervisor's
-  notice does, read through the receiver's `GET /instructions/{id}` as the verb waits. The receiver keeps a notice
-  with no expiry and holds it while the supervisor's session cannot be reached, so a supervisor that is busy or
-  down delays the answer and loses nothing. The question stays with the supervisor until the supervisor settles
-  it or puts it to the owner, however long that takes.
+- **While the supervisor holds it,** the question's due time is the service's question wait from the moment the
+  supervisor was given it, and no word the supervisor says stops it; the supervisor's notice is read through the
+  receiver's `GET /instructions/{id}` as the verb waits. The receiver keeps a notice with no expiry and holds it
+  while the supervisor's session cannot be reached. Where the wait passes with the question still the
+  supervisor's, the service puts it to the owner as it stands, with the job's recommendation or none, and the
+  verb waits on his answer as below.
 - **A supervisor that did not take the question up is woken again,** never passed over. It did not take it up in
   two cases, both events the receiver states:
   - the notice was let go untaken — its round stopped, its session reset, no turn able to take it — which the
@@ -317,10 +320,10 @@ the verb does, and no silence of the supervisor's, does.
   supervisor anew as `question-for-supervisor`, with the count of the wake, and watches that notice as the first.
   The first rest is a minute, or the milliseconds the run's `BMO_JOB_ASK_WAKE_MS` names, and each rest after it is
   twice the one before. Past the sixth wake it wakes nobody: it says so on the standard error once and waits on the
-  question as it stands, still the supervisor's.
+  question as it stands. A question the service has put to the owner wakes the supervisor no more.
 - **A supervisor's word is taking it up.** A word that settles nothing — a talk, or a word that it settles later,
-  as while a deployment it called runs — keeps the question with the supervisor, and nothing wakes it again until
-  the job talks again. The job's acknowledgement (`--ack`) is written on the question and handed to nobody: it
+  as while a deployment it called runs — keeps the question with the supervisor until its question wait passes,
+  and nothing wakes it again until the job talks again. The job's acknowledgement (`--ack`) is written on the question and handed to nobody: it
   asks nothing, so it wakes nobody and leaves the watch where it stood. It changes no words of the question, so it
   takes no `--option`, `--question` or `--why`.
 - **The notice is kept on the question,** as its `toldAs`: the notice's number, the last reply before it and how
@@ -328,14 +331,15 @@ the verb does, and no silence of the supervisor's, does.
   there, so a rerun job watches it, and counts its wakes, as the first run did. The job's answer to a talk on a
   question the supervisor holds is a notice of its own, `question-talk`, kept the same way, and the rules above
   hold for the turn it wakes.
-- **Once it is the owner's,** put to him by the supervisor, the verb says so on the standard error once and waits
-  on his answer: the due time the service counts from that moment, the wait the supervisor's move named or a
-  minute where it named none, settles the question on its recommendation where nobody has answered by then
+- **Once it is the owner's,** put to him by the supervisor or by the service, the verb says so on the standard
+  error once, naming which, and waits on his answer: the due time the service counts from that moment, the
+  question wait or a shorter one the supervisor's move named, settles the question on its recommendation where
+  nobody has answered by then
   (docs/api.md, 「The due time」 and 「When the due time passes」). The job's talk on it goes to the room's
   supervisor as `question-talk`, which puts it before him; an acknowledgement goes nowhere.
 - **Taken back by the supervisor** while the owner has not settled it (docs/api.md, 「The addressee」), it is the
-  supervisor's again: the verb says so on the standard error once and waits on it with no notice to watch, since
-  the supervisor took it itself.
+  supervisor's again, for a new question wait: the verb says so on the standard error once and waits on it with
+  no notice to watch, since the supervisor took it itself.
 - **A restart is no answer.** Every call the verb makes, reading the item's questions and the answer one was
   settled with, reading the item and the items it was raised from, reading the owner's room, opening the
   question, reading the item's title, handing the order or the talk over, reading the order, keeping the job's

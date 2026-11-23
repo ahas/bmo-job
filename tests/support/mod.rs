@@ -119,9 +119,9 @@ impl Service {
     Self::start_on(policy, Unattended::default(), Questions::default()).await
   }
 
-  /// The service whose questions put to a person wait `person_wait_ms` for him at the most.
-  pub async fn start_with_person_wait(person_wait_ms: i64) -> Self {
-    Self::start_on(quick_delivery(), Unattended::default(), Questions { person_wait_ms }).await
+  /// The service whose questions wait `wait_ms` on whoever holds them at the most.
+  pub async fn start_with_question_wait(wait_ms: i64) -> Self {
+    Self::start_on(quick_delivery(), Unattended::default(), Questions { wait_ms }).await
   }
 
   /// The service whose raised items open by themselves where they carry one of `labels`.
@@ -139,7 +139,7 @@ impl Service {
     let store = Store::open(&url, clock.clone())
       .await
       .expect("the store opens")
-      .with_person_wait(questions.person_wait_ms);
+      .with_question_wait(questions.wait_ms);
     let app = App::new(store.clone(), access()).unattended(unattended);
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a loopback port");
     let address = listener.local_addr().expect("the port's address");

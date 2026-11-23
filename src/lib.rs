@@ -66,7 +66,7 @@ pub async fn serve(settings: Settings) -> Result<(), String> {
   let store = Store::open(&settings.database.url, Clock::System)
     .await
     .map_err(|refusal| refusal.sentence)?
-    .with_person_wait(settings.questions.person_wait_ms);
+    .with_question_wait(settings.questions.wait_ms);
   let listener = TcpListener::bind(&settings.server.listen)
     .await
     .map_err(|error| format!("{} could not be listened on: {error}", settings.server.listen))?;

@@ -29,7 +29,7 @@ use crate::clock::Clock;
 use crate::refusal::Refusal;
 
 pub use events::{EVENT_WINDOW_MS, EventFilter, EventKeys};
-pub use questions::{LEAST_WAIT_MS, LONGEST_WAIT_MS, PERSON_WAIT_MS};
+pub use questions::{LEAST_WAIT_MS, LONGEST_WAIT_MS, QUESTION_WAIT_MS};
 pub use subscriptions::{Delivery, Kept};
 
 /// One transaction on the database.
@@ -66,14 +66,14 @@ pub const MOST_WAIT_MS: i64 = 60_000;
 /// so this is the longest the library can be told: a change waits for the holder to let go.
 const LOCK_WAIT: Duration = Duration::from_millis(i32::MAX as u64);
 
-/// The database, the clock it is written by, the signal of each committed change, and the deployment's person
+/// The database, the clock it is written by, the signal of each committed change, and the deployment's question
 /// wait (docs/settings.md, `[questions]`).
 #[derive(Debug, Clone)]
 pub struct Store {
   pool: SqlitePool,
   clock: Clock,
   changes: watch::Sender<u64>,
-  person_wait_ms: i64,
+  question_wait_ms: i64,
 }
 
 impl Store {
@@ -116,15 +116,15 @@ impl Store {
       pool,
       clock,
       changes,
-      person_wait_ms: PERSON_WAIT_MS,
+      question_wait_ms: QUESTION_WAIT_MS,
     })
   }
 
-  /// The store giving a question put to a person `person_wait_ms` where its ask or move names no wait, and at the
-  /// most where one names more; a minute where this is not called.
+  /// The store whose questions wait `wait_ms` on whoever holds them: the supervisor before the service puts one to
+  /// a person, and a person at the most before its recommendation settles it; a minute where this is not called.
   #[must_use]
-  pub fn with_person_wait(mut self, person_wait_ms: i64) -> Self {
-    self.person_wait_ms = person_wait_ms;
+  pub fn with_question_wait(mut self, wait_ms: i64) -> Self {
+    self.question_wait_ms = wait_ms;
     self
   }
 

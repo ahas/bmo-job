@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
-use support::Service;
+use support::{START, Service};
 
 const ROOM: i64 = 4242;
 
@@ -1078,7 +1078,11 @@ async fn a_job_asks_its_supervisor_first_and_the_supervisors_answer_comes_back_a
   let child = asked(&service, &address, item);
   let question = opened(&client, &heard, 1).await;
 
-  assert_eq!((question.addressee, question.due_at), (QuestionAddressee::Supervisor, None));
+  assert_eq!(
+    (question.addressee, question.due_at),
+    (QuestionAddressee::Supervisor, Some(START + 60_000)),
+    "the supervisor has the question wait"
+  );
 
   let turn = order_text(&heard, 0);
   assert!(turn.starts_with(&format!("question-for-supervisor #{}", question.id)), "{turn}");
@@ -1116,6 +1120,42 @@ async fn a_job_asks_its_supervisor_first_and_the_supervisors_answer_comes_back_a
     "the supervisor's answer as written"
   );
   assert_eq!(*heard.withdrawn.lock().expect("the withdrawals"), [1]);
+}
+
+#[tokio::test]
+async fn a_question_the_supervisor_leaves_for_a_minute_goes_to_the_owner_and_his_answer_settles_it() {
+  let service = Service::start().await;
+  let client = service.client();
+  let (address, heard) = receiver(false).await;
+  let item = item(&client).await;
+  let mut child = asked(&service, &address, item);
+  let mut said = BufReader::new(child.stderr.take().expect("its standard error")).lines();
+  let question = opened(&client, &heard, 1).await;
+
+  service.pass(60_000).await;
+  // A read of the replies already held open runs out first: a minute at most.
+  let told = tokio::time::timeout(Duration::from_secs(150), async {
+    while let Some(line) = said.next_line().await.expect("a line") {
+      if line.contains("time on question") && line.contains("ran out") && line.contains("to the owner") {
+        return;
+      }
+    }
+    panic!("the command never said the service put the question to the owner");
+  });
+  told.await.expect("the job is told the owner has it");
+  assert_eq!(
+    *heard.withdrawn.lock().expect("the withdrawals"),
+    [1],
+    "the supervisor's notice is done with"
+  );
+
+  service
+    .approver()
+    .reply(question.id, &person(None, "strict"))
+    .await
+    .expect("he answers");
+  let (code, out, _) = ended(child).await;
+  assert_eq!((code, out.as_str()), (0, "strict\n"));
 }
 
 #[tokio::test]
@@ -1177,7 +1217,7 @@ async fn a_notice_let_go_untaken_wakes_the_supervisor_again_and_the_question_sta
   let held = opened(&client, &heard, 2).await;
   let held = kept_notice(&client, held.id, 2).await;
 
-  assert_eq!((held.addressee, held.due_at), (QuestionAddressee::Supervisor, None));
+  assert_eq!((held.addressee, held.due_at), (QuestionAddressee::Supervisor, Some(START + 60_000)));
   assert_eq!(rows(&client, item).await.len(), 1, "nothing is put to the owner");
   let woken = order_text(&heard, 1);
   assert!(woken.starts_with(&format!("question-for-supervisor #{}", held.id)), "{woken}");
