@@ -32,7 +32,8 @@ These rules hold every change to this repository.
 ## Language
 
 - Everything in this repository is English: code, comments, strings, tests, documents, commit messages
-  and branch names. No Korean in code or tests; the Hangul check in `tests/` holds this.
+  and branch names. No Korean in code or tests; the Hangul check in `tests/` holds this. The README's Korean, Japanese and Chinese translations at the root (`README.ko.md`, `README.ja.md`,
+  `README.zh-CN.md`) are the one exception.
 - What the service answers is an English sentence for a person or a status code and a snake_case code
   for a machine. Words a person reads in another language are the web console's language packs.
 - No personal data: no user names, home directories, machine names or names of any agent. The testbed's
