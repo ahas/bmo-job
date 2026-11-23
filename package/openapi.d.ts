@@ -817,8 +817,9 @@ export interface components {
             /**
              * Format: int64
              * @description How long a question asked of a person goes unanswered by him before its due time passes, 1 000 to 86 400 000
-             *     milliseconds, counted from the ask; 60 000 where left out. Its recommendation settles it then; with none, it
-             *     is told of as due and waits on. A question put to the supervisor takes the wait the supervisor's move names
+             *     milliseconds, counted from the ask and held to the deployment's question wait, a minute unless its settings name
+             *     another, which also stands where this is left out. Its recommendation settles it then; with none, it is told
+             *     of as due and waits on. A question put to the supervisor takes the wait the supervisor's move names
              *     once it is put to a person, and none of this one.
              */
             waitMs?: number | null;
@@ -955,8 +956,8 @@ export interface components {
             createdAt: number;
             /**
              * Format: int64
-             * @description Epoch milliseconds the asker wants a person's answer by, when its recommendation settles it; null while
-             *     paused, while the supervisor holds it, or where none was given.
+             * @description Epoch milliseconds its holder's time runs out: while the supervisor holds it, when the service puts it to a
+             *     person; while a person holds it, when its recommendation settles it. Null while paused or once settled.
              */
             dueAt: number | null;
             /**
@@ -975,7 +976,8 @@ export interface components {
              */
             readdressedAt: number | null;
             /**
-             * @description The caller that put it to a person in the supervisor's place; null where nobody did.
+             * @description The caller that put it to a person in the supervisor's place, or `due time` where the service did once the
+             *     supervisor's time ran out; null where nobody did.
              * @default null
              */
             readdressedBy: string | null;
@@ -1028,7 +1030,8 @@ export interface components {
             /**
              * Format: int64
              * @description With `addressee` `person` alone: how long the person has before its due time passes, 1 000 to 86 400 000
-             *     milliseconds from the move; 60 000 where left out. Its recommendation settles it then.
+             *     milliseconds from the move, held to the deployment's question wait, a minute unless its settings name another,
+             *     which also stands where this is left out. Its recommendation settles it then.
              */
             waitMs?: number | null;
         };
