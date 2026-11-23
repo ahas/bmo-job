@@ -4,7 +4,7 @@
 
 use std::cell::RefCell;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -120,11 +120,27 @@ fn platform_record_at(data_root: &Path, commit: &str) {
 // A commit no checkout of the test's repository holds.
 const FOREIGN: &str = "b0dd02ec3a4edabffb3c794b3d4e54eeffbe561b";
 
+// An executable stand-in, written by a process of its own. Every test of this binary runs as a thread of one
+// process, and a file this process held open for writing would be held as well by every child another thread
+// forks until that child execs; running the file inside that window fails with "Text file busy".
 pub(crate) fn executable(path: &Path, body: &str) {
-  fs::write(path, body).expect("the testbed stand-in");
-  let mut permissions = fs::metadata(path).expect("the stand-in").permissions();
-  permissions.set_mode(0o755);
-  fs::set_permissions(path, permissions).expect("the stand-in is executable");
+  let mut writer = Command::new("sh")
+    .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+    .arg(path)
+    .stdin(Stdio::piped())
+    .spawn()
+    .expect("the stand-in's writer");
+
+  writer
+    .stdin
+    .take()
+    .expect("the writer's input")
+    .write_all(body.as_bytes())
+    .expect("the testbed stand-in");
+  assert!(
+    writer.wait().expect("the writer ends").success(),
+    "the stand-in is written and executable"
+  );
 }
 
 // A testbed stand-in: its `close-line` holds as the real verb does, `before` run first, then one line said and the
@@ -1048,13 +1064,34 @@ fn a_stop_ends_the_step_running_with_everything_under_it() {
   assert!(soon(|| started.pids().len() == 3), "the stand-in started what it starts");
 
   let ended = running.take_down(&quick());
+  let ended_pids: Vec<&str> = ended.iter().filter_map(|named| named.split(' ').next()).collect();
 
-  assert!(ended.iter().any(|named| named.contains("sleep 600")), "{ended:?}");
+  for pid in started.pids() {
+    assert!(ended_pids.contains(&pid.to_string().as_str()), "{pid} is named among {ended:?}");
+  }
   assert_eq!(
     step.join().expect("the step ends"),
     Err(StepEnd::Failed("the static check did not pass".to_owned()))
   );
   assert!(soon(|| started.all_gone()), "nothing the step started is left running");
+}
+
+#[test]
+fn a_stop_before_a_step_starts_keeps_it_from_starting() {
+  let dir = tempfile::tempdir().expect("a directory");
+  let (testbed, started) = check_at(dir.path(), "");
+  let running = Running::default();
+  let mut command = Command::new(&testbed);
+  command.arg("check");
+
+  assert_eq!(running.take_down(&quick()), Vec::<String>::new(), "no step was running");
+  assert_eq!(
+    run_step(command, "the static check", &quick(), &running, &|_| {}),
+    Err(StepEnd::Failed(
+      "the static check could not be started: the close was told to stop".to_owned()
+    ))
+  );
+  assert_eq!(started.pids(), Vec::<i32>::new(), "the stand-in never ran");
 }
 
 #[test]

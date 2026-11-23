@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -33,22 +33,49 @@ pub enum StepEnd {
   Hung(String),
 }
 
-/// The step a close is running now, which a stop ends with everything under it.
+/// The step a close is running now, which a stop ends with everything under it. A step is started and held
+/// under one lock, so a stop either finds it held or comes first and keeps it from starting.
 #[derive(Clone, Debug, Default)]
-pub struct Running(Arc<Mutex<Option<u32>>>);
+pub struct Running(Arc<Mutex<Holding>>);
+
+// The leader of the step running now, and whether the close has been told to stop.
+#[derive(Debug, Default)]
+struct Holding {
+  leader: Option<u32>,
+  stopped: bool,
+}
 
 impl Running {
-  fn hold(&self, leader: u32) {
-    *self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(leader);
+  fn holding(&self) -> std::sync::MutexGuard<'_, Holding> {
+    self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+  }
+
+  // Starts `command` and holds it as the step running now; refused once the close has been told to stop.
+  fn start(&self, command: &mut Command) -> std::io::Result<Child> {
+    let mut holding = self.holding();
+
+    if holding.stopped {
+      return Err(std::io::Error::other("the close was told to stop"));
+    }
+
+    let child = command.spawn()?;
+    holding.leader = Some(child.id());
+
+    Ok(child)
   }
 
   fn release(&self) {
-    *self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    self.holding().leader = None;
   }
 
-  /// Ends the step running now, if one is, with every process under it, and names what it ended.
+  /// Ends the step running now, if one is, with every process under it, names what it ended, and keeps every
+  /// later step from starting.
   pub fn take_down(&self, clocks: &Clocks) -> Vec<String> {
-    let held = *self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let held = {
+      let mut holding = self.holding();
+      holding.stopped = true;
+      holding.leader
+    };
 
     held.map(|leader| end_tree(leader, clocks)).unwrap_or_default()
   }
@@ -57,7 +84,7 @@ impl Running {
 /// Runs `command`, `what` as the close names it, to its end in a process group of its own, its output written on
 /// as it comes. Once neither its output nor the file it is handed in `HEARD_VARIABLE` has moved for the silence
 /// limit, every process under it is ended and the step is `Hung`. Every `standing_every`, `say` is handed one
-/// line saying where it stands.
+/// line saying where it stands. A step `running` has been told to stop on is not started, and fails.
 pub fn run_step(
   command: Command,
   what: &str,
@@ -90,7 +117,7 @@ pub fn run_step_kept(
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
-  let mut child = match command.spawn() {
+  let mut child = match running.start(&mut command) {
     Ok(child) => child,
     Err(why) => return (Err(not_started(why)), Vec::new()),
   };
@@ -98,7 +125,6 @@ pub fn run_step_kept(
   let moved = Arc::new(Mutex::new(Moved::new()));
   let (read_out, readers) = mpsc::channel();
 
-  running.hold(leader);
   if let Some(stdout) = child.stdout.take() {
     pass_on(stdout, std::io::stdout, Arc::clone(&moved), read_out.clone());
   }

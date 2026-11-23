@@ -138,7 +138,8 @@ flowchart TD
   fifteen minutes, or five more than the checkout's declared testbed silence, and the pause before the KILL ten
   seconds; the running check is looked at every second. The wait for the close line alone has none (above).
 - **Told to stop, a close ends the check it runs first,** every process under it as for a hung check, and lets
-  its close line go, so nothing it started goes on after it.
+  its close line go, so nothing it started goes on after it. A check still being started as the stop comes is
+  ended once it stands, and no check starts after the stop.
 - **What the close says is the account of its close.** A close that ends at the merge prints, before its last
   line, the commits it put on main, each as its short commit and subject, and the check that passed with the
   base it ran from. That is what a job's report says of its close: what changed and what was checked, and that
