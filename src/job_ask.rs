@@ -800,7 +800,7 @@ async fn put(
         wakes: 0,
       });
 
-      kept_watch(client, &question, watch, stop).await?;
+      kept_watch(client, receiver, &question, watch, stop).await?;
 
       Ok((question, watch))
     }
@@ -826,8 +826,10 @@ async fn put(
 
 // The notice a question the supervisor holds was put before it with, kept on the question so a rerun watches it.
 // Keeping it is the rerun's help and no condition of this wait: a service that refuses it is said and passed by.
+// Told to stop meanwhile, the run withdraws the question and takes the notice back, as a stop in the wait does.
 async fn kept_watch(
   client: &JobClient,
+  receiver: &Receiver,
   question: &Question,
   watch: Option<Watch>,
   stop: std::pin::Pin<&mut impl Future<Output = ()>>,
@@ -847,9 +849,7 @@ async fn kept_watch(
 
       Ok(())
     }
-    Err(Halt::Stopped) => {
-      Err(format!("ask: the run was told to stop while question #{} was put", question.id))
-    }
+    Err(Halt::Stopped) => Err(withdrawn(client, receiver, question.id, Some(watch.notice)).await),
   }
 }
 
@@ -952,7 +952,7 @@ async fn woken(
         wakes,
       };
 
-      kept_watch(client, question, Some(watch), stop).await?;
+      kept_watch(client, receiver, question, Some(watch), stop).await?;
       eprintln!(
         "ask: the supervisor did not take up question #{id} (its notice was let go untaken, or the turn that took it ended with no word on it), so it is woken again, {wakes} of {MOST_WAKES}; the question stays with it"
       );
@@ -1112,7 +1112,7 @@ pub async fn talk(
     wakes: 0,
   });
 
-  kept_watch(client, &question, watch, stop.as_mut()).await?;
+  kept_watch(client, receiver, &question, watch, stop.as_mut()).await?;
 
   let watch = watch.filter(|_| question.addressee == QuestionAddressee::Supervisor);
 

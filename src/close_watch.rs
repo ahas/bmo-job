@@ -8,6 +8,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -23,6 +24,35 @@ const LONGEST_LINE: usize = 4096;
 const LONGEST_NAME: usize = 160;
 /// How many of a step's last whole lines are kept for what the close says of a step that did not pass.
 const KEPT_LINES: usize = 64;
+
+/// Where a watched step reads the time its silence, its lines saying where it stands and the grace after a TERM
+/// are measured on. A close for a job reads `RealTime`; a test moves its own, so what it checks never hangs on how
+/// fast a loaded machine runs.
+pub trait StepTime: Send + Sync + std::fmt::Debug {
+  /// The steady time the step's output, its lines and the grace are measured on.
+  fn now(&self) -> Instant;
+  /// The wall time a touch of the file handed in `HEARD_VARIABLE` is measured against.
+  fn wall(&self) -> SystemTime;
+}
+
+/// The machine's own time.
+#[derive(Debug)]
+pub struct RealTime;
+
+impl StepTime for RealTime {
+  fn now(&self) -> Instant {
+    Instant::now()
+  }
+
+  fn wall(&self) -> SystemTime {
+    SystemTime::now()
+  }
+}
+
+// How long ago `at` was on `time`.
+fn since(time: &dyn StepTime, at: Instant) -> Duration {
+  time.now().saturating_duration_since(at)
+}
 
 /// How a step the close ran ended short of passing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,18 +152,21 @@ pub fn run_step_kept(
     Err(why) => return (Err(not_started(why)), Vec::new()),
   };
   let leader = child.id();
-  let moved = Arc::new(Mutex::new(Moved::new()));
+  let time = clocks.time.as_ref();
+  let moved = Arc::new(Mutex::new(Moved::new(time.now())));
   let (read_out, readers) = mpsc::channel();
 
   if let Some(stdout) = child.stdout.take() {
-    pass_on(stdout, std::io::stdout, Arc::clone(&moved), read_out.clone());
+    let read = Reading::new(&moved, &clocks.time, &read_out);
+    pass_on(stdout, std::io::stdout, read);
   }
   if let Some(stderr) = child.stderr.take() {
-    pass_on(stderr, std::io::stderr, Arc::clone(&moved), read_out.clone());
+    let read = Reading::new(&moved, &clocks.time, &read_out);
+    pass_on(stderr, std::io::stderr, read);
   }
   drop(read_out);
 
-  let started = Instant::now();
+  let started = time.now();
   let mut said = started;
 
   let status = loop {
@@ -143,7 +176,7 @@ pub fn run_step_kept(
       Err(_) => break None,
     }
 
-    let quiet = quiet_for(&moved, &heard);
+    let quiet = quiet_for(&moved, &heard, time);
 
     if quiet >= clocks.silence {
       let still = end_tree(leader, clocks);
@@ -160,14 +193,14 @@ pub fn run_step_kept(
       return (Err(hung), kept_lines(&moved));
     }
 
-    if said.elapsed() >= clocks.standing_every {
+    if since(time, said) >= clocks.standing_every {
       say(&format!(
         "job-close: {what} has run {}; its output last moved {} ago: {}",
-        spoken(started.elapsed()),
+        spoken(since(time, started)),
         spoken(quiet),
         last_line(&moved)
       ));
-      said = Instant::now();
+      said = time.now();
     }
 
     std::thread::sleep(clocks.look);
@@ -177,7 +210,7 @@ pub fn run_step_kept(
   // whole, each reader waited for no longer than the grace.
   end_group(leader, clocks);
   for _ in 0..2 {
-    if readers.recv_timeout(clocks.grace).is_err() {
+    if !ended_within(&readers, clocks) {
       break;
     }
   }
@@ -190,6 +223,21 @@ pub fn run_step_kept(
   };
 
   (ended, kept_lines(&moved))
+}
+
+// Whether one of the step's readers says it has ended within the grace.
+fn ended_within(readers: &mpsc::Receiver<()>, clocks: &Clocks) -> bool {
+  let time = clocks.time.as_ref();
+  let from = time.now();
+
+  loop {
+    match readers.recv_timeout(clocks.look.min(clocks.grace)) {
+      Ok(()) => return true,
+      Err(RecvTimeoutError::Disconnected) => return false,
+      Err(RecvTimeoutError::Timeout) if since(time, from) >= clocks.grace => return false,
+      Err(RecvTimeoutError::Timeout) => {}
+    }
+  }
 }
 
 /// The output of a short command the close asks, its standard input closed; one still running once `within` has
@@ -237,17 +285,17 @@ struct Moved {
 }
 
 impl Moved {
-  fn new() -> Self {
+  fn new(at: Instant) -> Self {
     Self {
-      at: Instant::now(),
+      at,
       partial: Vec::new(),
       last: String::new(),
       kept: VecDeque::with_capacity(KEPT_LINES),
     }
   }
 
-  fn take(&mut self, bytes: &[u8]) {
-    self.at = Instant::now();
+  fn take(&mut self, bytes: &[u8], at: Instant) {
+    self.at = at;
 
     for &byte in bytes {
       if byte == b'\n' || byte == b'\r' {
@@ -293,15 +341,35 @@ fn kept_lines(moved: &Mutex<Moved>) -> Vec<String> {
 }
 
 // How long the step has written nothing and touched nothing.
-fn quiet_for(moved: &Mutex<Moved>, heard: &HeardFile) -> Duration {
-  let since_output = moved.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).at.elapsed();
+fn quiet_for(moved: &Mutex<Moved>, heard: &HeardFile, time: &dyn StepTime) -> Duration {
+  let since_output = since(time, moved.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).at);
 
-  heard.touched_ago().map_or(since_output, |since_touch| since_output.min(since_touch))
+  heard
+    .touched_ago(time.wall())
+    .map_or(since_output, |since_touch| since_output.min(since_touch))
+}
+
+// What a reader of one of the step's outputs keeps: where the output moved and when, read on the step's time,
+// and the channel it says it has ended on.
+struct Reading {
+  moved: Arc<Mutex<Moved>>,
+  time: Arc<dyn StepTime>,
+  ended: mpsc::Sender<()>,
+}
+
+impl Reading {
+  fn new(moved: &Arc<Mutex<Moved>>, time: &Arc<dyn StepTime>, ended: &mpsc::Sender<()>) -> Self {
+    Self {
+      moved: Arc::clone(moved),
+      time: Arc::clone(time),
+      ended: ended.clone(),
+    }
+  }
 }
 
 // Reads one of the step's outputs to its end, writing each piece on to the close's own as it comes, and says it
 // has ended.
-fn pass_on<R, W, S>(mut from: R, sink: S, moved: Arc<Mutex<Moved>>, ended: mpsc::Sender<()>)
+fn pass_on<R, W, S>(mut from: R, sink: S, reading: Reading)
 where
   R: Read + Send + 'static,
   W: Write,
@@ -317,14 +385,19 @@ where
           let mut to = sink();
           let _ = to.write_all(&piece[..read]);
           let _ = to.flush();
-          moved.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take(&piece[..read]);
+          let at = reading.time.now();
+          reading
+            .moved
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take(&piece[..read], at);
         }
         Err(error) if error.kind() == ErrorKind::Interrupted => {}
         Err(_) => break,
       }
     }
 
-    let _ = ended.send(());
+    let _ = reading.ended.send(());
   });
 }
 
@@ -344,10 +417,10 @@ impl HeardFile {
     &self.0
   }
 
-  fn touched_ago(&self) -> Option<Duration> {
+  fn touched_ago(&self, now: SystemTime) -> Option<Duration> {
     let touched = std::fs::metadata(&self.0).and_then(|meta| meta.modified()).ok()?;
 
-    Some(SystemTime::now().duration_since(touched).unwrap_or_default())
+    Some(now.duration_since(touched).unwrap_or_default())
   }
 }
 
@@ -446,9 +519,10 @@ fn end_tree(leader: u32, clocks: &Clocks) -> Vec<String> {
   }
   signal(-(leader as i32), libc::SIGTERM);
 
-  let until = Instant::now() + clocks.grace;
+  let time = clocks.time.as_ref();
+  let from = time.now();
 
-  while members.iter().any(|pid| standing(*pid)) && Instant::now() < until {
+  while members.iter().any(|pid| standing(*pid)) && since(time, from) < clocks.grace {
     std::thread::sleep(clocks.look.min(clocks.grace));
   }
 
@@ -471,9 +545,10 @@ fn end_group(leader: u32, clocks: &Clocks) {
 
   signal(-(leader as i32), libc::SIGTERM);
 
-  let until = Instant::now() + clocks.grace;
+  let time = clocks.time.as_ref();
+  let from = time.now();
 
-  while in_group() && Instant::now() < until {
+  while in_group() && since(time, from) < clocks.grace {
     std::thread::sleep(clocks.look.min(clocks.grace));
   }
 

@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bmo_job_client::{ClientFailure, Item, ItemChange, JobClient, Labels};
@@ -14,7 +15,9 @@ use serde::Deserialize;
 
 use crate::again::{Halt, until_answered};
 use crate::close_line::{HeldLines, NEXT_VARIABLE, hold_lines};
-use crate::close_watch::{Running, StepEnd, output_within, run_step, run_step_kept, spoken};
+use crate::close_watch::{
+  RealTime, Running, StepEnd, StepTime, output_within, run_step, run_step_kept, spoken,
+};
 
 /// How long the check may write nothing and touch nothing before it is hung, in a checkout whose declaration
 /// sets no testbed silence: the testbed's own ten-minute default and the margin above it.
@@ -39,13 +42,14 @@ pub const ANSWER_WITHIN: Duration = Duration::from_secs(10);
 pub const STANDING_WITHIN: Duration = Duration::from_secs(2 * 60);
 
 /// The clocks a close keeps to (docs/cli.md, 「`bmo-job job close`」), each the constant of its name where a
-/// close runs for a job.
+/// close runs for a job, and the time they are read on, the machine's own there.
 #[derive(Clone, Debug)]
 pub struct Clocks {
   pub silence: Duration,
   pub grace: Duration,
   pub look: Duration,
   pub standing_every: Duration,
+  pub time: Arc<dyn StepTime>,
 }
 
 impl Default for Clocks {
@@ -55,6 +59,7 @@ impl Default for Clocks {
       grace: GRACE,
       look: LOOK,
       standing_every: STANDING_EVERY,
+      time: Arc::new(RealTime),
     }
   }
 }

@@ -687,8 +687,9 @@ async fn a_stop_withdraws_the_question_and_prints_no_option() {
   let question = opened(&client, &heard, 1).await;
   let pid = i32::try_from(child.id().expect("it runs")).expect("a pid");
 
-  // The command is told to stop only once it stands in its wait.
-  tokio::time::sleep(Duration::from_millis(300)).await;
+  // The command is told to stop once its notice stands kept on the question, all it does before its wait, so a
+  // stop withdraws the question and takes the notice back whether it ends that write or the wait.
+  kept_notice(&client, question.id, 1).await;
   assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
 
   let (code, out, err) = ended(child).await;
