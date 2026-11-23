@@ -90,6 +90,7 @@ pub fn quick_delivery() -> DeliveryPolicy {
     failures_to_failing: 3,
     answer_within: Duration::from_secs(10),
     failing_retry: Duration::from_secs(3_600),
+    ..DeliveryPolicy::default()
   }
 }
 

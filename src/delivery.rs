@@ -4,12 +4,33 @@
 //! It is the one call the service makes.
 
 use std::collections::HashMap;
+use std::fmt::Debug;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bmo_job_client::{Code, Event, SIGNATURE_HEADER, SUBSCRIPTION_HEADER, SubscriptionState, signature};
+use futures_util::future::BoxFuture;
 use tokio::task::JoinHandle;
 
 use crate::store::{Delivery, EventFilter, Store};
+
+/// The time delivery's own waits pass on: a post's wait for its answer, the wait before a retry, and a failing
+/// subscription's rest.
+pub trait DeliveryTime: Debug + Send + Sync {
+  /// A wait that ends once `span` has passed. It starts when it is asked for, not when it is first awaited, so a
+  /// wait asked for before a post is sent is already running while the post is on its way.
+  fn wait(&self, span: Duration) -> BoxFuture<'static, ()>;
+}
+
+/// The machine's own time, which delivery waits on in the service.
+#[derive(Debug)]
+pub struct RealTime;
+
+impl DeliveryTime for RealTime {
+  fn wait(&self, span: Duration) -> BoxFuture<'static, ()> {
+    Box::pin(tokio::time::sleep(span))
+  }
+}
 
 /// How delivery paces its retries and when it counts a subscription failing.
 #[derive(Debug, Clone)]
@@ -24,6 +45,8 @@ pub struct DeliveryPolicy {
   pub answer_within: Duration,
   /// The wait between posts to a failing subscription.
   pub failing_retry: Duration,
+  /// The time each of these waits passes on.
+  pub time: Arc<dyn DeliveryTime>,
 }
 
 impl Default for DeliveryPolicy {
@@ -34,6 +57,7 @@ impl Default for DeliveryPolicy {
       failures_to_failing: 10,
       answer_within: Duration::from_secs(60),
       failing_retry: Duration::from_secs(300),
+      time: Arc::new(RealTime),
     }
   }
 }
@@ -101,7 +125,7 @@ async fn deliver_one(store: Store, http: reqwest::Client, policy: DeliveryPolicy
         if !matches!(store.delivery_failed(id, 1).await, Ok(Delivery::Failing)) {
           return;
         }
-        rest_while_failing(&store, id, policy.failing_retry).await;
+        rest_while_failing(&store, &policy, id).await;
         continue;
       }
       Err(_) => {
@@ -139,14 +163,17 @@ async fn post_until_taken(
   loop {
     let mut request = http
       .post(url)
-      .timeout(policy.answer_within)
       .header(reqwest::header::CONTENT_TYPE, "application/json")
       .header(SUBSCRIPTION_HEADER, id.to_string())
       .body(body.clone());
     if let Some(secret) = secret {
       request = request.header(SIGNATURE_HEADER, signature(secret, &body));
     }
-    let taken = matches!(request.send().await, Ok(answer) if answer.status().is_success());
+    let answer_wait = policy.time.wait(policy.answer_within);
+    let taken = tokio::select! {
+      answer = request.send() => matches!(answer, Ok(answer) if answer.status().is_success()),
+      () = answer_wait => false,
+    };
     if taken {
       return match store.delivered(id, event.id).await {
         Ok(()) => Posted::Taken,
@@ -156,20 +183,20 @@ async fn post_until_taken(
     match store.delivery_failed(id, policy.failures_to_failing).await {
       Ok(Delivery::Going) => {}
       Ok(Delivery::Failing) => {
-        rest_while_failing(store, id, policy.failing_retry).await;
+        rest_while_failing(store, policy, id).await;
         return Posted::Rested;
       }
       _ => return Posted::Stopped,
     }
-    tokio::time::sleep(retry).await;
+    policy.time.wait(retry).await;
     retry = (retry * 2).min(policy.longest_retry);
   }
 }
 
-/// Rests a failing subscription's delivery for `pace`, or until its state is moved from failing.
-async fn rest_while_failing(store: &Store, id: i64, pace: Duration) {
+/// Rests a failing subscription's delivery for the policy's failing pace, or until its state is moved from failing.
+async fn rest_while_failing(store: &Store, policy: &DeliveryPolicy, id: i64) {
   let mut changes = store.changes();
-  let until = tokio::time::Instant::now() + pace;
+  let mut rest = policy.time.wait(policy.failing_retry);
   loop {
     changes.borrow_and_update();
     let failing = store
@@ -179,13 +206,14 @@ async fn rest_while_failing(store: &Store, id: i64, pace: Duration) {
     if !failing {
       return;
     }
-    match tokio::time::timeout_at(until, changes.changed()).await {
-      Ok(Ok(())) => {}
-      Ok(Err(_)) => {
-        tokio::time::sleep_until(until).await;
-        return;
+    tokio::select! {
+      changed = changes.changed() => {
+        if changed.is_err() {
+          rest.await;
+          return;
+        }
       }
-      Err(_) => return,
+      () = &mut rest => return,
     }
   }
 }

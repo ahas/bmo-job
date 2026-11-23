@@ -10,13 +10,16 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::post;
+use bmo_job::DeliveryPolicy;
+use bmo_job::delivery::DeliveryTime;
 use bmo_job_client::{
   Event, EventQuery, NewSubscription, SIGNATURE_HEADER, SUBSCRIPTION_HEADER, Subscription,
   SubscriptionChange, SubscriptionState, signed_by,
 };
 use futures_util::StreamExt;
+use futures_util::future::BoxFuture;
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc, oneshot};
 
 use support::Service;
 
@@ -81,11 +84,83 @@ async fn receiver(answer: StatusCode) -> Receiver {
 
 impl Receiver {
   async fn next(&mut self) -> (HeaderMap, Event) {
-    let (headers, body) = tokio::time::timeout(Duration::from_secs(10), self.posts.recv())
+    let (headers, body) = tokio::time::timeout(GUARD, self.posts.recv())
       .await
       .expect("a post comes")
       .expect("posted");
     (headers, serde_json::from_slice(&body).expect("an event"))
+  }
+}
+
+/// How long a test waits on what delivery does before it fails: far past anything a loaded machine holds it for.
+const GUARD: Duration = Duration::from_secs(10);
+
+/// Delivery's time as a test moves it: it stands still between moves, and a move ends the waits it passes.
+#[derive(Debug, Default)]
+struct ByHand {
+  moved: Mutex<Moved>,
+  asked: Notify,
+}
+
+/// Where a time moved by hand stands, and the waits asked of it that have not ended.
+#[derive(Debug, Default)]
+struct Moved {
+  now: Duration,
+  waits: Vec<Wait>,
+}
+
+#[derive(Debug)]
+struct Wait {
+  until: Duration,
+  span: Duration,
+  ended: oneshot::Sender<()>,
+}
+
+impl DeliveryTime for ByHand {
+  fn wait(&self, span: Duration) -> BoxFuture<'static, ()> {
+    let (ended, end) = oneshot::channel();
+    {
+      let mut moved = self.moved.lock().expect("the time");
+      let until = moved.now + span;
+      moved.waits.push(Wait { until, span, ended });
+    }
+    self.asked.notify_waiters();
+    Box::pin(async move {
+      if end.await.is_err() {
+        std::future::pending::<()>().await;
+      }
+    })
+  }
+}
+
+impl ByHand {
+  /// Waits, within the guard, until delivery waits on this time, then moves it to the end of the first wait
+  /// standing and answers that wait's span.
+  async fn pass_the_next_wait(&self) -> Duration {
+    loop {
+      let asked = self.asked.notified();
+      tokio::pin!(asked);
+      asked.as_mut().enable();
+      if let Some(span) = self.pass_the_first_wait() {
+        return span;
+      }
+      tokio::time::timeout(GUARD, asked).await.expect("delivery waits");
+    }
+  }
+
+  fn pass_the_first_wait(&self) -> Option<Duration> {
+    let mut moved = self.moved.lock().expect("the time");
+    moved.waits.retain(|wait| !wait.ended.is_closed());
+    let first = moved.waits.iter().min_by_key(|wait| wait.until)?;
+    let (until, span) = (first.until, first.span);
+    moved.now = until;
+    let (passed, standing) =
+      std::mem::take(&mut moved.waits).into_iter().partition(|wait| wait.until <= until);
+    moved.waits = standing;
+    for wait in passed {
+      let _ = wait.ended.send(());
+    }
+    Some(span)
   }
 }
 
@@ -125,9 +200,7 @@ async fn a_stream_subscription_hands_over_what_it_matches_once() {
   let mut stream =
     Box::pin(client.event_stream(&page(&subscription), None).await.expect("the stream opens"));
   let next = service.open_item("build", "streamed").await;
-  let event = tokio::time::timeout(Duration::from_secs(10), stream.next())
-    .await
-    .expect("an event comes");
+  let event = tokio::time::timeout(GUARD, stream.next()).await.expect("an event comes");
   assert_eq!(event.expect("an event").expect("read").item_id(), Some(next.id));
 }
 
@@ -204,7 +277,7 @@ async fn a_failing_webhook_stops_and_resumes_from_where_it_stood() {
 
 #[tokio::test]
 async fn a_failing_webhook_is_still_tried_and_the_first_post_taken_makes_it_active() {
-  let service = Service::start_with(bmo_job::DeliveryPolicy {
+  let service = Service::start_with(DeliveryPolicy {
     failing_retry: Duration::from_millis(20),
     ..support::quick_delivery()
   })
@@ -238,7 +311,7 @@ async fn a_failing_webhook_is_still_tried_and_the_first_post_taken_makes_it_acti
 
 #[tokio::test]
 async fn a_subscriber_down_longer_than_the_retries_gets_the_event_once_it_is_back() {
-  let service = Service::start_with(bmo_job::DeliveryPolicy {
+  let service = Service::start_with(DeliveryPolicy {
     failing_retry: Duration::from_millis(20),
     ..support::quick_delivery()
   })
@@ -273,11 +346,13 @@ async fn a_subscriber_down_longer_than_the_retries_gets_the_event_once_it_is_bac
 
 #[tokio::test]
 async fn a_post_left_unanswered_counts_as_a_failure() {
-  let service = Service::start_with(bmo_job::DeliveryPolicy {
-    answer_within: Duration::from_millis(50),
+  let time = Arc::new(ByHand::default());
+  let policy = DeliveryPolicy {
+    time: Arc::clone(&time) as Arc<dyn DeliveryTime>,
     ..support::quick_delivery()
-  })
-  .await;
+  };
+  let retries = [policy.first_retry, policy.first_retry * 2];
+  let service = Service::start_with(policy.clone()).await;
   let client = service.client();
   let (sent, mut posts) = mpsc::unbounded_channel();
   let app = Router::new().route(
@@ -303,8 +378,12 @@ async fn a_post_left_unanswered_counts_as_a_failure() {
     .await
     .expect("subscribed");
   service.open_item("build", "never answered").await;
-  for _ in 0..3 {
-    tokio::time::timeout(Duration::from_secs(10), posts.recv()).await.expect("a post comes");
+  for round in 0..3 {
+    tokio::time::timeout(GUARD, posts.recv()).await.expect("a post comes");
+    assert_eq!(time.pass_the_next_wait().await, policy.answer_within, "the post waits for its answer");
+    if let Some(&retry) = retries.get(round) {
+      assert_eq!(time.pass_the_next_wait().await, retry, "the next post waits its retry");
+    }
   }
   let failing = until_state(&service, subscription.id, SubscriptionState::Failing).await;
   assert_eq!(failing.failure_count, 3);
