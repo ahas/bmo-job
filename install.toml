@@ -1,0 +1,87 @@
+# What installing bmo-job on a fresh machine needs, read by the testbed's install verb (bmo-testbed's
+# docs/install.md, 「The install declaration」). The settings are docs/settings.md's; the tool host the deploy
+# steps register the tools with is deployed before this unit.
+
+install = 1
+
+# The service's one user unit (docs/deploy.md).
+restart = "systemctl --user restart bmo-job.service"
+
+[[needs]]
+program = "cargo"
+what = "Rust's Cargo, which builds the service and its tools at every release: `curl https://sh.rustup.rs -sSf | sh`."
+
+[[needs]]
+program = "bun"
+what = "Bun, which installs and checks the TypeScript client in package/ in the suite a later deployment runs: `curl -fsSL https://bun.sh/install | bash`."
+
+[[port]]
+name = "job.server"
+number = 7841
+
+# The shared token, which names no caller (docs/settings.md, `[server]`). Every token stands in the service's
+# own folder under the data root, which also holds its database, so the folder stands before the first start.
+[[token]]
+name = "job.server"
+file = "job/tokens/server.token"
+
+# One token per caller, each its own (docs/settings.md, `[callers]`).
+[[token]]
+name = "job.agency"
+file = "job/tokens/agency.token"
+
+[[token]]
+name = "job.receiver"
+file = "job/tokens/receiver.token"
+
+[[token]]
+name = "job.console"
+file = "job/tokens/console.token"
+
+[[token]]
+name = "job.review"
+file = "job/tokens/review.token"
+
+# The settings each release links to as settings.toml. The agency carries the supervisors' token, so it alone
+# supervises; the console is where the owner approves, so its approval opens a draft; the receiver answers the
+# owner's questions in his chat and the review files items, both for a person. An item the owner asked for, and
+# the review of the owner's own pull request, open by themselves.
+[[settings]]
+file = "env/bmo-job.toml"
+text = '''
+[server]
+listen = "127.0.0.1:{{port.job.server}}"
+token_file = "{{data_root}}/job/tokens/server.token"
+
+[callers.agency]
+token_file = "{{data_root}}/job/tokens/agency.token"
+supervises = true
+
+[callers.console]
+token_file = "{{data_root}}/job/tokens/console.token"
+approves = true
+
+[callers.receiver]
+token_file = "{{data_root}}/job/tokens/receiver.token"
+
+[callers.review]
+token_file = "{{data_root}}/job/tokens/review.token"
+
+[unattended]
+labels = ["asked-by=owner", "lane=pr-review"]
+
+[database]
+url = "sqlite://{{data_root}}/job/job.db?mode=rwc"
+'''
+
+# The console reaches the service with its own caller token, so an approval given there is recorded as the
+# console's.
+[[line]]
+file = "env/web-console.env"
+key = "JOB_ADDRESS"
+value = "http://127.0.0.1:{{port.job.server}}"
+
+[[line]]
+file = "env/web-console.env"
+key = "JOB_TOKEN"
+value = "{{token.job.console}}"

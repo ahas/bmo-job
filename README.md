@@ -22,7 +22,8 @@ through the `bmo-job` plugin: the MCP server `bmo-job mcp` and its skill.
 | `docs/` | The canonical statements of what the service does, and `openapi.json`, the contract as the code generates it |
 
 At the root stand the Cargo workspace manifest, the version, `testbed.toml` (bmo-testbed's declaration of how
-this repository is tested, checked, built and deployed, docs/deploy.md), `rustfmt.toml`, `CLAUDE.md`,
+this repository is tested, checked, built and deployed, docs/deploy.md), `install.toml` (what installing it on a
+fresh machine needs, which `bmo install` reads), `rustfmt.toml`, `CLAUDE.md`,
 `settings.example.toml`, the example of the settings file a deployment gives, and `LICENSE`.
 
 ## Documents
@@ -78,7 +79,8 @@ cargo run --bin bmo-job -- openapi > docs/openapi.json
 `bun pm pack` in `package/` writes the tarball a downstream checkout installs (docs/api.md, "The client").
 
 Deployed, the service runs as the user unit `deploy/bmo-job.service`, `bmo-job serve` out of the deploy tree;
-bmo-testbed puts a commit live by `testbed.toml` (docs/deploy.md).
+bmo-testbed puts a commit live by `testbed.toml` (docs/deploy.md). On a BMO machine the service is installed by an
+agent with the index's INSTALL.md (`bmo install`, https://bmo.ahas.io/install.md).
 
 ## License
 

@@ -22,7 +22,8 @@ Redis가 미들웨어인 것과 같은 방식으로, 미들웨어로 운영되�
 | `docs/` | 서비스가 하는 일에 대한 정식 기술과, 코드가 생성하는 계약인 `openapi.json` |
 
 루트에는 Cargo 워크스페이스 매니페스트, 버전, `testbed.toml`(이 저장소를 어떻게 테스트, 검사, 빌드, 배포하는지에
-대한 bmo-testbed의 선언, docs/deploy.md), `rustfmt.toml`, `CLAUDE.md`, 배포가 제공하는 설정 파일의 예시인
+대한 bmo-testbed의 선언, docs/deploy.md), `install.toml`(새 머신에 설치할 때 필요한 것으로, `bmo install`이
+읽습니다), `rustfmt.toml`, `CLAUDE.md`, 배포가 제공하는 설정 파일의 예시인
 `settings.example.toml`, 그리고 `LICENSE`가 있습니다.
 
 ## 문서
@@ -78,7 +79,8 @@ cargo run --bin bmo-job -- openapi > docs/openapi.json
 "The client").
 
 배포된 서비스는 사용자 유닛 `deploy/bmo-job.service`로, 배포 트리에서 `bmo-job serve`로 실행됩니다. bmo-testbed가
-`testbed.toml`에 따라 커밋을 운영에 반영합니다(docs/deploy.md).
+`testbed.toml`에 따라 커밋을 운영에 반영합니다(docs/deploy.md). BMO 머신에서는 에이전트가 인덱스의
+INSTALL.md(`bmo install`, https://bmo.ahas.io/install.md)로 서비스를 설치합니다.
 
 ## 라이선스
 

@@ -20,7 +20,7 @@
 | `docs/` | 服务行为的规范说明，以及由代码生成的契约 `openapi.json` |
 
 根目录下有 Cargo 工作区清单、版本文件、`testbed.toml`（bmo-testbed 关于本仓库如何测试、检查、构建和部署的声明，
-docs/deploy.md）、`rustfmt.toml`、`CLAUDE.md`、部署时提供的设置文件示例 `settings.example.toml`，以及 `LICENSE`。
+docs/deploy.md）、`install.toml`（在新机器上安装时所需的内容，由 `bmo install` 读取）、`rustfmt.toml`、`CLAUDE.md`、部署时提供的设置文件示例 `settings.example.toml`，以及 `LICENSE`。
 
 ## 文档
 
@@ -74,7 +74,8 @@ cargo run --bin bmo-job -- openapi > docs/openapi.json
 在 `package/` 中运行 `bun pm pack` 会生成下游检出所安装的 tarball（docs/api.md，"The client"）。
 
 部署后，服务以用户单元 `deploy/bmo-job.service` 运行，即从部署树运行 `bmo-job serve`；bmo-testbed 依据
-`testbed.toml` 将提交上线（docs/deploy.md）。
+`testbed.toml` 将提交上线（docs/deploy.md）。在 BMO 机器上，服务由智能体按照索引的 INSTALL.md
+（`bmo install`，https://bmo.ahas.io/install.md）安装。
 
 ## 许可证
 

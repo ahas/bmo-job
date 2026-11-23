@@ -22,7 +22,8 @@ MCP 通知に変換されます。もう一つはプルで、リースによっ�
 | `docs/` | サービスが何をするかの正規の記述と、コードが生成する契約 `openapi.json` |
 
 ルートには Cargo ワークスペースのマニフェスト、バージョン、`testbed.toml`（このリポジトリをどうテスト・チェック・
-ビルド・デプロイするかを示す bmo-testbed の宣言、docs/deploy.md）、`rustfmt.toml`、`CLAUDE.md`、デプロイが用意する
+ビルド・デプロイするかを示す bmo-testbed の宣言、docs/deploy.md）、`install.toml`（新しいマシンへのインストールに
+必要なもので、`bmo install` が読みます）、`rustfmt.toml`、`CLAUDE.md`、デプロイが用意する
 設定ファイルの例 `settings.example.toml`、そして `LICENSE` があります。
 
 ## ドキュメント
@@ -79,7 +80,8 @@ cargo run --bin bmo-job -- openapi > docs/openapi.json
 "The client"）。
 
 デプロイされたサービスはユーザーユニット `deploy/bmo-job.service` として、デプロイツリーから `bmo-job serve` で
-動きます。bmo-testbed が `testbed.toml` に従ってコミットを本番に反映します（docs/deploy.md）。
+動きます。bmo-testbed が `testbed.toml` に従ってコミットを本番に反映します（docs/deploy.md）。BMO のマシンでは、
+エージェントがインデックスの INSTALL.md（`bmo install`、https://bmo.ahas.io/install.md）でサービスをインストールします。
 
 ## ライセンス
 
