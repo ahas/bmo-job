@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md) | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
+
 # bmo-job
 
 A todo kept as middleware, in the way Redis is one: items, their notes, reports and work orders, the queues the
@@ -12,7 +14,7 @@ through the `bmo-job` plugin: the MCP server `bmo-job mcp` and its skill.
 | Folder | Holds |
 |---|---|
 | `src/` | The service's own package: the store, the HTTP server and its event stream, webhook delivery, the settings, and under `src/bin/` the binary `bmo-job` |
-| `crates/` | `client`, the crate `bmo-job-client`: the contract in Rust, every body as a type, every route as a call, the event stream, the webhook's signature and the OpenAPI document generated from those types; and `plugin`, the crate `bmo-job-plugin`: the harness plugin, the MCP server and its tools over the client, the whole OpenAPI document with the tools, and the `bmo-job` skill under `skills/` |
+| `crates/` | `client`, the crate `bmo-job-client`: the contract in Rust, every body as a type, every route as a call, the event stream, the webhook's signature and the OpenAPI document generated from those types; and `plugin`, the crate `bmo-job-plugin`: the harness plugin, the MCP server and its tools over the client, the whole OpenAPI document with the tools, and the `bmo-job` skill under `skills/`; and `tool-call`, the tool host's call protocol and the service access the tools share |
 | `package/` | The TypeScript package `bmo-job-client`, packed for a downstream checkout: types generated from `docs/openapi.json` and a client over them |
 | `deploy/` | The service's user unit, which runs `bmo-job serve` out of the deploy tree (docs/deploy.md) |
 | `tools/` | The service's tools for the tool host: `todo`, `state` and `launch`, each a manifest, an executable and its schemas (docs/tools.md) |
@@ -20,8 +22,8 @@ through the `bmo-job` plugin: the MCP server `bmo-job mcp` and its skill.
 | `docs/` | The canonical statements of what the service does, and `openapi.json`, the contract as the code generates it |
 
 At the root stand the Cargo workspace manifest, the version, `testbed.toml` (bmo-testbed's declaration of how
-this repository is tested, checked, built and deployed, docs/deploy.md), `rustfmt.toml`, `CLAUDE.md` and
-`settings.example.toml`, the example of the settings file a deployment gives.
+this repository is tested, checked, built and deployed, docs/deploy.md), `rustfmt.toml`, `CLAUDE.md`,
+`settings.example.toml`, the example of the settings file a deployment gives, and `LICENSE`.
 
 ## Documents
 
@@ -30,7 +32,7 @@ this repository is tested, checked, built and deployed, docs/deploy.md), `rustfm
 | `docs/api.md` | The API: every resource, its states and moves, its routes, the events, subscriptions and webhook delivery, the client and the harness plugin |
 | `docs/openapi.json` | The contract as the code generates it, with the tools under `x-tools` and the harness entry under `x-harness` |
 | `docs/tools.md` | The tools the service places: the queue's entries, the chat agent's state readings and its launching entries |
-| `docs/cli.md` | The command line: `serve`, `mcp` and `openapi` |
+| `docs/cli.md` | The command line: `nouns`, `serve`, `mcp`, `job close`, `job ask`, `todo` and `openapi` |
 | `docs/settings.md` | The settings file: where the service listens, its tokens and the callers they name, the labels whose items open by themselves, and its database |
 | `docs/schema.md` | The schema: the tables and the rules they keep |
 | `docs/deploy.md` | Deploying the service: what a release holds, where the service stands, and what gates a deployment |
@@ -77,3 +79,7 @@ cargo run --bin bmo-job -- openapi > docs/openapi.json
 
 Deployed, the service runs as the user unit `deploy/bmo-job.service`, `bmo-job serve` out of the deploy tree;
 bmo-testbed puts a commit live by `testbed.toml` (docs/deploy.md).
+
+## License
+
+MIT. The full text stands in `LICENSE`.
