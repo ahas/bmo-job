@@ -207,7 +207,7 @@ async fn an_open_question_is_settled_by_its_first_reply_and_a_wait_ends_on_it() 
 }
 
 #[tokio::test]
-async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_another() {
+async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_a_shorter_one_never_a_longer() {
   let service = Service::start().await;
   let by_default = service
     .supervisor()
@@ -221,6 +221,19 @@ async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_another() {
     .expect("asked");
   assert_eq!(by_default.due_at, Some(START + 60_000));
 
+  let shorter = service
+    .supervisor()
+    .ask(&NewQuestion {
+      asker_name: "builder".into(),
+      choices: either(),
+      text: "May I?".into(),
+      wait_ms: Some(10_000),
+      ..NewQuestion::default()
+    })
+    .await
+    .expect("asked");
+  assert_eq!(shorter.due_at, Some(START + 10_000));
+
   let longer = service
     .supervisor()
     .ask(&NewQuestion {
@@ -232,7 +245,7 @@ async fn the_wait_defaults_to_a_minute_and_the_asker_can_set_another() {
     })
     .await
     .expect("asked");
-  assert_eq!(longer.due_at, Some(START + 120_000));
+  assert_eq!(longer.due_at, Some(START + 60_000), "held to the person wait, a minute");
 
   let too_short = service
     .supervisor()
@@ -880,8 +893,8 @@ async fn a_move_to_a_person_names_his_wait_and_only_a_move_does() {
       .expect_err("out of range");
     assert_eq!(refused.code(), Some("bad-request"));
   }
-  let put = service.supervisor().change_question(question.id, &moved(600_000)).await.expect("put");
-  assert_eq!(put.due_at, Some(START + 600_000));
+  let put = service.supervisor().change_question(question.id, &moved(30_000)).await.expect("put");
+  assert_eq!(put.due_at, Some(START + 30_000));
 
   let without_a_move = QuestionChange {
     text: Some("Which way, again?".into()),
@@ -1228,4 +1241,56 @@ async fn a_question_paused_past_its_due_time_runs_a_whole_wait_again_and_is_not_
 
   service.pass(10_000).await;
   assert_eq!(client.events_page(&due).await.expect("read").items.len(), 1, "told once");
+}
+
+#[tokio::test]
+async fn a_supervisor_naming_a_longer_wait_than_the_person_wait_has_its_question_settled_once_that_wait_passes()
+ {
+  let service = Service::start().await;
+  let question = service.client().ask(&put_to_the_supervisor(None)).await.expect("asked");
+  let half_an_hour = QuestionChange {
+    addressee: Some(QuestionAddressee::Person),
+    choices: Some(either()),
+    recommendation: recommended("go ahead"),
+    wait_ms: Some(1_800_000),
+    ..QuestionChange::default()
+  };
+  let put = service.supervisor().change_question(question.id, &half_an_hour).await.expect("put");
+  assert_eq!(put.due_at, Some(START + 60_000), "the person wait, a minute, not the half hour named");
+
+  service.pass(59_999).await;
+  assert_eq!(service.client().question(question.id).await.expect("read").state, QuestionState::Open);
+  service.pass(1).await;
+  assert_eq!(
+    service.client().question(question.id).await.expect("read").state,
+    QuestionState::Answered,
+    "the recommendation settles it a minute after the move"
+  );
+  let replies = service
+    .client()
+    .replies(question.id, &WaitQuery::default())
+    .await
+    .expect("replies")
+    .items;
+  assert_eq!(
+    replies.iter().map(|reply| (reply.source, reply.choice.as_deref())).collect::<Vec<_>>(),
+    [(ReplySource::Recommendation, Some("go ahead"))]
+  );
+}
+
+#[tokio::test]
+async fn the_deployments_person_wait_is_the_wait_left_out_and_the_longest_named() {
+  let service = Service::start_with_person_wait(600_000).await;
+  let asked = |wait_ms: Option<i64>| NewQuestion {
+    asker_name: "builder".into(),
+    choices: either(),
+    text: "May I?".into(),
+    wait_ms,
+    ..NewQuestion::default()
+  };
+  let mut due = Vec::new();
+  for wait_ms in [None, Some(120_000), Some(3_600_000)] {
+    due.push(service.supervisor().ask(&asked(wait_ms)).await.expect("asked").due_at);
+  }
+  assert_eq!(due, [Some(START + 600_000), Some(START + 120_000), Some(START + 600_000)]);
 }

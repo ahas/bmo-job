@@ -105,8 +105,9 @@ pub struct NewQuestion {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub recommendation: Option<QuestionRecommendation>,
   /// How long a question asked of a person goes unanswered by him before its due time passes, 1 000 to 86 400 000
-  /// milliseconds, counted from the ask; 60 000 where left out. Its recommendation settles it then; with none, it
-  /// is told of as due and waits on. A question put to the supervisor takes the wait the supervisor's move names
+  /// milliseconds, counted from the ask and held to the deployment's person wait, a minute unless its settings name
+  /// another, which also stands where this is left out. Its recommendation settles it then; with none, it is told
+  /// of as due and waits on. A question put to the supervisor takes the wait the supervisor's move names
   /// once it is put to a person, and none of this one.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub wait_ms: Option<i64>,
@@ -136,7 +137,8 @@ pub struct QuestionChange {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub addressee: Option<QuestionAddressee>,
   /// With `addressee` `person` alone: how long the person has before its due time passes, 1 000 to 86 400 000
-  /// milliseconds from the move; 60 000 where left out. Its recommendation settles it then.
+  /// milliseconds from the move, held to the deployment's person wait, a minute unless its settings name another,
+  /// which also stands where this is left out. Its recommendation settles it then.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub wait_ms: Option<i64>,
   /// The asker's reference to the notice it put the question before whoever answers it with, set or replaced.

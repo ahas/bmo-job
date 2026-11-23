@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use bmo_job::{Access, App, Caller, Clock, DeliveryPolicy, Store, Unattended};
+use bmo_job::{Access, App, Caller, Clock, DeliveryPolicy, Questions, Store, Unattended};
 use bmo_job_client::{ApprovalGiven, Item, ItemChange, ItemState, JobClient, NewItem};
 use tempfile::TempDir;
 use tokio::io::AsyncReadExt;
@@ -116,7 +116,12 @@ impl Service {
   }
 
   pub async fn start_with(policy: DeliveryPolicy) -> Self {
-    Self::start_on(policy, Unattended::default()).await
+    Self::start_on(policy, Unattended::default(), Questions::default()).await
+  }
+
+  /// The service whose questions put to a person wait `person_wait_ms` for him at the most.
+  pub async fn start_with_person_wait(person_wait_ms: i64) -> Self {
+    Self::start_on(quick_delivery(), Unattended::default(), Questions { person_wait_ms }).await
   }
 
   /// The service whose raised items open by themselves where they carry one of `labels`.
@@ -124,14 +129,17 @@ impl Service {
     let unattended = Unattended {
       labels: labels.iter().map(|label| (*label).to_owned()).collect(),
     };
-    Self::start_on(quick_delivery(), unattended).await
+    Self::start_on(quick_delivery(), unattended, Questions::default()).await
   }
 
-  async fn start_on(policy: DeliveryPolicy, unattended: Unattended) -> Self {
+  async fn start_on(policy: DeliveryPolicy, unattended: Unattended, questions: Questions) -> Self {
     let dir = tempfile::tempdir().expect("a scratch directory");
     let url = format!("sqlite://{}?mode=rwc", dir.path().join("job.db").display());
     let clock = Clock::manual(START);
-    let store = Store::open(&url, clock.clone()).await.expect("the store opens");
+    let store = Store::open(&url, clock.clone())
+      .await
+      .expect("the store opens")
+      .with_person_wait(questions.person_wait_ms);
     let app = App::new(store.clone(), access()).unattended(unattended);
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a loopback port");
     let address = listener.local_addr().expect("the port's address");

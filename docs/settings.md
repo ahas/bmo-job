@@ -12,9 +12,9 @@ labels whose items open by themselves and the database it keeps its members in c
 
 ## What the file holds
 
-Two sections required, `[server]` and `[database]`, and two optional, `[callers]` and `[unattended]`. A key the
-service does not know is refused, so a misspelt setting fails at start rather than standing silently at a
-default.
+Two sections required, `[server]` and `[database]`, and three optional, `[callers]`, `[unattended]` and
+`[questions]`. A key the service does not know is refused, so a misspelt setting fails at start rather than
+standing silently at a default.
 
 ### `[server]`
 
@@ -58,6 +58,17 @@ itself under this setting (docs/api.md, "Unattended labels"). Left out, every it
 A deployment names here the work a worker takes up and settles on its own, such as the review of a pull request a
 worker holds, which is filed with the label `lane` at `pr-review` (docs/base-libraries.md, "The road").
 
+### `[questions]`
+
+How long a question put to a person waits for him (docs/api.md, 「Questions and replies」).
+
+| Key | What it holds |
+|---|---|
+| `person_wait_ms` | The person wait, 1 000 to 86 400 000 milliseconds; left out, 60 000, a minute. It is the wait a question put to a person has where its ask or the supervisor's move names none, and the longest it has where one names more: once it passes unanswered, the question's recommendation settles it. A value outside the range is refused at start |
+
+A deployment names here how long a person is given before the recommendation answers in his place. It binds every
+caller alike, a supervisor's move as much as an ask, so no caller can keep a question waiting on him longer.
+
 ### `[database]`
 
 | Key | What it holds |
@@ -67,6 +78,6 @@ worker holds, which is filed with the label `lane` at `pr-review` (docs/base-lib
 ## What the code fixes
 
 The spans and bounds docs/api.md states are the service's contract, not a deployment's choice, so they stand in
-the code: the page sizes, the longest wait, a lease's and a subscription's span, the event window, and webhook
-delivery's wait for an answer, its retries, the failures that move a subscription to `failing` and the pace
-a failing one is tried at.
+the code: the page sizes, the longest an answer is held open, a lease's and a subscription's span, the event
+window, and webhook delivery's wait for an answer, its retries, the failures that move a subscription to `failing`
+and the pace a failing one is tried at.

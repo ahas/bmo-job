@@ -19,10 +19,12 @@ const QUESTION_COLUMNS: &str = "id, item_id, asker_name, scope, addressee, text,
   due_at, remaining_ms, due_told, told_by_asker, heard_through, wait_ms, readdressed_by, readdressed_at, told_as, \
   created_at";
 
-/// The wait a person is given where the ask or the move names none, and the least and longest either may name.
-const DEFAULT_WAIT_MS: i64 = 60_000;
-const LEAST_WAIT_MS: i64 = 1_000;
-const LONGEST_WAIT_MS: i64 = 86_400_000;
+/// The person wait where the deployment names none: the wait a person is given where the ask or the move names
+/// none, and the longest he is given where one names more (docs/settings.md, `[questions]`).
+pub const PERSON_WAIT_MS: i64 = 60_000;
+/// The least and longest wait an ask, a move or the deployment may name.
+pub const LEAST_WAIT_MS: i64 = 1_000;
+pub const LONGEST_WAIT_MS: i64 = 86_400_000;
 
 /// A question as it is kept: the member, the time its clock had left when it was paused, and the wait its due time
 /// was last counted with, which its clock runs again where it is opened past its due time.
@@ -129,15 +131,18 @@ async fn told_question(tx: &mut Tx, at: i64, kind: EventKind, question: &Questio
   Ok(())
 }
 
-/// The wait a person is given, as an ask or a move names it, or a minute where it names none.
-fn judged_wait(named: Option<i64>) -> Result<i64, Refusal> {
-  let wait = named.unwrap_or(DEFAULT_WAIT_MS);
-  if !(LEAST_WAIT_MS..=LONGEST_WAIT_MS).contains(&wait) {
+/// The wait a person is given: the one an ask or a move names, held to the deployment's person wait, or the person
+/// wait where it names none. No caller keeps a question waiting on a person longer than the deployment allows.
+fn judged_wait(named: Option<i64>, person_wait_ms: i64) -> Result<i64, Refusal> {
+  let Some(named) = named else {
+    return Ok(person_wait_ms);
+  };
+  if !(LEAST_WAIT_MS..=LONGEST_WAIT_MS).contains(&named) {
     return Err(Refusal::bad_request(format!(
       "A question's wait is {LEAST_WAIT_MS} to {LONGEST_WAIT_MS} milliseconds."
     )));
   }
-  Ok(wait)
+  Ok(named.min(person_wait_ms))
 }
 
 /// What a question's choices must be: each filled, none twice.
@@ -346,7 +351,7 @@ impl Store {
     if addressee == QuestionAddressee::Person {
       offered_to_a_person(&new.choices)?;
     }
-    let wait = judged_wait(new.wait_ms)?;
+    let wait = judged_wait(new.wait_ms, self.person_wait_ms)?;
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut scope = new.scope;
@@ -425,7 +430,7 @@ impl Store {
     if wait_ms.is_some() && addressee != Some(QuestionAddressee::Person) {
       return Err(Refusal::bad_request("waitMs goes with a change that puts the question to a person."));
     }
-    let wait = judged_wait(wait_ms)?;
+    let wait = judged_wait(wait_ms, self.person_wait_ms)?;
     let now = self.now();
     let mut tx = self.begin().await?;
     let mut kept = kept_at(&mut tx, id).await?;

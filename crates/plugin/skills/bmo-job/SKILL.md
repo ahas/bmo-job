@@ -74,8 +74,9 @@ that would give any of them another value is refused 409 `item-frozen` with that
    Leave it out where you cannot make the case. Where your token is not a caller the deployment marks as
    supervising the work, the question goes to the supervisor, which settles it or puts it to a person, and it
    waits for the supervisor however long that takes. A question asked of a person offers two choices or more, or
-   is refused 422 `no-choices`. `waitMs` says how long a question asked of a person waits for him, a minute where
-   left out, so name one he can meet: then its recommendation settles it, as a reply with `source`
+   is refused 422 `no-choices`. `waitMs` says how long a question asked of a person waits for him, held to the
+   deployment's person wait, a minute unless its settings name another, which also stands where it is left out; a
+   longer one is cut to it. Leave it out unless he needs less: then its recommendation settles it, as a reply with `source`
    `recommendation`, or, with none, it is told of as due and waits on. Name a choice in `recommendation.answer`
    word for word, with no mark beside it.
 6. Holding a question put to the supervisor (`addressee` `supervisor`), where your token is a caller the
@@ -85,8 +86,9 @@ that would give any of them another value is refused 409 `item-frozen` with that
    `text`, two to four `choices` and a `recommendation` in your own words, written for someone who knows nothing
    of the work: what the work is, what each choice does, how they differ and what follows under each. A move with
    fewer than two choices is refused 422 `no-choices`, and one with no recommendation 422 `no-recommendation`.
-   Give `waitMs` for how long the person has, a minute where left out, so name one he can meet: once it passes
-   unanswered, the recommendation settles the question, as a reply with `source` `recommendation`. A question put
+   The person has the deployment's person wait, a minute unless its settings name another: leave `waitMs` out,
+   or name a shorter one, since a longer one is cut to it. Once it passes unanswered, the recommendation settles
+   the question, as a reply with `source` `recommendation`. A question put
    to a person that nobody has settled, which you would rather settle yourself, you take back with
    `job_question_change`, `addressee` `supervisor`, and it is yours again.
 

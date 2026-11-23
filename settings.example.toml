@@ -24,5 +24,9 @@ supervises = true
 [unattended]
 labels = ["lane=pr-review"]
 
+# How long a question put to a person waits for him at the most, and where its ask or move names no wait.
+[questions]
+person_wait_ms = 60000
+
 [database]
 url = "sqlite://job.db?mode=rwc"
