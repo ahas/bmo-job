@@ -23,6 +23,7 @@ pub mod todo_cli;
 use std::time::Duration;
 
 use tokio::net::TcpListener;
+use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::task::JoinHandle;
 
 pub use access::{Access, Caller};
@@ -60,8 +61,11 @@ pub async fn serve_on(
   axum::serve(listener, router(app)).with_graceful_shutdown(stop).await
 }
 
-/// Serves the service by its settings until it is told to stop.
+/// Serves the service by its settings until it is told to stop, by an interrupt or a termination signal, heard
+/// from its first moment. Once it listens it says the address on one line of its standard output, the port the
+/// system gave where the settings name port 0.
 pub async fn serve(settings: Settings) -> Result<(), String> {
+  let stop = told_to_stop(&[SignalKind::interrupt(), SignalKind::terminate()]);
   let access = settings.access()?;
   let store = Store::open(&settings.database.url, Clock::System)
     .await
@@ -70,11 +74,15 @@ pub async fn serve(settings: Settings) -> Result<(), String> {
   let listener = TcpListener::bind(&settings.server.listen)
     .await
     .map_err(|error| format!("{} could not be listened on: {error}", settings.server.listen))?;
+  let listening = listener
+    .local_addr()
+    .map_err(|error| format!("{} has no address: {error}", settings.server.listen))?;
+  println!("bmo-job: listening on {listening}");
   let background = spawn_background(store.clone(), DeliveryPolicy::default());
   let app = App::new(store, access).unattended(settings.unattended.clone());
   let stopping = app.clone();
   let served = serve_on(listener, app, async move {
-    stopped().await;
+    stop.await;
     stopping.stop();
   })
   .await;
@@ -82,13 +90,18 @@ pub async fn serve(settings: Settings) -> Result<(), String> {
   served.map_err(|error| format!("the server failed: {error}"))
 }
 
-/// Resolves when the process is told to stop, by an interrupt or a termination signal.
-async fn stopped() {
-  let interrupt = tokio::signal::ctrl_c();
-  let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-    .expect("the termination signal is heard");
-  tokio::select! {
-    _ = interrupt => {}
-    _ = terminate.recv() => {}
+/// A wait that ends once the process is told to stop by a signal of one of `kinds`. Each handler is installed by
+/// this call rather than by the wait's first poll, so a signal that comes in between is heard instead of ending
+/// the process by its default. A kind whose handler cannot be installed is left out, and with none installed the
+/// wait never ends.
+pub fn told_to_stop(kinds: &[SignalKind]) -> impl Future<Output = ()> + Send + use<> {
+  let mut heard: Vec<Signal> = kinds.iter().filter_map(|kind| signal(*kind).ok()).collect();
+
+  async move {
+    if heard.is_empty() {
+      return std::future::pending().await;
+    }
+
+    futures_util::future::select_all(heard.iter_mut().map(|one| Box::pin(one.recv()))).await;
   }
 }

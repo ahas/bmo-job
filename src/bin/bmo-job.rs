@@ -173,29 +173,21 @@ fn writer(named: Option<String>) -> String {
     .unwrap_or_default()
 }
 
-// What the run was told to stop by: the signals a run and its pane are ended with.
-async fn told_to_stop() {
-  use tokio::signal::unix::{SignalKind, signal};
+// What the run was told to stop by: the signals a run and its pane are ended with, heard from this call on.
+fn told_to_stop() -> impl std::future::Future<Output = ()> + Send + 'static {
+  use tokio::signal::unix::SignalKind;
 
-  let kinds = [SignalKind::terminate(), SignalKind::interrupt(), SignalKind::hangup()];
-  let mut heard: Vec<_> = kinds.into_iter().filter_map(|kind| signal(kind).ok()).collect();
-
-  if heard.is_empty() {
-    return std::future::pending().await;
-  }
-
-  let waits = heard.iter_mut().map(|one| Box::pin(one.recv()));
-
-  futures_util::future::select_all(waits).await;
+  bmo_job::told_to_stop(&[SignalKind::terminate(), SignalKind::interrupt(), SignalKind::hangup()])
 }
 
-// The run's stop as many waits hear it: each future the returned call makes ends once the run is told to stop,
-// at once where it already was.
+// The run's stop as many waits hear it, heard from this call on: each future the returned call makes ends once
+// the run is told to stop, at once where it already was.
 fn stop_heard() -> impl Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Clone {
   let (tell, heard) = tokio::sync::watch::channel(false);
+  let told = told_to_stop();
 
   tokio::spawn(async move {
-    told_to_stop().await;
+    told.await;
     let _ = tell.send(true);
   });
 
@@ -277,11 +269,11 @@ fn told(
 }
 
 async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
+  let stop = stop_heard();
   let root = std::env::current_dir().unwrap_or_default();
   let data_root = data_root();
   let repository = job_close::repository_of(&root);
   let item = close_item(todo);
-  let stop = stop_heard();
   let runtime = tokio::runtime::Handle::current();
   let written = item.clone();
   let stop_writing = stop.clone();
@@ -305,6 +297,7 @@ async fn closed(args: JobCloseArgs, todo: Option<i64>) -> u8 {
 }
 
 async fn closed_checkouts(args: JobCloseArgs, todo: Option<i64>, paths: Vec<PathBuf>) -> u8 {
+  let stop = stop_heard();
   let from = std::env::current_dir().unwrap_or_default();
   let roots = match job_close::checkout_roots(&from, &paths) {
     Ok(roots) => roots,
@@ -319,7 +312,6 @@ async fn closed_checkouts(args: JobCloseArgs, todo: Option<i64>, paths: Vec<Path
     Some((client, item)) => waiting_on(client, *item).await,
     None => BTreeMap::new(),
   };
-  let stop = stop_heard();
   let runtime = tokio::runtime::Handle::current();
   let written = item.clone();
   let stop_writing = stop.clone();
@@ -462,6 +454,7 @@ async fn job_ask(
   why: Option<String>,
   talking: Talking,
 ) -> ExitCode {
+  let stop = told_to_stop();
   let Talking {
     question: talk,
     say,
@@ -504,7 +497,7 @@ async fn job_ask(
         ack,
       };
 
-      job_ask::talk(&client, &receiver, &asked, told_to_stop()).await
+      job_ask::talk(&client, &receiver, &asked, stop).await
     }
     None => {
       let asked = NewAsk {
@@ -516,7 +509,7 @@ async fn job_ask(
         by: std::env::var("BMO_RUN_NAME").unwrap_or_else(|_| writer(None)),
       };
 
-      job_ask::ask(&client, &receiver, &asked, told_to_stop()).await
+      job_ask::ask(&client, &receiver, &asked, stop).await
     }
   };
 

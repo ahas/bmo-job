@@ -20,7 +20,7 @@ standing silently at a default.
 
 | Key | What it holds |
 |---|---|
-| `listen` | The address and port the service listens on |
+| `listen` | The address and port the service listens on; port 0 takes a free port the system gives, which the service says as it starts (docs/cli.md) |
 | `token_file` | The file holding the shared bearer token, which a request may carry and which names no caller; its surrounding whitespace is dropped, and a file holding no token is refused |
 
 ### `[callers]`

@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use bmo_job::Settings;
 use bmo_job_client::{ApprovalGiven, ApprovalKind, ItemChange, ItemState, JobClient, NewItem};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 use support::ROOT;
@@ -148,17 +149,13 @@ fn the_callers_are_read_and_a_token_names_one_caller() {
 #[tokio::test]
 async fn the_service_serves_by_its_settings_and_stops_on_a_signal() {
   let dir = tempfile::tempdir().expect("a scratch directory");
-  let port = std::net::TcpListener::bind("127.0.0.1:0")
-    .expect("a free port")
-    .local_addr()
-    .expect("an address")
-    .port();
   let token = written(dir.path(), "token", "served-token\n");
   let approver = written(dir.path(), "approver", "approver-token\n");
   let caller = written(dir.path(), "caller", "caller-token\n");
   let chat = written(dir.path(), "chat", "chat-token\n");
+  // Port 0: the service takes the port the system gives it and says which, so no other socket can take it first.
   let settings = format!(
-    "[server]\nlisten = \"127.0.0.1:{port}\"\ntoken_file = \"{}\"\n\
+    "[server]\nlisten = \"127.0.0.1:0\"\ntoken_file = \"{}\"\n\
      [callers.qa-admin]\ntoken_file = \"{}\"\napproves = true\n\
      [callers.tester]\ntoken_file = \"{}\"\n\
      [callers.chat]\ntoken_file = \"{}\"\napproves = true\n\
@@ -173,28 +170,19 @@ async fn the_service_serves_by_its_settings_and_stops_on_a_signal() {
   let mut child = Command::new(env!("CARGO_BIN_EXE_bmo-job"))
     .arg("serve")
     .env("BMO_JOB_SETTINGS", &settings)
-    .stdout(Stdio::null())
-    .stderr(Stdio::null())
+    .stdout(Stdio::piped())
     .kill_on_drop(true)
     .spawn()
     .expect("the service starts");
 
-  let client = JobClient::new(&format!("http://127.0.0.1:{port}"), "served-token").expect("a client");
-  let ready = tokio::time::timeout(PATIENCE, async {
-    loop {
-      if let Ok(health) = client.health().await {
-        return health;
-      }
-      tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-  })
-  .await
-  .expect("the service comes up");
-  assert!(ready.ready);
+  let url = tokio::time::timeout(PATIENCE, listening(&mut child))
+    .await
+    .expect("the service comes up");
+  let client = JobClient::new(&url, "served-token").expect("a client");
+  assert!(client.health().await.expect("the service answers").ready);
 
   // Whose approval opens a draft is the settings' word: the callers marked an approver open it, another
   // caller's is a recommendation.
-  let url = format!("http://127.0.0.1:{port}");
   let item = client
     .create_item(&NewItem {
       title: "served".to_owned(),
@@ -252,4 +240,21 @@ async fn the_service_serves_by_its_settings_and_stops_on_a_signal() {
     .expect("an exit");
   assert!(status.success(), "the service stops cleanly: {status}");
   drop(stream);
+}
+
+// The address the service says it listens on, read from its standard output, which is read on to its end
+// after; a service that ends before it says one fails the test at once, what it wrote on its standard error
+// standing in the test's output.
+async fn listening(child: &mut tokio::process::Child) -> String {
+  let mut said = BufReader::new(child.stdout.take().expect("its standard output")).lines();
+
+  while let Some(line) = said.next_line().await.expect("a line") {
+    if let Some(address) = line.strip_prefix("bmo-job: listening on ") {
+      tokio::spawn(async move { while let Ok(Some(_)) = said.next_line().await {} });
+
+      return format!("http://{address}");
+    }
+  }
+
+  panic!("the service ended without saying where it listens");
 }

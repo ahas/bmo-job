@@ -19,16 +19,22 @@ use bmo_job::job_close::{
 
 use bmo_job_client::{EventQuery, Labels, NewItem};
 
-// The clocks a test's close keeps to: a step's silence, the grace after a TERM and the lines saying where it
-// stands each a fraction of a second.
+// The clocks a test's close keeps to: the looks and the lines saying where it stands a fraction of a second, and
+// the silence and the grace far past anything a loaded machine holds a step or its output for. The grace ends as
+// soon as what it waits on is gone, so it costs a test nothing; a test of the silence itself sets
+// `TESTED_SILENCE`.
 pub(crate) fn quick() -> Clocks {
   Clocks {
-    silence: Duration::from_millis(300),
-    grace: Duration::from_millis(200),
+    silence: Duration::from_secs(3_600),
+    grace: Duration::from_secs(10),
     look: Duration::from_millis(10),
     standing_every: Duration::from_millis(100),
   }
 }
+
+// The silence a test of the silence itself keeps to: past what a loaded machine takes to start a check and hear
+// its first sign, and short enough to be waited out.
+const TESTED_SILENCE: Duration = Duration::from_secs(1);
 
 // A record as the testbed's deployment writes it, under the deploy root it names.
 const RECORD: &str = r#"{
@@ -204,24 +210,25 @@ fn told_close(
   skip_suite: Option<&str>,
   testbed: &Path,
 ) -> (Result<Vec<String>, String>, Vec<Standing>) {
-  let (closed, told, _) = said_close(root, data_root, then_reason, skip_suite, testbed);
+  let (closed, told, _) = said_close(root, data_root, then_reason, skip_suite, testbed, quick());
 
   (closed, told)
 }
 
-// A close by the test's clocks, with every standing it told and every line it said of where it stands.
+// A close by `clocks`, with every standing it told and every line it said of where it stands.
 fn said_close(
   root: &Path,
   data_root: &Path,
   then_reason: &str,
   skip_suite: Option<&str>,
   testbed: &Path,
+  clocks: Clocks,
 ) -> (Result<Vec<String>, String>, Vec<Standing>, Vec<String>) {
   let told = RefCell::new(Vec::new());
   let said = RefCell::new(Vec::new());
   let steps = Steps {
     testbed,
-    clocks: quick(),
+    clocks,
     running: Running::default(),
     say: &|line| said.borrow_mut().push(line.to_owned()),
   };
@@ -1002,11 +1009,21 @@ fn a_check_that_falls_silent_ends_the_close_with_its_last_line_what_ran_and_the_
     closable.data.path(),
     "echo 'unit agency-checks started'\nsetsid sleep 600 &\necho $! >> \"$1\"\nsleep 600 &\necho $! >> \"$1\"\nwait",
   );
-  let (closed, told, _) =
-    said_close(closable.repo.path(), closable.data.path(), "Land the second page", None, &testbed);
+  let clocks = Clocks {
+    silence: TESTED_SILENCE,
+    ..quick()
+  };
+  let (closed, told, _) = said_close(
+    closable.repo.path(),
+    closable.data.path(),
+    "Land the second page",
+    None,
+    &testbed,
+    clocks,
+  );
   let why = closed.expect_err("a silent check refuses the close");
 
-  assert!(why.starts_with("the static check wrote nothing for 300ms and was ended"), "{why}");
+  assert!(why.starts_with("the static check wrote nothing for 1s and was ended"), "{why}");
   assert!(why.contains("its last line: unit agency-checks started"), "{why}");
   assert!(why.contains("still running: ") && why.contains("sleep 600"), "{why}");
   assert!(why.ends_with("the checkout stands as the close found it"), "{why}");
@@ -1023,12 +1040,24 @@ fn a_check_that_falls_silent_ends_the_close_with_its_last_line_what_ran_and_the_
 #[test]
 fn a_check_whose_output_is_held_back_but_heard_runs_past_the_silence_and_says_where_it_stands() {
   let closable = closable();
+  // The check's one touch puts the file a day ahead, so from then on the close finds it touched no time ago
+  // however long a loaded machine keeps the check from running; it then runs past the silence before it ends.
   let (testbed, _started) = check_at(
     closable.data.path(),
-    "for i in 1 2 3 4 5 6; do touch \"$BMO_TESTBED_HEARD\"; sleep 0.1; done\necho 'check: ok'",
+    "touch -d tomorrow \"$BMO_TESTBED_HEARD\"\nsleep 1.2\necho 'check: ok'",
   );
-  let (closed, told, said) =
-    said_close(closable.repo.path(), closable.data.path(), "Land the second page", None, &testbed);
+  let clocks = Clocks {
+    silence: TESTED_SILENCE,
+    ..quick()
+  };
+  let (closed, told, said) = said_close(
+    closable.repo.path(),
+    closable.data.path(),
+    "Land the second page",
+    None,
+    &testbed,
+    clocks,
+  );
 
   closed.expect("a check that is heard is not ended");
   assert_eq!(told, vec![Standing::Testing, Standing::WaitingBatch(closable.head.clone())]);
@@ -1052,14 +1081,7 @@ fn a_stop_ends_the_step_running_with_everything_under_it() {
   let mut command = Command::new(&testbed);
   command.arg("check");
 
-  let step = std::thread::spawn(move || {
-    let clocks = Clocks {
-      silence: Duration::from_secs(3_600),
-      ..quick()
-    };
-
-    run_step(command, "the static check", &clocks, &held, &|_| {})
-  });
+  let step = std::thread::spawn(move || run_step(command, "the static check", &quick(), &held, &|_| {}));
 
   assert!(soon(|| started.pids().len() == 3), "the stand-in started what it starts");
 
