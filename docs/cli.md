@@ -153,6 +153,7 @@ flowchart TD
   |---|---|---|---|
   | The check passed and the commit stands on main, its repository deploying | `merged:` with the commits, `checked:` with the check, and `waiting for the batch deployment: <commit> stands on <remote>/<main>` | | 0 |
   | The same in a repository whose `testbed.toml` reads and declares no `[deploy]` (a base library, released and never put live) | `merged:`, `checked:`, and `on main: <commit> stands on <remote>/<main>, and this repository deploys nothing` | | 0 |
+  | The same in a checkout whose `testbed.toml` names no `[deploy] root`, or stands absent or does not read, so the testbed deploys nothing of it | `merged:`, `checked:`, `waiting for the batch deployment: <commit> stands on <remote>/<main>`, and `no batch deployment puts it live: this checkout's testbed.toml names no [deploy] root, so the testbed deploys nothing of it until one is declared` | | 0 |
   | The record already names the commit as live | `this commit is already what is deployed` | | 0 |
   | A reason, a commit message, the remote, the close line, the rebase, the check or the push refused it | | `job-close: refused —` and why | 1 |
   | The run was told to stop | | one line saying so | 130 |

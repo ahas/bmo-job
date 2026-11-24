@@ -478,6 +478,36 @@ fn a_close_checks_since_main_merges_and_leaves_the_commit_waiting_for_the_batch(
   assert_eq!(told, vec![Standing::Testing, Standing::WaitingBatch(closable.head.clone())]);
 }
 
+// A checkout whose declaration names no deploy root waits all the same, and the close says that no batch
+// deployment puts its commit live: the testbed deploys nothing of it.
+#[test]
+fn a_close_in_a_checkout_naming_no_deploy_root_says_no_batch_deployment_puts_it_live() {
+  for declaration in [None, Some("testbed = 0\nname = \"the-test\"\n\n[deploy]\nlink = \"deploy\"\n")] {
+    let closable = closable();
+
+    match declaration {
+      Some(text) => fs::write(closable.repo.path().join("testbed.toml"), text).expect("the declaration"),
+      None => fs::remove_file(closable.repo.path().join("testbed.toml")).expect("no declaration"),
+    }
+
+    let (testbed, _) = testbed_at(closable.data.path());
+    let (closed, told) =
+      told_close(closable.repo.path(), closable.data.path(), "Land the second page", None, &testbed);
+    let lines = closed.expect("merged");
+    let head = &closable.head[..12];
+
+    assert_eq!(
+      lines[lines.len() - 2..],
+      [
+        format!("waiting for the batch deployment: {head} stands on origin/main"),
+        "no batch deployment puts it live: this checkout's testbed.toml names no [deploy] root, so the testbed deploys nothing of it until one is declared".to_owned(),
+      ],
+      "{declaration:?}"
+    );
+    assert_eq!(told.last(), Some(&Standing::WaitingBatch(closable.head.clone())), "{declaration:?}");
+  }
+}
+
 #[test]
 fn a_close_runs_no_suite_and_reads_a_skip_reason_for_its_language_alone() {
   let closable = closable();

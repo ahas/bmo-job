@@ -379,6 +379,7 @@ impl Main {
 }
 
 const ALREADY_DEPLOYED: &str = "this commit is already what is deployed";
+const UNDEPLOYED: &str = "no batch deployment puts it live: this checkout's testbed.toml names no [deploy] root, so the testbed deploys nothing of it until one is declared";
 
 // A checkout as a close reads it before any check: what it leaves out, or what its check and its push need.
 enum Reading {
@@ -526,6 +527,13 @@ fn land(prepared: &Prepared) -> Result<(Vec<String>, Standing), String> {
   }
 
   lines.push(format!("waiting for the batch deployment: {short} stands on {main}"));
+
+  // The testbed refuses to deploy a commit whose declaration names no deploy root, so a commit left waiting here
+  // goes live only once one is declared; the deployer's notices take it from the pair, and the close says so.
+  if declared_deploy_root(&prepared.root).is_none() {
+    lines.push(UNDEPLOYED.to_owned());
+  }
+
   Ok((lines, Standing::WaitingBatch(prepared.head.clone())))
 }
 
