@@ -35,21 +35,9 @@ pub use subscriptions::{Delivery, Kept};
 /// One transaction on the database.
 pub(crate) type Tx = Transaction<'static, Sqlite>;
 
-/// The schema's version, kept in the database's own user version.
+/// The schema's version, kept in the database's own user version: the 1.0.0 baseline's, which `schema.sql` makes
+/// whole (docs/schema.md). An install from before 1.0.0 at its last release holds this version already.
 const SCHEMA_VERSION: i64 = 9;
-
-/// The steps that bring a store of an older version up to this one, each from the version it reads; a store
-/// with no tables takes the whole schema instead.
-const MIGRATIONS: [(i64, &str); 8] = [
-  (1, include_str!("migrate_v1.sql")),
-  (2, include_str!("migrate_v2.sql")),
-  (3, include_str!("migrate_v3.sql")),
-  (4, include_str!("migrate_v4.sql")),
-  (5, include_str!("migrate_v5.sql")),
-  (6, include_str!("migrate_v6.sql")),
-  (7, include_str!("migrate_v7.sql")),
-  (8, include_str!("migrate_v8.sql")),
-];
 
 /// The name the service writes its own changes under: the notes it writes and the changes its sweep makes.
 pub(crate) const OWN_NAME: &str = "bmo-job";
@@ -90,19 +78,21 @@ impl Store {
       .connect_with(options)
       .await?;
     let version: i64 = sqlx::query_scalar("PRAGMA user_version").fetch_one(&pool).await?;
-    if (0..SCHEMA_VERSION).contains(&version) {
+    if version == 0 {
       let mut tx = pool.begin().await?;
-      if version == 0 {
-        sqlx::raw_sql(include_str!("schema.sql")).execute(&mut *tx).await?;
-      } else {
-        for (_, step) in MIGRATIONS.iter().filter(|(from, _)| *from >= version) {
-          sqlx::raw_sql(step).execute(&mut *tx).await?;
-        }
-      }
+      sqlx::raw_sql(include_str!("schema.sql")).execute(&mut *tx).await?;
       sqlx::raw_sql(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))
         .execute(&mut *tx)
         .await?;
       tx.commit().await?;
+    } else if version < SCHEMA_VERSION {
+      return Err(Refusal::new(
+        bmo_job_client::Code::Failed,
+        format!(
+          "The database's schema is version {version}, from a release before 1.0.0 short of its last; that \
+           release brings it to version {SCHEMA_VERSION} first."
+        ),
+      ));
     } else if version != SCHEMA_VERSION {
       return Err(Refusal::new(
         bmo_job_client::Code::Failed,

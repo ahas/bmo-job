@@ -15,11 +15,11 @@ CREATE TABLE items (
   labels TEXT NOT NULL,
   approvals TEXT NOT NULL,
   merged_into INTEGER,
-  raised_by INTEGER,
   lease_id INTEGER,
   created_at INTEGER NOT NULL,
   changed_at INTEGER NOT NULL,
   ended_at INTEGER,
+  raised_by INTEGER,
   hold_reason TEXT,
   hold_caller_name TEXT,
   hold_at INTEGER,
@@ -99,11 +99,11 @@ CREATE TABLE leases (
   queue_name TEXT NOT NULL,
   item_id INTEGER NOT NULL,
   holder_name TEXT NOT NULL,
-  caller_name TEXT,
   ttl_ms INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   ended_at INTEGER,
+  caller_name TEXT,
   frozen TEXT
 );
 CREATE INDEX leases_standing ON leases (ended_at, expires_at);
@@ -116,14 +116,14 @@ CREATE TABLE questions (
   scope TEXT,
   text TEXT NOT NULL,
   choices TEXT NOT NULL,
-  recommendation TEXT,
   state TEXT NOT NULL,
   due_at INTEGER,
   remaining_ms INTEGER,
   due_told INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  recommendation TEXT,
   told_by_asker INTEGER NOT NULL DEFAULT 0,
   heard_through INTEGER,
-  created_at INTEGER NOT NULL,
   addressee TEXT NOT NULL DEFAULT 'person',
   wait_ms INTEGER NOT NULL DEFAULT 60000,
   readdressed_by TEXT,
@@ -140,9 +140,9 @@ CREATE TABLE replies (
   text TEXT NOT NULL,
   actor_name TEXT NOT NULL,
   settles INTEGER NOT NULL,
-  source TEXT NOT NULL,
-  why TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  source TEXT NOT NULL DEFAULT 'person',
+  why TEXT
 );
 CREATE INDEX replies_by_question ON replies (question_id, id);
 

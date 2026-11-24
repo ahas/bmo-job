@@ -5,6 +5,7 @@ mod support;
 
 mod access;
 mod ask_words;
+mod baseline;
 mod events;
 mod hangul;
 mod import;
@@ -16,7 +17,6 @@ mod job_close_checkouts;
 mod label_values;
 mod layout;
 mod leases;
-mod migrate;
 mod notes;
 mod openapi;
 mod plugin;

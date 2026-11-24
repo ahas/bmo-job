@@ -1,15 +1,11 @@
 # Schema
 
 The service keeps everything it holds in one SQLite database, the one `[database] url` names (docs/settings.md).
-The service makes its tables itself the first time it opens a database with none, and records the schema's
-version in the database's own user version; a database of an older version is brought up to it at start, and
-one of a later version is refused. Bringing a database up to the version that keeps the item an item was raised
-from fills it, for each item standing then, from the item's `raised-by` label where that label is the key of
-another standing item, and leaves it null otherwise; a lease standing then is held by no named caller, and
-holds nothing of its item fixed. Bringing it up to the version that keeps who a question is put to makes every
-question standing then a person's, its wait the span between its asking and its due time, or a minute where it
-has none. Bringing it up to the version that keeps an item's hold and notice switch-off leaves both null on every
-item standing then, a held one among them, and makes no list of label values.
+The schema starts at the 1.0.0 baseline: the service makes every table of it itself the first time it opens a
+database with none, and records the baseline's version, 9, in the database's own user version. An install from
+before 1.0.0 at its last release already holds that version and that schema, and is read as it stands. A
+database of an older version is refused, with its version named: the last release before 1.0.0 brings it up
+first. One of a later version is refused too.
 
 ## The rules of every table
 
