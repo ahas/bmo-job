@@ -49,7 +49,8 @@
 - **`jobs`** is the agency's jobs for the room the call names or the turn's own, newest first, each with its
   state, its item, its worker, its role and its room, and its report where `full` asks for it.
 - **`work_order`** is the job service's work order of one item: its state, its purpose, its directive and its
-  tasks in stage order.
+  tasks in stage order, each task with the item whose work its step waits on and the repository that work must
+  stand on, where it waits on any.
 - **`archive_scan`** is the receiver's messages of one room, newest first: one message by its id, or a page
   narrowed by the text it holds, the message it carries on before and its sender.
 

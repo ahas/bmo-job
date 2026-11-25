@@ -86,6 +86,32 @@ pub fn run_line(job: &Value, full: bool) -> String {
   one
 }
 
+/// One work order's task as one line: its stage, its state, its title and its assignee, and where the step
+/// waits on another item's work, the item it waits on and the repository that work must stand on.
+pub fn task_line(task: &Value) -> String {
+  let assignee = text(task, "assigneeName").map(|name| format!(" ({name})")).unwrap_or_default();
+  let waits = task
+    .get("after")
+    .filter(|after| after.is_object())
+    .map(|after| {
+      format!(
+        " · waits on item #{} in {}",
+        number(after, "itemId").unwrap_or(0),
+        text(after, "repository").unwrap_or_default()
+      )
+    })
+    .unwrap_or_default();
+
+  format!(
+    "  {}. [{}] {}{}{}",
+    number(task, "stage").unwrap_or(0),
+    text(task, "state").unwrap_or_default(),
+    text(task, "title").unwrap_or_default(),
+    assignee,
+    waits
+  )
+}
+
 /// The room a call reads: the one it names or the turn's own, or why it names none.
 fn room(args: &RunsArgs, handed: &Handed) -> Result<i64, Answer> {
   args.chat.or_else(|| turn_room(&handed.session)).ok_or_else(|| {
@@ -209,14 +235,7 @@ async fn work_order(handed: &Handed) -> Answer {
   {
     lines.push("tasks".to_owned());
     for task in tasks {
-      let assignee = text(task, "assigneeName").map(|name| format!(" ({name})")).unwrap_or_default();
-      lines.push(format!(
-        "  {}. [{}] {}{}",
-        number(task, "stage").unwrap_or(0),
-        text(task, "state").unwrap_or_default(),
-        text(task, "title").unwrap_or_default(),
-        assignee
-      ));
+      lines.push(task_line(task));
     }
   }
 
