@@ -93,5 +93,6 @@ pub use subscriptions::{
   NewSubscription, Subscription, SubscriptionChange, SubscriptionQuery, SubscriptionState,
 };
 pub use work_orders::{
-  Task, TaskChange, TaskQuery, TaskState, WorkOrder, WorkOrderBody, WorkOrderChange, WorkOrderState,
+  NewStep, Task, TaskAfter, TaskChange, TaskQuery, TaskState, WorkOrder, WorkOrderBody, WorkOrderChange,
+  WorkOrderState,
 };

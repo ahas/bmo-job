@@ -1,11 +1,13 @@
 //! `bmo-job todo` from a shell (docs/cli.md): the account a worker leaves on its item when it ends it or stops
-//! short, and the row it raises for what it found, all through the job service's own routes. A run moves no
-//! item's state: whoever ordered the work does.
+//! short, the step it leaves for a later stage of its item, and the row it raises for what it found, all through
+//! the job service's own routes. A run moves no item's state: whoever ordered the work does.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use bmo_job_client::{JobClient, NewItem, NewReport, Report, ReportKind, ReviewKind, ReviewQuery};
+use bmo_job_client::{
+  JobClient, NewItem, NewReport, NewStep, Report, ReportKind, ReviewKind, ReviewQuery, TaskAfter,
+};
 
 use crate::Settings;
 use crate::job_close::{waiting_commit, waiting_commits};
@@ -223,6 +225,46 @@ pub async fn stop_here(client: &JobClient, args: &StopHereArgs) -> Result<Vec<St
   let kept = report(client, args.item, ReportKind::Held, account, by, BTreeMap::new()).await?;
 
   Ok(vec![serde_json::to_string(&kept).unwrap_or_default()])
+}
+
+/// A step a job leaves for a later stage of its own item.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NextArgs {
+  pub item: i64,
+  pub step: String,
+  /// The other item's work the step waits on.
+  pub after: Option<TaskAfter>,
+}
+
+/// The title of the work under way, the first step of the work order made where the item has none
+/// (docs/cli.md, 「`bmo-job todo`」).
+pub const STANDING_STEP: &str = "The work of the brief that waits on nothing";
+
+/// The step added behind the item's plan, waiting on the other item's work where one is named, so the run leaves
+/// what is left for a later stage instead of waiting on that work itself. Its task is printed as its JSON.
+pub async fn next(client: &JobClient, args: &NextArgs) -> Result<String, String> {
+  let step = args.step.trim();
+  if step.is_empty() {
+    return Err("--next takes --step '<what is left for a later stage>'".to_owned());
+  }
+
+  if let Some(refusal) = outside_refusal(&[step]) {
+    return Err(refusal);
+  }
+
+  let task = client
+    .add_step(
+      args.item,
+      &NewStep {
+        title: step.to_owned(),
+        after: args.after.clone(),
+        standing: Some(STANDING_STEP.to_owned()),
+      },
+    )
+    .await
+    .map_err(|why| format!("item {} did not take the step: {why}", args.item))?;
+
+  Ok(serde_json::to_string(&task).unwrap_or_default())
 }
 
 /// A row a job raises out of its own work.

@@ -3,18 +3,19 @@
 use std::collections::HashSet;
 
 use bmo_job_client::{
-  EventKind, Item, ItemState, Page, Task, TaskChange, TaskQuery, TaskState, WorkOrder, WorkOrderBody,
-  WorkOrderChange, WorkOrderState,
+  Code, EventKind, Item, ItemState, NewStep, Page, Task, TaskAfter, TaskChange, TaskQuery, TaskState,
+  WorkOrder, WorkOrderBody, WorkOrderChange, WorkOrderState,
 };
 use sqlx::Row;
 use sqlx::sqlite::SqliteRow;
 
-use super::events::{emit, key_alone};
-use super::items::{item_at, item_keys};
+use super::events::{EventKeys, emit, key_alone};
+use super::items::{find_item, item_at, item_keys};
 use super::{Store, Tx, filled, from_json, page_limit, paged, stored, to_json};
 use crate::refusal::Refusal;
 
-const TASK_COLUMNS: &str = "id, item_id, stage, title, state, assignee_name, changed_at";
+const TASK_COLUMNS: &str =
+  "id, item_id, stage, title, state, assignee_name, after_item_id, after_repository, changed_at";
 
 fn work_order_from(row: &SqliteRow) -> Result<WorkOrder, Refusal> {
   Ok(WorkOrder {
@@ -35,8 +36,37 @@ fn task_from(row: &SqliteRow) -> Result<Task, Refusal> {
     title: row.try_get("title")?,
     state: stored(row.try_get("state")?, TaskState::parse)?,
     assignee_name: row.try_get("assignee_name")?,
+    after: after_from(row)?,
     changed_at: row.try_get("changed_at")?,
   })
+}
+
+/// The work a task's step waits on, kept as its item and repository, both null where it waits on none.
+fn after_from(row: &SqliteRow) -> Result<Option<TaskAfter>, Refusal> {
+  let item_id: Option<i64> = row.try_get("after_item_id")?;
+  let repository: Option<String> = row.try_get("after_repository")?;
+  Ok(item_id.zip(repository).map(|(item_id, repository)| TaskAfter {
+    item_id,
+    repository,
+  }))
+}
+
+/// The work a task of `item_id` is given to wait on: a repository named, and another item that stands
+/// (docs/api.md, "Work orders and tasks").
+async fn after_read(tx: &mut Tx, item_id: i64, after: &TaskAfter) -> Result<(), Refusal> {
+  filled("repository", &after.repository)?;
+  if after.item_id == item_id {
+    return Err(Refusal::conflict(format!(
+      "A step of item {item_id} cannot wait on item {item_id} itself."
+    )));
+  }
+  if find_item(tx, after.item_id).await?.is_none() {
+    return Err(Refusal::new(
+      Code::UnknownItem,
+      format!("There is no item {} for the step to wait on.", after.item_id),
+    ));
+  }
+  Ok(())
 }
 
 async fn find_work_order(tx: &mut Tx, item_id: i64) -> Result<Option<WorkOrder>, Refusal> {
@@ -130,25 +160,7 @@ async fn rebuild_tasks(tx: &mut Tx, item: &Item, steps: &[String], now: i64) -> 
         emit(tx, now, EventKind::TaskChanged.as_str(), &moved, &keys).await?;
       }
       None => {
-        let id: i64 = sqlx::query_scalar(
-          "INSERT INTO tasks (item_id, stage, title, state, changed_at) VALUES ($1, $2, $3, 'waiting', $4) RETURNING id",
-        )
-        .bind(item.id)
-        .bind(stage)
-        .bind(title)
-        .bind(now)
-        .fetch_one(&mut **tx)
-        .await?;
-        let made = Task {
-          id,
-          item_id: item.id,
-          stage,
-          title: title.clone(),
-          state: TaskState::Waiting,
-          assignee_name: None,
-          changed_at: now,
-        };
-        emit(tx, now, EventKind::TaskChanged.as_str(), &made, &keys).await?;
+        make_task(tx, item.id, stage, title, None, now, &keys).await?;
       }
     }
   }
@@ -157,6 +169,42 @@ async fn rebuild_tasks(tx: &mut Tx, item: &Item, steps: &[String], now: i64) -> 
     emit(tx, now, EventKind::TaskChanged.as_str(), &key_alone(task.id, Some(item.id)), &keys).await?;
   }
   Ok(())
+}
+
+/// Makes a waiting task of a step and tells it.
+async fn make_task(
+  tx: &mut Tx,
+  item_id: i64,
+  stage: i64,
+  title: &str,
+  after: Option<TaskAfter>,
+  now: i64,
+  keys: &EventKeys,
+) -> Result<Task, Refusal> {
+  let id: i64 = sqlx::query_scalar(
+    "INSERT INTO tasks (item_id, stage, title, state, after_item_id, after_repository, changed_at) \
+     VALUES ($1, $2, $3, 'waiting', $4, $5, $6) RETURNING id",
+  )
+  .bind(item_id)
+  .bind(stage)
+  .bind(title)
+  .bind(after.as_ref().map(|after| after.item_id))
+  .bind(after.as_ref().map(|after| after.repository.as_str()))
+  .bind(now)
+  .fetch_one(&mut **tx)
+  .await?;
+  let made = Task {
+    id,
+    item_id,
+    stage,
+    title: title.to_owned(),
+    state: TaskState::Waiting,
+    assignee_name: None,
+    after,
+    changed_at: now,
+  };
+  emit(tx, now, EventKind::TaskChanged.as_str(), &made, keys).await?;
+  Ok(made)
 }
 
 async fn save_work_order(tx: &mut Tx, order: &WorkOrder) -> Result<(), Refusal> {
@@ -253,6 +301,59 @@ impl Store {
     Ok(order)
   }
 
+  /// Adds one step behind the item's plan, whether or not the item is leased, and answers its task. Where the item
+  /// has no work order, one is made of its title, its brief and the standing work as the first step.
+  pub async fn add_step(&self, item_id: i64, step: NewStep) -> Result<Task, Refusal> {
+    let NewStep {
+      title,
+      after,
+      standing,
+    } = step;
+    filled("step", &title)?;
+    let now = self.now();
+    let mut tx = self.begin().await?;
+    let item = item_at(&mut tx, item_id).await?;
+    if let Some(after) = &after {
+      after_read(&mut tx, item_id, after).await?;
+    }
+    let keys = item_keys(&item);
+    let mut order = match find_work_order(&mut tx, item_id).await? {
+      Some(order) => order,
+      None => {
+        let standing = standing.ok_or_else(|| {
+          Refusal::new(
+            Code::StandingRequired,
+            format!("Item {item_id} has no work order; name the work already under way as standing."),
+          )
+        })?;
+        filled("standing", &standing)?;
+        make_task(&mut tx, item_id, 1, &standing, None, now, &keys).await?;
+        WorkOrder {
+          item_id,
+          purpose: item.title.clone(),
+          directive: item.brief.clone(),
+          steps: vec![standing],
+          state: WorkOrderState::Draft,
+          changed_at: now,
+        }
+      }
+    };
+    if order.state == WorkOrderState::Done {
+      return Err(Refusal::conflict("The work order is done; reopen it to add a step."));
+    }
+    if order.steps.contains(&title) {
+      return Err(Refusal::conflict(format!("The step {title:?} stands among the steps already.")));
+    }
+    let stage = order.steps.len() as i64 + 1;
+    let task = make_task(&mut tx, item_id, stage, &title, after, now, &keys).await?;
+    order.steps.push(title);
+    order.changed_at = now;
+    save_work_order(&mut tx, &order).await?;
+    emit(&mut tx, now, EventKind::WorkOrderChanged.as_str(), &order, &keys).await?;
+    self.commit(tx).await?;
+    Ok(task)
+  }
+
   /// The work order's tasks by stage and key, or only the stage under way.
   pub async fn tasks(&self, item_id: i64, query: &TaskQuery) -> Result<Page<Task>, Refusal> {
     let limit = page_limit(query.limit)?;
@@ -306,13 +407,22 @@ impl Store {
     if let Some(assignee) = change.assignee_name {
       task.assignee_name = assignee;
     }
+    if let Some(after) = change.after {
+      if let Some(given) = &after {
+        after_read(&mut tx, item_id, given).await?;
+      }
+      task.after = after;
+    }
     task.changed_at = now;
     sqlx::query(
-      "UPDATE tasks SET state = $1, stage = $2, assignee_name = $3, changed_at = $4 WHERE id = $5",
+      "UPDATE tasks SET state = $1, stage = $2, assignee_name = $3, after_item_id = $4, after_repository = $5, \
+       changed_at = $6 WHERE id = $7",
     )
     .bind(task.state.as_str())
     .bind(task.stage)
     .bind(&task.assignee_name)
+    .bind(task.after.as_ref().map(|after| after.item_id))
+    .bind(task.after.as_ref().map(|after| after.repository.as_str()))
     .bind(now)
     .bind(task.id)
     .execute(&mut *tx)

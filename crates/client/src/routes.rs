@@ -19,7 +19,7 @@ use crate::reports::{NewReport, Report};
 use crate::reviews::{NewReview, Review, ReviewQuery};
 use crate::scopes::{ScopeDeletion, ScopeHolding};
 use crate::subscriptions::{NewSubscription, Subscription, SubscriptionChange, SubscriptionQuery};
-use crate::work_orders::{Task, TaskChange, TaskQuery, WorkOrder, WorkOrderBody, WorkOrderChange};
+use crate::work_orders::{NewStep, Task, TaskChange, TaskQuery, WorkOrder, WorkOrderBody, WorkOrderChange};
 
 /// A schema the generator makes, its nested types referred to where the generator keeps its definitions.
 pub type SchemaOf = fn(&mut SchemaGenerator) -> Schema;
@@ -328,6 +328,20 @@ pub fn routes() -> Vec<Route> {
       &[BadRequest, NotFound, Conflict],
     ),
     route(
+      Post,
+      "/items/{itemId}/work-order/steps",
+      "createItemsWorkOrderStepsByItemId",
+      "items",
+      "Add one step behind a work order's plan, a leased item's included, optionally waiting on another item's \
+       work; where the item has no work order, standing names the work under way and the order is made.",
+    )
+    .with(
+      None,
+      Some(referred::<NewStep>),
+      vec![json::<Task>(201, "The step's task.")],
+      &[BadRequest, NotFound, Conflict, UnknownItem, StandingRequired],
+    ),
+    route(
       Get,
       "/items/{itemId}/work-order/tasks",
       "listItemsWorkOrderTasksByItemId",
@@ -353,13 +367,14 @@ pub fn routes() -> Vec<Route> {
       "/items/{itemId}/work-order/tasks/{taskId}",
       "changeItemsWorkOrderTasksByItemIdTaskId",
       "items",
-      "Move a task: current, done, skipped, waiting again, or to another stage.",
+      "Move a task: current, done, skipped, waiting again, or to another stage; set or clear the item's work it \
+       waits on.",
     )
     .with(
       None,
       Some(referred::<TaskChange>),
       vec![json::<Task>(200, "The task moved.")],
-      &[BadRequest, NotFound, Conflict],
+      &[BadRequest, NotFound, Conflict, UnknownItem],
     ),
     route(Get, "/label-values", "listLabelValues", "label-values", "Every label key's list of values, in key order.")
       .with(

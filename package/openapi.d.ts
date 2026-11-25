@@ -165,6 +165,23 @@ export interface paths {
         patch: operations["changeItemsWorkOrderByItemId"];
         trace?: never;
     };
+    "/items/{itemId}/work-order/steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add one step behind a work order's plan, a leased item's included, optionally waiting on another item's work; where the item has no work order, standing names the work under way and the order is made. */
+        post: operations["createItemsWorkOrderStepsByItemId"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/items/{itemId}/work-order/tasks": {
         parameters: {
             query?: never;
@@ -196,7 +213,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Move a task: current, done, skipped, waiting again, or to another stage. */
+        /** Move a task: current, done, skipped, waiting again, or to another stage; set or clear the item's work it waits on. */
         patch: operations["changeItemsWorkOrderTasksByItemIdTaskId"];
         trace?: never;
     };
@@ -868,6 +885,16 @@ export interface components {
              */
             stage?: number | null;
         };
+        /** @description One step added behind a work order's plan. */
+        NewStep: {
+            after?: components["schemas"]["TaskAfter"] | null;
+            /**
+             * @description The title of the work already under way, the first step of the work order made where the item has none;
+             *     not read where one stands.
+             */
+            standing?: string | null;
+            title: string;
+        };
         /** @description A subscription made. */
         NewSubscription: {
             holderName: string;
@@ -1286,6 +1313,8 @@ export interface components {
         SubscriptionState: "active" | "paused" | "failing";
         /** @description A task of a work order. */
         Task: {
+            /** @description The other item's work the step waits on; null where it waits on none. */
+            after: components["schemas"]["TaskAfter"] | null;
             assigneeName: string | null;
             /**
              * Format: int64
@@ -1301,8 +1330,19 @@ export interface components {
             state: components["schemas"]["TaskState"];
             title: string;
         };
+        /**
+         * @description The work a step waits on: it is not to be started before the item's commit stands on the main branch of the
+         *     repository, or the item has ended. The service keeps it and judges nothing by it.
+         */
+        TaskAfter: {
+            /** Format: int64 */
+            itemId: number;
+            repository: string;
+        };
         /** @description A move of a task, as a merge patch. */
         TaskChange: {
+            /** @description The work the step waits on; null clears it. */
+            after?: components["schemas"]["TaskAfter"] | null;
             assigneeName?: string | null;
             /** Format: int64 */
             stage?: number | null;
@@ -1836,6 +1876,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkOrder"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createItemsWorkOrderStepsByItemId: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                itemId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewStep"];
+            };
+        };
+        responses: {
+            /** @description The step's task. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Task"];
                 };
             };
             default: components["responses"]["Error"];

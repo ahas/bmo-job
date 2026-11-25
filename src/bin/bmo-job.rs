@@ -10,8 +10,8 @@ use bmo_job::Settings;
 use bmo_job::close_watch::Running;
 use bmo_job::job_ask::{self, Ending, NewAsk, Receiver, Shown, TALK_EXIT, TalkAsk};
 use bmo_job::job_close::{self, JobCloseArgs, Standing, Stands};
-use bmo_job::todo_cli::{self, AddArgs, StopHereArgs, TodoArgs};
-use bmo_job_client::JobClient;
+use bmo_job::todo_cli::{self, AddArgs, NextArgs, StopHereArgs, TodoArgs};
+use bmo_job_client::{JobClient, TaskAfter};
 use bmo_job_plugin::Start;
 use clap::{Parser, Subcommand};
 
@@ -54,8 +54,8 @@ enum Verb {
     #[arg(long, value_name = "tools", env = "BMO_JOB_MCP_WITHOUT", value_delimiter = ',')]
     without: Vec<String>,
   },
-  /// The run's account left on an item it finished or stopped short on, or a row raised, each through the
-  /// service's own routes; a run moves no item's state.
+  /// The run's account left on an item it finished or stopped short on, a step left for a later stage of it, or a
+  /// row raised, each through the service's own routes; a run moves no item's state.
   Todo {
     /// The item the run finished, by its number, with or without a leading `#`.
     #[arg(long, value_name = "item", conflicts_with_all = ["stop_here", "add"])]
@@ -63,6 +63,15 @@ enum Verb {
     /// The item the run stops short on: its account left on it.
     #[arg(long = "stop-here", value_name = "item", conflicts_with = "add")]
     stop_here: Option<String>,
+    /// The item a step is added to, behind its plan, for a later stage.
+    #[arg(long, value_name = "item", conflicts_with_all = ["done", "stop_here", "add"])]
+    next: Option<String>,
+    /// The step's words.
+    #[arg(long, value_name = "words", allow_hyphen_values = true)]
+    step: Option<String>,
+    /// The other item's work the step waits on, as `<item>:<repository>`.
+    #[arg(long, value_name = "item:repository")]
+    after: Option<String>,
     /// Raises a new row out of the run's own work.
     #[arg(long)]
     add: bool,
@@ -163,6 +172,17 @@ enum JobVerb {
 // A number as a shell names it, with or without a leading `#`.
 fn numbered(said: &str) -> Option<i64> {
   said.trim().trim_start_matches('#').parse().ok()
+}
+
+// The other item's work a step waits on, from `--after`: this verb's own `<item>:<repository>`, the item by its
+// number with or without a leading `#`.
+fn waited_on(said: &str) -> Option<TaskAfter> {
+  let (item, repository) = said.split_once(':')?;
+
+  Some(TaskAfter {
+    item_id: numbered(item)?,
+    repository: repository.trim().to_owned(),
+  })
 }
 
 // Who the run writes as: the name given, else the run's agent, else the shell's user.
@@ -710,6 +730,9 @@ async fn main() -> ExitCode {
     Verb::Todo {
       done,
       stop_here,
+      next,
+      step,
+      after,
       add,
       report,
       unfinished,
@@ -740,6 +763,21 @@ async fn main() -> ExitCode {
           };
 
           vec![todo_cli::add(&client, &args).await?]
+        } else if let Some(said) = next {
+          let item = numbered(&said).ok_or_else(|| format!("--next {said:?} is not an item number"))?;
+          let after = match after.as_deref() {
+            Some(said) => Some(waited_on(said).ok_or_else(|| {
+              format!("--after {said:?} is not <item>:<repository>, an item number and a repository")
+            })?),
+            None => None,
+          };
+          let args = NextArgs {
+            item,
+            step: step.unwrap_or_default(),
+            after,
+          };
+
+          vec![todo_cli::next(&client, &args).await?]
         } else if let Some(said) = stop_here {
           let item =
             numbered(&said).ok_or_else(|| format!("--stop-here {said:?} is not an item number"))?;
@@ -757,7 +795,7 @@ async fn main() -> ExitCode {
 
           todo_cli::close(&client, &args).await?
         } else {
-          return Err("todo takes --done <item>, --stop-here <item> or --add".to_owned());
+          return Err("todo takes --done <item>, --stop-here <item>, --next <item> or --add".to_owned());
         };
 
         for line in lines {

@@ -6,10 +6,12 @@ use crate::support;
 use std::collections::BTreeMap;
 
 use bmo_job::job_close::{Standing, waiting_commit, waiting_commits, write_standing};
-use bmo_job::todo_cli::{AddArgs, StopHereArgs, TodoArgs, add, close, stop_here};
+use bmo_job::todo_cli::{
+  AddArgs, NextArgs, STANDING_STEP, StopHereArgs, TodoArgs, add, close, next, stop_here,
+};
 use bmo_job_client::{
-  ItemChange, ItemState, LeaseAsk, LeaseWait, NewItem, NewReview, PageQuery, ReportKind, ReviewKind,
-  WorkOrderBody,
+  ItemChange, ItemState, LeaseAsk, LeaseWait, NewItem, NewReview, PageQuery, ReportKind, ReviewKind, Task,
+  TaskAfter, TaskQuery, TaskState, WorkOrderBody,
 };
 
 use support::Service;
@@ -548,4 +550,145 @@ async fn a_closing_names_an_open_review_and_leaves_the_item_to_its_orderer() {
 
   assert!(lines.last().is_some_and(|line| line.contains("\"waitsOn\":\"orderer\"")), "{lines:?}");
   assert_eq!(client.item(item).await.unwrap().state, ItemState::Leased, "its orderer closes it");
+}
+
+#[tokio::test]
+async fn a_next_step_is_left_behind_the_item_s_plan_and_waits_on_the_work_it_names() {
+  let service = Service::start_unattended(&["lane=todo"]).await;
+  let client = service.client();
+  let item = leased(&service, "a job that waits on another").await;
+  let other = leased(&service, "the work it waits on").await;
+  let args = NextArgs {
+    item,
+    step: "Wire the parser in".to_owned(),
+    after: None,
+  };
+
+  next(
+    &client,
+    &NextArgs {
+      step: " ".to_owned(),
+      ..args.clone()
+    },
+  )
+  .await
+  .expect_err("a step names what is left");
+  next(
+    &client,
+    &NextArgs {
+      step: "See https://gist.github.com/someone/abc.".to_owned(),
+      ..args.clone()
+    },
+  )
+  .await
+  .expect_err("a page hosted elsewhere is refused");
+  assert!(client.work_order(item).await.is_err(), "nothing is written");
+
+  let line = next(&client, &args).await.expect("added");
+  let task: Task = serde_json::from_str(&line).expect("the task as JSON");
+
+  assert_eq!((task.stage, task.title.as_str(), task.after.clone()), (2, "Wire the parser in", None));
+
+  let order = client.work_order(item).await.unwrap();
+
+  assert_eq!(order.steps, [STANDING_STEP, "Wire the parser in"]);
+  assert_eq!(STANDING_STEP, "The work of the brief that waits on nothing");
+
+  let after = TaskAfter {
+    item_id: other,
+    repository: "web".to_owned(),
+  };
+  let line = next(
+    &client,
+    &NextArgs {
+      step: "Show it on the console".to_owned(),
+      after: Some(after.clone()),
+      ..args.clone()
+    },
+  )
+  .await
+  .expect("added behind");
+  let task: Task = serde_json::from_str(&line).expect("the task as JSON");
+
+  assert_eq!((task.stage, task.after), (3, Some(after)));
+  assert_eq!(client.item(item).await.unwrap().state, ItemState::Leased, "a run moves no state");
+}
+
+#[tokio::test]
+async fn the_command_leaves_a_next_step_with_and_without_the_work_it_waits_on() {
+  let service = Service::start_unattended(&["lane=todo"]).await;
+  let client = service.client();
+  let item = leased(&service, "a command's steps").await;
+  let other = leased(&service, "the commit it waits on").await;
+  let run = |args: Vec<String>| {
+    let url = service.url.clone();
+
+    async move {
+      tokio::process::Command::new(env!("CARGO_BIN_EXE_bmo-job"))
+        .arg("todo")
+        .args(args)
+        .env("BMO_JOB_URL", url)
+        .env("BMO_JOB_TOKEN", support::TOKEN)
+        .output()
+        .await
+        .unwrap()
+    }
+  };
+  let words = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+  let item_said = format!("#{item}");
+
+  let output = run(words(&["--next", &item_said, "--step", "Wire the parser in"])).await;
+
+  assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+
+  let printed = String::from_utf8_lossy(&output.stdout);
+  let lines: Vec<&str> = printed.lines().collect();
+
+  assert_eq!(lines.len(), 1, "{printed}");
+
+  let task: Task = serde_json::from_str(lines[0]).expect("the task as JSON");
+
+  assert_eq!((task.stage, task.after), (2, None));
+
+  let after_said = format!("#{other}:web");
+  let output = run(words(&[
+    "--next",
+    &item_said,
+    "--step",
+    "Show it on the console",
+    "--after",
+    &after_said,
+  ]))
+  .await;
+
+  assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+
+  let task: Task =
+    serde_json::from_str(String::from_utf8_lossy(&output.stdout).trim()).expect("the task as JSON");
+
+  assert_eq!(
+    (task.stage, task.after),
+    (
+      3,
+      Some(TaskAfter {
+        item_id: other,
+        repository: "web".to_owned(),
+      })
+    )
+  );
+
+  let output = run(words(&["--next", &item_said, "--step", "A third", "--after", "web"])).await;
+
+  assert!(!output.status.success(), "an --after without its item is refused");
+
+  let tasks = client.tasks(item, &TaskQuery::default()).await.unwrap().items;
+
+  assert_eq!(
+    tasks.iter().map(|task| (task.title.as_str(), task.state)).collect::<Vec<_>>(),
+    [
+      (STANDING_STEP, TaskState::Waiting),
+      ("Wire the parser in", TaskState::Waiting),
+      ("Show it on the console", TaskState::Waiting),
+    ]
+  );
 }

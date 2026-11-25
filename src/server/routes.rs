@@ -11,7 +11,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use bmo_job_client::{
   Health, ItemChange, LabelValuesBody, LabelValuesQuery, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait,
-  NewEvent, NewItem, NewNote, NewQuestion, NewReply, NewReport, NewReview, NewSubscription, Page,
+  NewEvent, NewItem, NewNote, NewQuestion, NewReply, NewReport, NewReview, NewStep, NewSubscription, Page,
   PageQuery, QuestionChange, QuestionQuery, QueueChange, QueueQuery, ReviewQuery, ScopeDeletion,
   SubscriptionChange, SubscriptionQuery, TaskChange, TaskQuery, WaitQuery, WorkOrderBody, WorkOrderChange,
 };
@@ -59,6 +59,7 @@ pub(super) fn routes() -> Router<App> {
       "/items/{itemId}/work-order",
       get(work_order).put(put_work_order).patch(change_work_order),
     )
+    .route("/items/{itemId}/work-order/steps", post(add_step))
     .route("/items/{itemId}/work-order/tasks", get(tasks))
     .route("/items/{itemId}/work-order/tasks/{taskId}", get(task).patch(change_task))
     .route("/label-values", get(label_values_list))
@@ -218,6 +219,14 @@ async fn change_work_order(
   InBody(change): InBody<WorkOrderChange>,
 ) -> Answer {
   ok(app.store.change_work_order(item_id, change).await?)
+}
+
+async fn add_step(
+  State(app): State<App>,
+  InPath(item_id): InPath<i64>,
+  InBody(step): InBody<NewStep>,
+) -> Answer {
+  created(app.store.add_step(item_id, step).await?)
 }
 
 async fn tasks(

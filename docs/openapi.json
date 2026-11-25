@@ -1082,6 +1082,36 @@
         ],
         "type": "object"
       },
+      "NewStep": {
+        "additionalProperties": false,
+        "description": "One step added behind a work order's plan.",
+        "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskAfter"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "standing": {
+            "description": "The title of the work already under way, the first step of the work order made where the item has none;\nnot read where one stands.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "type": "object"
+      },
       "NewSubscription": {
         "additionalProperties": false,
         "description": "A subscription made.",
@@ -2153,6 +2183,17 @@
       "Task": {
         "description": "A task of a work order.",
         "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskAfter"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The other item's work the step waits on; null where it waits on none."
+          },
           "assigneeName": {
             "type": [
               "string",
@@ -2190,7 +2231,26 @@
           "title",
           "state",
           "assigneeName",
+          "after",
           "changedAt"
+        ],
+        "type": "object"
+      },
+      "TaskAfter": {
+        "additionalProperties": false,
+        "description": "The work a step waits on: it is not to be started before the item's commit stands on the main branch of the\nrepository, or the item has ended. The service keeps it and judges nothing by it.",
+        "properties": {
+          "itemId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "repository": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "itemId",
+          "repository"
         ],
         "type": "object"
       },
@@ -2198,6 +2258,17 @@
         "additionalProperties": false,
         "description": "A move of a task, as a merge patch.",
         "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskAfter"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The work the step waits on; null clears it."
+          },
           "assigneeName": {
             "type": [
               "string",
@@ -3319,6 +3390,59 @@
         ]
       }
     },
+    "/items/{itemId}/work-order/steps": {
+      "post": {
+        "operationId": "createItemsWorkOrderStepsByItemId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewStep"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            },
+            "description": "The step's task."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Add one step behind a work order's plan, a leased item's included, optionally waiting on another item's work; where the item has no work order, standing names the work under way and the order is made.",
+        "tags": [
+          "items"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "bad-request",
+          "not-found",
+          "conflict",
+          "unknown-item",
+          "standing_required"
+        ]
+      }
+    },
     "/items/{itemId}/work-order/tasks": {
       "get": {
         "operationId": "listItemsWorkOrderTasksByItemId",
@@ -3482,7 +3606,7 @@
             "$ref": "#/components/responses/Error"
           }
         },
-        "summary": "Move a task: current, done, skipped, waiting again, or to another stage.",
+        "summary": "Move a task: current, done, skipped, waiting again, or to another stage; set or clear the item's work it waits on.",
         "tags": [
           "items"
         ],
@@ -3490,7 +3614,8 @@
           "unauthorized",
           "bad-request",
           "not-found",
-          "conflict"
+          "conflict",
+          "unknown-item"
         ]
       }
     },

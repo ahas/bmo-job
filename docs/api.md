@@ -284,16 +284,31 @@ whole), `round` (1 upward: the turn of the examination it belongs to), `kind`, `
 
 An item has at most one work order: `itemId`, `purpose`, `directive`, `steps` (lines of the plan, in order),
 `state` and `changedAt`. Each step is a task: `id`, `itemId`, `stage`, `title`, `state` (`waiting`,
-`current`, `done` or `skipped`), `assigneeName` and `changedAt`.
+`current`, `done` or `skipped`), `assigneeName`, `after` and `changedAt`.
 
 - **Steps make the tasks.** When a work order is saved with steps, the step at place *n* is the task of stage
   *n* titled by the step. A step that repeats a title already in the list is taken once, at its first place,
   so a list written twice makes its tasks once. A task whose title stands among the new steps keeps its key,
-  state and assignee and takes the new step's stage; a step with no such task makes a new `waiting` one; a
-  task whose title is gone is removed.
+  state, assignee and `after` and takes the new step's stage; a step with no such task makes a new `waiting`
+  one; a task whose title is gone is removed.
 - **The steps stand fixed while the item is leased.** The steps are the plan its job runs in, so a `PUT` or a
   `PATCH` that would change them while the item is `leased` is answered 409 `conflict`, nothing written; the
   same steps written again change nothing and are taken, as is every other field.
+- **A step is added behind the plan at any time, a leased item's included.** `POST
+  /items/{itemId}/work-order/steps` puts one step after the last: `title` required, `after` optional. The plan
+  already standing is left as it is, so the holder of the item can say what is left for a later stage without
+  changing the stage it works in. A title already among the steps is answered 409 `conflict`, as is a step
+  added to a work order that is `done`. Where the item has no work order, the request also carries `standing`,
+  the title of the work already under way: the work order is made a `draft`, with the item's title as its
+  purpose, its brief as its directive, and the two steps, `standing` first; a request without it is answered 422
+  `standing_required`. Where a work order stands, `standing` is not read. The new step's task is `waiting`, at
+  the stage of its place.
+- **A step may wait on another item's work.** A task's `after` is null, or `itemId` and `repository`: the
+  step is not to be started before that item's commit stands on the main branch of that repository, or that
+  item has ended. The service keeps it and judges nothing by it: whoever runs the stages reads it and holds
+  the stage back. It is given as the step is added or by a move of the task, where null clears it. An
+  `after` naming no item is answered 422 `unknown-item`, one naming the task's own item 409 `conflict`, and a
+  `repository` that is blank 400 `bad-request`.
 - **The stage under way** is the lowest stage holding a task that is `waiting` or `current`.
 - **A work order's moves:** `draft` to `saved` and back, `saved` to `running` and back, `running` to `done`,
   and `done` to `running` when it is reopened. Any other is answered 409 `conflict`. A task's move is any
@@ -305,9 +320,10 @@ An item has at most one work order: `itemId`, `purpose`, `directive`, `steps` (l
 | `GET /items/{itemId}/work-order` | The work order |
 | `PUT /items/{itemId}/work-order` | Saves the work order whole: `purpose`, `directive` and `steps` required, `state` optional (the standing state, or `draft` for a new one). Answers 201 when it is new, 200 when it replaces one |
 | `PATCH /items/{itemId}/work-order` | Changes it as a merge patch: `state`, `purpose`, `directive`, `steps` |
+| `POST /items/{itemId}/work-order/steps` | Adds one step behind the plan: `title`, and optionally `after` and `standing` (above). Answers 201 and the step's task |
 | `GET /items/{itemId}/work-order/tasks` | Its tasks, by stage and then key; `current=true` for the stage under way alone |
 | `GET /items/{itemId}/work-order/tasks/{taskId}` | One task |
-| `PATCH /items/{itemId}/work-order/tasks/{taskId}` | Moves a task: `state`, `stage`, `assigneeName` |
+| `PATCH /items/{itemId}/work-order/tasks/{taskId}` | Moves a task: `state`, `stage`, `assigneeName`, `after` |
 
 ## Queues
 

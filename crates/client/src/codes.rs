@@ -30,6 +30,7 @@ pub enum Code {
   LabelValueUnknown,
   ReasonRequired,
   ReasonWithoutHold,
+  StandingRequired,
   Failed,
 }
 
@@ -53,6 +54,7 @@ impl Code {
       Self::LabelValueUnknown => "label_value_unknown",
       Self::ReasonRequired => "reason_required",
       Self::ReasonWithoutHold => "reason_without_hold",
+      Self::StandingRequired => "standing_required",
       Self::Failed => "failed",
     }
   }
@@ -71,7 +73,8 @@ impl Code {
       | Self::NoChoices
       | Self::NoRecommendation
       | Self::QueueNotOpen
-      | Self::LabelValueUnknown => 422,
+      | Self::LabelValueUnknown
+      | Self::StandingRequired => 422,
       Self::Failed => 500,
     }
   }

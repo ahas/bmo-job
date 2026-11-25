@@ -23,7 +23,7 @@ use crate::reports::{NewReport, Report};
 use crate::reviews::{NewReview, Review, ReviewQuery};
 use crate::scopes::{ScopeDeletion, ScopeHolding};
 use crate::subscriptions::{NewSubscription, Subscription, SubscriptionChange, SubscriptionQuery};
-use crate::work_orders::{Task, TaskChange, TaskQuery, WorkOrder, WorkOrderBody, WorkOrderChange};
+use crate::work_orders::{NewStep, Task, TaskChange, TaskQuery, WorkOrder, WorkOrderBody, WorkOrderChange};
 
 /// How often a quiet connection to the service is probed, so a service gone is told from one still answering.
 const KEEP_ALIVE: Duration = Duration::from_secs(30);
@@ -293,6 +293,11 @@ impl JobClient {
     change: &WorkOrderChange,
   ) -> Result<WorkOrder, ClientFailure> {
     answer(self.patch(&["items", &item_id.to_string(), "work-order"]).json(change)).await
+  }
+
+  /// Adds one step behind an item's plan; answers the step's task.
+  pub async fn add_step(&self, item_id: i64, step: &NewStep) -> Result<Task, ClientFailure> {
+    answer(self.post(&["items", &item_id.to_string(), "work-order", "steps"]).json(step)).await
   }
 
   /// A work order's tasks.

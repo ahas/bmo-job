@@ -35,9 +35,15 @@ pub use subscriptions::{Delivery, Kept};
 /// One transaction on the database.
 pub(crate) type Tx = Transaction<'static, Sqlite>;
 
-/// The schema's version, kept in the database's own user version: the 1.0.0 baseline's, which `schema.sql` makes
-/// whole (docs/schema.md). An install from before 1.0.0 at its last release holds this version already.
-const SCHEMA_VERSION: i64 = 9;
+/// The 1.0.0 baseline's version, which `schema.sql` makes whole (docs/schema.md). An install from before 1.0.0 at
+/// its last release holds this version already.
+const BASELINE_VERSION: i64 = 9;
+
+/// The steps that bring a database from the baseline up to the current version, each from the version it reads.
+const STEPS: [(i64, &str); 1] = [(9, include_str!("migrate_v9.sql"))];
+
+/// The schema's version, kept in the database's own user version: the baseline's raised by each step.
+const SCHEMA_VERSION: i64 = BASELINE_VERSION + STEPS.len() as i64;
 
 /// The name the service writes its own changes under: the notes it writes and the changes its sweep makes.
 pub(crate) const OWN_NAME: &str = "bmo-job";
@@ -65,7 +71,8 @@ pub struct Store {
 }
 
 impl Store {
-  /// The database at `url`, its tables made where it has none.
+  /// The database at `url`, its tables made where it has none and the steps it lacks taken where it stands at the
+  /// baseline or past it.
   pub async fn open(url: &str, clock: Clock) -> Result<Self, Refusal> {
     let options = SqliteConnectOptions::from_str(url)?
       .create_if_missing(true)
@@ -78,19 +85,27 @@ impl Store {
       .connect_with(options)
       .await?;
     let version: i64 = sqlx::query_scalar("PRAGMA user_version").fetch_one(&pool).await?;
-    if version == 0 {
+    if version == 0 || (BASELINE_VERSION..SCHEMA_VERSION).contains(&version) {
       let mut tx = pool.begin().await?;
-      sqlx::raw_sql(include_str!("schema.sql")).execute(&mut *tx).await?;
+      let from = if version == 0 {
+        sqlx::raw_sql(include_str!("schema.sql")).execute(&mut *tx).await?;
+        BASELINE_VERSION
+      } else {
+        version
+      };
+      for (_, step) in STEPS.iter().filter(|(reads, _)| *reads >= from) {
+        sqlx::raw_sql(step).execute(&mut *tx).await?;
+      }
       sqlx::raw_sql(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))
         .execute(&mut *tx)
         .await?;
       tx.commit().await?;
-    } else if version < SCHEMA_VERSION {
+    } else if version < BASELINE_VERSION {
       return Err(Refusal::new(
         bmo_job_client::Code::Failed,
         format!(
           "The database's schema is version {version}, from a release before 1.0.0 short of its last; that \
-           release brings it to version {SCHEMA_VERSION} first."
+           release brings it to version {BASELINE_VERSION} first."
         ),
       ));
     } else if version != SCHEMA_VERSION {

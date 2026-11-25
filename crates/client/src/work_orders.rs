@@ -91,8 +91,32 @@ pub struct Task {
   pub title: String,
   pub state: TaskState,
   pub assignee_name: Option<String>,
+  /// The other item's work the step waits on; null where it waits on none.
+  pub after: Option<TaskAfter>,
   /// Epoch milliseconds.
   pub changed_at: i64,
+}
+
+/// The work a step waits on: it is not to be started before the item's commit stands on the main branch of the
+/// repository, or the item has ended. The service keeps it and judges nothing by it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskAfter {
+  pub item_id: i64,
+  pub repository: String,
+}
+
+/// One step added behind a work order's plan.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NewStep {
+  pub title: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub after: Option<TaskAfter>,
+  /// The title of the work already under way, the first step of the work order made where the item has none;
+  /// not read where one stands.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub standing: Option<String>,
 }
 
 /// A move of a task, as a merge patch.
@@ -105,6 +129,9 @@ pub struct TaskChange {
   pub stage: Option<i64>,
   #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
   pub assignee_name: Option<Option<String>>,
+  /// The work the step waits on; null clears it.
+  #[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
+  pub after: Option<Option<TaskAfter>>,
 }
 
 /// The filters of the task list.
