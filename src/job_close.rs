@@ -433,7 +433,7 @@ fn read_checkout(root: &Path, data_root: &Path, waiting: Option<&str>) -> Result
 
   let own = own_commits(root, &base)?;
 
-  if let Some(refusal) = language_refusal(&own, &main.name()) {
+  if let Some(refusal) = message_refusal(&own, &main.name()) {
     return Err(refusal);
   }
 
@@ -950,10 +950,30 @@ pub fn deployed_commit_of(root: &Path, data_root: &Path) -> Option<String> {
   }
 }
 
-/// The refusal of the job's own commits, those past `base`, where any message holds Hangul: each such commit
-/// named. None where every message is English.
+/// The refusal of the job's own commits, those past `base`, where any message holds Hangul or names a co-author
+/// or the tool that wrote it: each such commit named. None where every message is English and names neither.
 pub fn commits_refusal(root: &Path, base: &str, main: &str) -> Result<Option<String>, String> {
-  Ok(language_refusal(&own_commits(root, base)?, main))
+  Ok(message_refusal(&own_commits(root, base)?, main))
+}
+
+// The first refusal the job's own commit messages earn: Hangul first, then an attribution line.
+fn message_refusal(own: &[OwnCommit], main: &str) -> Option<String> {
+  language_refusal(own, main).or_else(|| attribution_refusal(own, main))
+}
+
+fn attribution_refusal(own: &[OwnCommit], main: &str) -> Option<String> {
+  let named: Vec<String> = own
+    .iter()
+    .filter(|commit| attribution(&commit.text))
+    .map(|commit| format!("{} {}", commit.short, commit.subject))
+    .collect();
+
+  (!named.is_empty()).then(|| {
+    format!(
+      "these commits carry a Co-Authored-By or a Generated with line, and no commit names a co-author or the tool that wrote it: {}. Remove each such line (git commit --amend for the last, git rebase -i {main} for an earlier one) and close again",
+      named.join("; ")
+    )
+  })
 }
 
 fn language_refusal(own: &[OwnCommit], main: &str) -> Option<String> {
@@ -1215,6 +1235,16 @@ fn git_within(root: &Path, args: &[&str], within: Duration) -> Result<String, St
   }
 
   Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+// Whether a commit message holds a `Co-Authored-By:` trailer, whoever it names, or a line opening with
+// `Generated with`, a mark or an emoji before it allowed.
+fn attribution(text: &str) -> bool {
+  text.lines().any(|line| {
+    let line = line.trim_start().to_lowercase();
+    let words = line.trim_start_matches(|letter: char| !letter.is_alphanumeric()).trim_start();
+    line.starts_with("co-authored-by:") || words.starts_with("generated with")
+  })
 }
 
 fn hangul(text: &str) -> bool {

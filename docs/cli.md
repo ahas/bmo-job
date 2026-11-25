@@ -75,8 +75,10 @@ flowchart TD
   the record names as live. Where the record's commit is not in the repository or is no ancestor of `HEAD`, the
   range is taken from the job's own base commit instead, and the close says in one line which range it used. A
   commit the record already names as live runs nothing and ends clean.
-- **What is refused before the check.** A commit of the range whose message holds Hangul, each such commit named
-  with the command that rewords it; nothing is checked, pushed or written on the item.
+- **What is refused before the check.** A commit of the range whose message holds Hangul, and a commit of the
+  range whose message carries a `Co-Authored-By:` line, whoever it names, or a line opening with `Generated with`,
+  each such commit named with the command that rewords it; nothing is checked, pushed or written on the item. No
+  commit a close pushes names a co-author or the tool that wrote it.
 - **The check.** `bmo-testbed check --since <base>`, which `bmo check --since` runs, runs in the checkout: the
   check a change owes over every path changed since the base (bmo-testbed's `docs/checks.md`). A check run inside
   the close line is handed `BMO_TESTBED_NEXT`, so its seats stand next after the front (bmo-testbed's
@@ -184,7 +186,8 @@ flowchart TD
 - **Every checkout is read before anything is checked.** Each path names a checkout by its top level as git names
   it; a path that names none, and two paths naming one checkout or two checkouts of one repository, are refused.
   Then each checkout, in the order given, is read as the close of one checkout reads it: a commit its record
-  already names as live is left out and said so; its remote is fetched; and no message of its range holds Hangul.
+  already names as live is left out and said so; its remote is fetched; and no message of its range holds Hangul,
+  a `Co-Authored-By:` line or a `Generated with` line.
   The push order is read then too (below). Every refusal of every checkout is said at once, each line opening
   with its repository and naming the command that mends it, and nothing is checked, pushed or written on the item.
 - **A checkout already closed is not checked again.** Where a checkout's `HEAD` already stands on its main and the

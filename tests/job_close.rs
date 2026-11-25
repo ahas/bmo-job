@@ -744,6 +744,47 @@ fn an_unpushed_commit_holding_hangul_is_refused_and_nothing_is_checked_or_pushed
 }
 
 #[test]
+fn an_unpushed_commit_naming_a_co_author_is_refused_and_nothing_is_checked_or_pushed() {
+  let closable = closable();
+  let worded = commit(
+    closable.repo.path(),
+    "three.md",
+    "Add the third page\n\nCo-authored-by: One <one@example.com>",
+  );
+  let (testbed, calls) = testbed_at(closable.data.path());
+  let (closed, told) =
+    told_close(closable.repo.path(), closable.data.path(), "Land the third page", None, &testbed);
+  let refused = closed.expect_err("a message naming a co-author");
+
+  assert!(refused.contains("Co-Authored-By or a Generated with line"), "{refused}");
+  assert!(refused.contains(&format!("{} Add the third page", &worded[..12])), "{refused}");
+  assert!(!calls.exists(), "a refused close runs nothing");
+  assert_eq!(told, vec![Standing::Off]);
+  assert_eq!(main_of(closable.remote.path()), closable.base);
+}
+
+#[test]
+fn a_generated_with_line_is_refused_and_the_word_inside_a_sentence_is_not() {
+  let repo = tempfile::tempdir().expect("a repository");
+
+  init(repo.path());
+  let start = commit(repo.path(), "README.md", "Start the repository");
+  commit(repo.path(), "one.md", "Add the first page\n\nThe table is generated with the script.");
+  let clean = commit(repo.path(), "two.md", "Add the second page");
+  assert_eq!(commits_refusal(repo.path(), &start, "main").expect("reads"), None);
+
+  commit(
+    repo.path(),
+    "three.md",
+    &format!("Add the third page\n\n{} Generated with a tool", '\u{1F916}'),
+  );
+  let refused = commits_refusal(repo.path(), &clean, "main")
+    .expect("reads")
+    .expect("a Generated with line is refused");
+  assert!(refused.contains("Add the third page"), "{refused}");
+}
+
+#[test]
 fn a_reason_holding_hangul_is_refused() {
   let repo = tempfile::tempdir().expect("a repository");
   let data = tempfile::tempdir().expect("a data root");
