@@ -1,5 +1,5 @@
-//! `bmo-job todo` from a shell (docs/cli.md): a run leaves its account and what it could not reach on its item
-//! through the service's own report routes, and moves none of its item's state.
+//! `bmo-job todo` from a shell (docs/cli.md): a run leaves its account and what it could not reach on its item,
+//! and a step for a later stage of it, through the service's own routes; it moves none of its item's state.
 
 use crate::support;
 

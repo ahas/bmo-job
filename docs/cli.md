@@ -9,7 +9,7 @@ The binary `bmo-job` carries these commands.
 | `bmo-job mcp --service <url>` | Serves the harness plugin's MCP server on standard input and output, reaching the service at the address (docs/api.md, "The harness plugin") |
 | `bmo-job job close` | Checks what the job changed, merges its commits onto the remote's main and leaves the item waiting for its repository's batch deployment (「`bmo-job job close`」) |
 | `bmo-job job ask` | Puts a question to the job's supervisor in the middle of a job, which settles it or puts it to the owner, and waits for it to be settled (「`bmo-job job ask`」) |
-| `bmo-job todo` | Closes an item, holds it with the run's account on it, or raises a new one, each through the service's own routes (「`bmo-job todo`」) |
+| `bmo-job todo` | Closes an item, holds it with the run's account on it, leaves a step for a later stage of it, or raises a new one, each through the service's own routes (「`bmo-job todo`」) |
 | `bmo-job openapi` | Prints the OpenAPI document, the one committed as `docs/openapi.json` |
 
 A command a stop ends, `serve`, `job close` and `job ask`, hears the stop from the moment it starts: a signal that

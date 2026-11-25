@@ -58,19 +58,24 @@ enum Verb {
   /// row raised, each through the service's own routes; a run moves no item's state.
   Todo {
     /// The item the run finished, by its number, with or without a leading `#`.
-    #[arg(long, value_name = "item", conflicts_with_all = ["stop_here", "add"])]
+    #[arg(long, value_name = "item", conflicts_with_all = ["stop_here", "next", "add"])]
     done: Option<String>,
     /// The item the run stops short on: its account left on it.
-    #[arg(long = "stop-here", value_name = "item", conflicts_with = "add")]
+    #[arg(long = "stop-here", value_name = "item", conflicts_with_all = ["next", "add"])]
     stop_here: Option<String>,
     /// The item a step is added to, behind its plan, for a later stage.
-    #[arg(long, value_name = "item", conflicts_with_all = ["done", "stop_here", "add"])]
+    #[arg(
+      long,
+      value_name = "item",
+      conflicts_with_all = ["done", "stop_here", "add"],
+      requires = "step"
+    )]
     next: Option<String>,
     /// The step's words.
-    #[arg(long, value_name = "words", allow_hyphen_values = true)]
+    #[arg(long, value_name = "words", allow_hyphen_values = true, requires = "next")]
     step: Option<String>,
     /// The other item's work the step waits on, as `<item>:<repository>`.
-    #[arg(long, value_name = "item:repository")]
+    #[arg(long, value_name = "item:repository", requires = "next")]
     after: Option<String>,
     /// Raises a new row out of the run's own work.
     #[arg(long)]

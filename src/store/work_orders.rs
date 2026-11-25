@@ -313,12 +313,9 @@ impl Store {
     let now = self.now();
     let mut tx = self.begin().await?;
     let item = item_at(&mut tx, item_id).await?;
-    if let Some(after) = &after {
-      after_read(&mut tx, item_id, after).await?;
-    }
     let keys = item_keys(&item);
-    let mut order = match find_work_order(&mut tx, item_id).await? {
-      Some(order) => order,
+    let (mut order, made) = match find_work_order(&mut tx, item_id).await? {
+      Some(order) => (order, false),
       None => {
         let standing = standing.ok_or_else(|| {
           Refusal::new(
@@ -327,15 +324,15 @@ impl Store {
           )
         })?;
         filled("standing", &standing)?;
-        make_task(&mut tx, item_id, 1, &standing, None, now, &keys).await?;
-        WorkOrder {
+        let order = WorkOrder {
           item_id,
           purpose: item.title.clone(),
           directive: item.brief.clone(),
           steps: vec![standing],
           state: WorkOrderState::Draft,
           changed_at: now,
-        }
+        };
+        (order, true)
       }
     };
     if order.state == WorkOrderState::Done {
@@ -343,6 +340,12 @@ impl Store {
     }
     if order.steps.contains(&title) {
       return Err(Refusal::conflict(format!("The step {title:?} stands among the steps already.")));
+    }
+    if let Some(after) = &after {
+      after_read(&mut tx, item_id, after).await?;
+    }
+    if made {
+      make_task(&mut tx, item_id, 1, &order.steps[0], None, now, &keys).await?;
     }
     let stage = order.steps.len() as i64 + 1;
     let task = make_task(&mut tx, item_id, stage, &title, after, now, &keys).await?;

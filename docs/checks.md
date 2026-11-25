@@ -43,7 +43,7 @@ carries them and a change that breaks a rule fails like any other test.
 
 - **`docs/openapi.json`** is compared with what the code generates; a difference fails, and `bmo-job openapi`
   writes it again.
-- **The tools** are exactly the draft's eighteen, in its order, each calling a route the document states.
+- **The tools** are exactly the draft's twenty-one, in its order, each calling a route the document states.
 - **Every stated route is served:** a request on each answers with anything but `no-route`.
 - **The TypeScript types** in `package/` are compared with what openapi-typescript generates from the committed
   document, by the package's own test; `bun run generate` in `package/` writes them again.
