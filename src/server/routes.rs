@@ -105,7 +105,7 @@ async fn health() -> Answer {
   ok(Health {
     ready: true,
     reason: None,
-    version: env!("CARGO_PKG_VERSION").to_owned(),
+    version: crate::VERSION.to_owned(),
   })
 }
 

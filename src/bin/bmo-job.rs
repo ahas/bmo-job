@@ -16,7 +16,7 @@ use bmo_job_plugin::Start;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "bmo-job", version, about = "A todo kept as middleware.")]
+#[command(name = "bmo-job", version = bmo_job::VERSION, about = "A todo kept as middleware.")]
 struct Command {
   #[command(subcommand)]
   verb: Verb,

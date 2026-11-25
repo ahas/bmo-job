@@ -21,7 +21,7 @@ through the `bmo-job` plugin: the MCP server `bmo-job mcp` and its skill.
 | `tests/` | The root package's tests: the repository checks, the contract's checks, every route through the real server, and the binary as a unit and a harness run it |
 | `docs/` | The canonical statements of what the service does, and `openapi.json`, the contract as the code generates it |
 
-At the root stand the Cargo workspace manifest, the version, `testbed.toml` (bmo-testbed's declaration of how
+At the root stand the Cargo workspace manifest, `testbed.toml` (bmo-testbed's declaration of how
 this repository is tested, checked, built and deployed, docs/deploy.md), `install.toml` (what installing it on a
 fresh machine needs, which `bmo install` reads), `rustfmt.toml`, `CLAUDE.md`,
 `settings.example.toml`, the example of the settings file a deployment gives, and `LICENSE`.
@@ -43,13 +43,11 @@ fresh machine needs, which `bmo install` reads), `rustfmt.toml`, `CLAUDE.md`,
 
 ## Version
 
-- **One version for the whole repository,** the workspace's. `VERSION` holds it and the workspace's version
-  equals it, as do the OpenAPI document and the TypeScript package.
+- **The version is the set's,** read off the git tag when a build is made and handed to it as `BMO_VERSION`;
+  the health, the MCP server and `--version` answer it. The workspace's version, the OpenAPI document's and the
+  TypeScript package's are a placeholder that never moves.
 - **It moves only at a release the owner declares,** as bmo-chat's `docs/conventions.md` 「Versions」 states; a
   commit, a deploy, a fix or a contract change moves none, and a deployment is told apart by its commit.
-- **Until the first release the version is `0.1.0` with a revision suffix,** `0.1.0-rev.N`: `0.1.0` is the
-  base, and each release the owner declares raises the revision by one. The major, minor and patch numbers do
-  not move before the first release.
 
 ## Commands
 

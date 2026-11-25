@@ -52,9 +52,8 @@ fn the_committed_document_is_the_generated_one() {
 }
 
 #[test]
-fn the_document_carries_the_repository_version() {
-  let version = fs::read_to_string(Path::new(ROOT).join("VERSION")).expect("VERSION is readable");
-  assert_eq!(document()["info"]["version"], version.trim());
+fn the_document_carries_the_placeholder_version() {
+  assert_eq!(document()["info"]["version"], env!("CARGO_PKG_VERSION"));
 }
 
 #[test]

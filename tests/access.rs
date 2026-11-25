@@ -23,10 +23,7 @@ async fn every_route_takes_the_token() {
   assert_eq!(refusal(bare).await, (401, "unauthorized".to_owned()));
 
   let health: Health = service.client().health().await.expect("ready");
-  assert_eq!(
-    (health.ready, health.reason, health.version.as_str()),
-    (true, None, env!("CARGO_PKG_VERSION"))
-  );
+  assert_eq!((health.ready, health.reason, health.version.as_str()), (true, None, bmo_job::VERSION));
 }
 
 #[tokio::test]

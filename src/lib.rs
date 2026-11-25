@@ -33,6 +33,14 @@ pub use server::{App, router};
 pub use settings::{Questions, Settings, Unattended};
 pub use store::Store;
 
+/// The version the job service's health and its command name: the set's version the build was made at,
+/// which the testbed hands the build as `BMO_VERSION`, else the manifest's placeholder (bmo-chat's
+/// `docs/conventions.md`, 「Versions」).
+pub const VERSION: &str = match option_env!("BMO_VERSION") {
+  Some(version) => version,
+  None => env!("CARGO_PKG_VERSION"),
+};
+
 /// How often the service looks for what has come due.
 const SWEEP_EVERY: Duration = Duration::from_secs(1);
 

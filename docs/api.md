@@ -1,6 +1,6 @@
 # The API
 
-**Fixed at 0.1.0-rev.8.** This document and the OpenAPI document generated beside it, `docs/openapi.json`, are
+**Fixed at the release the commit is tagged with.** This document and the OpenAPI document generated beside it, `docs/openapi.json`, are
 the service's contract; the version they carry is the repository's (README.md, "Version"). The common wire format, the path and method rules
 and the error table are the bmo conventions bmo-chat keeps; this document states what the service holds and
 serves on them, and repeats none of it.

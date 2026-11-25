@@ -19,7 +19,7 @@
 | `tests/` | 根包的测试：仓库检查、契约检查、通过真实服务器的每个路由，以及按单元和 harness 的运行方式运行的二进制 |
 | `docs/` | 服务行为的规范说明，以及由代码生成的契约 `openapi.json` |
 
-根目录下有 Cargo 工作区清单、版本文件、`testbed.toml`（bmo-testbed 关于本仓库如何测试、检查、构建和部署的声明，
+根目录下有 Cargo 工作区清单、`testbed.toml`（bmo-testbed 关于本仓库如何测试、检查、构建和部署的声明，
 docs/deploy.md）、`install.toml`（在新机器上安装时所需的内容，由 `bmo install` 读取）、`rustfmt.toml`、`CLAUDE.md`、部署时提供的设置文件示例 `settings.example.toml`，以及 `LICENSE`。
 
 ## 文档
@@ -39,12 +39,10 @@ docs/deploy.md）、`install.toml`（在新机器上安装时所需的内容，�
 
 ## 版本
 
-- **整个仓库只有一个版本，** 即工作区的版本。`VERSION` 保存它，工作区版本、OpenAPI 文档和 TypeScript 包的版本都
-  与之相同。
+- **版本属于整个套件，** 在构建时从 git 标签读取并以 `BMO_VERSION` 传入，健康检查、MCP 服务器和 `--version` 都回答它。
+  工作区版本、OpenAPI 文档和 TypeScript 包的版本只是永不变动的占位值。
 - **版本只在所有者宣布的发布时变动。** 如 bmo-chat 的 `docs/conventions.md`「Versions」所述，提交、部署、修复或
   契约变更都不会改变版本，部署之间以提交来区分。
-- **在首次发布之前，版本为带修订后缀的 `0.1.0`，** 即 `0.1.0-rev.N`：`0.1.0` 是基准，所有者每宣布一次发布，修订号
-  加一。首次发布之前，主版本号、次版本号和补丁号都不变。
 
 ## 命令
 

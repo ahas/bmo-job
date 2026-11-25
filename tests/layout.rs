@@ -55,9 +55,3 @@ fn no_directory_is_named_after_its_parent() {
   nested_twins(Path::new(ROOT), &mut twins);
   assert!(twins.is_empty(), "these directories repeat their parent's name: {twins:?}");
 }
-
-#[test]
-fn the_version_file_is_the_workspace_version() {
-  let version = fs::read_to_string(Path::new(ROOT).join("VERSION")).expect("VERSION is readable");
-  assert_eq!(version.trim(), env!("CARGO_PKG_VERSION"));
-}

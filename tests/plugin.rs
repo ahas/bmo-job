@@ -75,7 +75,7 @@ impl Server {
       )
       .await;
     assert_eq!(info["serverInfo"]["name"], "bmo-job");
-    assert_eq!(info["serverInfo"]["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(info["serverInfo"]["version"], bmo_job_plugin::VERSION);
     assert!(info["capabilities"]["tools"].is_object(), "the server serves tools: {info}");
     server.send(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await;
     let listed = server.ask("tools/list", json!({})).await;
