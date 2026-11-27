@@ -54,7 +54,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Change several items' labels at once: a key given a value is set, a key given null is taken off, every other key stands. Each item changes as its own change would, a leased one held to what its lease keeps fixed, and one refused does not hold back the rest. */
+        patch: operations["relabelItems"];
         trace?: never;
     };
     "/items/{itemId}": {
@@ -682,11 +683,36 @@ export interface components {
             items: components["schemas"]["Item"][];
             more: boolean;
         };
+        /** @description One item a change of several left as it stood, and why. */
+        ItemRefused: {
+            code: string;
+            error: string;
+            /** Format: int64 */
+            itemId: number;
+        };
         /**
          * @description Where an item stands in its life.
          * @enum {string}
          */
         ItemState: "draft" | "open" | "leased" | "held" | "done" | "dropped" | "merged";
+        /**
+         * @description Several items' labels changed at once: the items by their numbers, and a merge of label keys, a key given a value
+         *     set to it and a key given null taken off, every other key standing.
+         */
+        ItemsRelabel: {
+            ids: number[];
+            labels: {
+                [key: string]: string | null;
+            };
+        };
+        /**
+         * @description What a change of several items' labels came to: the items changed, as they now stand, and each item refused,
+         *     with the code and sentence its own change would have been refused in.
+         */
+        ItemsRelabeled: {
+            changed: components["schemas"]["Item"][];
+            refused: components["schemas"]["ItemRefused"][];
+        };
         /** @description The values one label key may take. */
         LabelValues: {
             /**
@@ -1549,6 +1575,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Item"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    relabelItems: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemsRelabel"];
+            };
+        };
+        responses: {
+            /** @description The items changed, and each refused with why. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemsRelabeled"];
                 };
             };
             default: components["responses"]["Error"];
