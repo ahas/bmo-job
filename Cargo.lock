@@ -202,7 +202,7 @@ dependencies = [
 
 [[package]]
 name = "bmo-job"
-version = "0.1.0-rev.8"
+version = "0.0.0"
 dependencies = [
  "axum",
  "bmo-job-client",
@@ -227,7 +227,7 @@ dependencies = [
 
 [[package]]
 name = "bmo-job-client"
-version = "0.1.0-rev.8"
+version = "0.0.0"
 dependencies = [
  "futures-util",
  "hex",
@@ -244,7 +244,7 @@ dependencies = [
 
 [[package]]
 name = "bmo-job-plugin"
-version = "0.1.0-rev.8"
+version = "0.0.0"
 dependencies = [
  "bmo-job-client",
  "futures-util",
@@ -1271,7 +1271,7 @@ dependencies = [
 
 [[package]]
 name = "launch-tool"
-version = "0.1.0-rev.8"
+version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2341,7 +2341,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "state-tool"
-version = "0.1.0-rev.8"
+version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2491,7 +2491,7 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "todo-tool"
-version = "0.1.0-rev.8"
+version = "0.0.0"
 dependencies = [
  "axum",
  "serde",
@@ -2612,7 +2612,7 @@ dependencies = [
 
 [[package]]
 name = "tool-call"
-version = "0.1.0-rev.8"
+version = "0.0.0"
 dependencies = [
  "reqwest",
  "serde",
