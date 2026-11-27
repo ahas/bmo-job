@@ -1,6 +1,6 @@
 ---
 name: bmo-job
-description: Take work from a job service and do it, through the bmo-job MCP server. Use when work is kept as items in a job service's queues, when told of an item opened in a queue you serve, when picking up the next piece of work, or when reporting on, asking about or closing an item you hold.
+description: How the bmo-job MCP tools take an item from a job service's queue, read it, report on it, ask about it and close it, with the arguments each takes and what each refusal means.
 ---
 
 # bmo-job
@@ -15,10 +15,10 @@ the server runs.
 Register the server with the harness as a stdio MCP server:
 
 ```
-bmo-job mcp --service http://127.0.0.1:7841
+bmo-job mcp --service <the service's base address>
 ```
 
-The address is the service's base address. The bearer token goes in the `BMO_JOB_TOKEN` environment variable
+The address is the one the deployment names for the service; never guess one. The bearer token goes in the `BMO_JOB_TOKEN` environment variable
 of the server, or `--token`; a wrong one answers every tool with a 401 `unauthorized` error. The token is the
 caller every call is made as: the shared token, or a caller's own, under whose name the service records what
 the token's caller approves.
@@ -26,7 +26,7 @@ the token's caller approves.
 To be told of items from the start, name the queues you serve and the name you hold work under:
 
 ```
-bmo-job mcp --service http://127.0.0.1:7841 --holder builder-1 --queue build --queue review
+bmo-job mcp --service <the service's base address> --holder builder-1 --queue build --queue review
 ```
 
 Where the harness takes messages pushed into its session on an experimental capability, give that capability
@@ -64,7 +64,7 @@ that would give any of them another value is refused 409 `item-frozen` with that
    has none). `job_tasks` with `current: true` lists the tasks of the stage under way.
 3. `job_notes`: words added after the item was raised. Pass the last note's `id` as `after` and a `waitMs` to
    wait for the next one, or subscribe to `note.created` on the item.
-4. `job_report` with `kind: "progress"` as you go, so whoever watches the item knows where it stands.
+4. `job_report` with `itemId`, `kind: "progress"`, the words as `body` and your name as `actorName` as you go, so whoever watches the item knows where it stands.
 5. Blocked on a decision that is not yours: `job_question_ask` with the `itemId`, your name as `askerName`,
    the `text` and the `choices` (empty for an open question, which only the supervisor takes), then
    `job_replies` with a `waitMs` until a reply settles it. Write it for someone who knows nothing of the work, since
@@ -97,23 +97,12 @@ that would give any of them another value is refused 409 `item-frozen` with that
 
 ## A base library missing a part
 
-Where the item needs something a base library this repository imports does not serve, stop only that part
-and go on with the rest. Do not copy the missing part here.
-
-1. Make a branch in the base library's own checkout, from its main, and push it to the base library's
-   GitHub repository. Never commit to its main.
-2. Write the change as the general case: no name of this repository, no provider or unit name, no branch
-   for one unit, and no data or test fixture only this repository uses. Bring the base library's own tests.
-3. Open a pull request from that branch against the base library's main. Check the rule in step 2 again
-   before opening it, and again when the review comes.
-4. Whoever holds the base library's work reviews it, merges it or sends it back with the reason, and raises
-   the base library's version on merge. Pin that version here and resume the stopped part.
-5. Where the review is still open when the item ends, report the pull request and say which part waits on
-   it; that part is not done.
+Where the item needs something a base library does not serve, the job service's `docs/base-libraries.md` states
+the steps; stop only that part and go on with the rest.
 
 ## Ending it
 
-- **Done:** `job_report` with `kind: "final"` and the account of the work, then `job_item_update` with
+- **Done:** `job_report` with `kind: "final"`, the account of the work as `body` and your name as `actorName`, then `job_item_update` with
   `state: "done"`. The lease ends with it.
 - **Cannot go on now:** `job_item_update` with `state: "held"` and `reason` saying why, in the one change. The
   item keeps the reason as its `hold`, and the same change writes it as the item's `held` report; a hold without
