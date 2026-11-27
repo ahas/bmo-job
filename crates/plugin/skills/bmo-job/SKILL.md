@@ -129,6 +129,11 @@ caller as an approver is it of the kind `approval`, which opens the draft; other
 recorded on the item for an approver to see, and the item stays a draft. The item's `approvals` say which
 each one is.
 
+`job_items_relabel` changes several items' labels at once: `ids` from `job_items` with a filter, and `labels`, a
+key given a value set to it and a key given null taken off. Moving every waiting item to another model is one call.
+An item a lease holds fixed comes back under `refused` with why; hold it first where it must move now, then relabel
+it and open it again.
+
 `job_items` lists items by `state`, `queueName`, `assigneeName`, `scope`, `label` or words (`q`), in queue order;
 `job_queues` lists the queues, whether each is paused or held, and how many items are open and leased in it.
 

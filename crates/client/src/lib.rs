@@ -72,8 +72,8 @@ pub use events::{Event, EventKind, EventQuery, NewEvent};
 pub use fields::Labels;
 pub use health::Health;
 pub use items::{
-  Approval, ApprovalGiven, ApprovalKind, Item, ItemChange, ItemEvent, ItemHold, ItemQuery, ItemState,
-  NewItem, NoticesOff, NoticesOffGiven,
+  Approval, ApprovalGiven, ApprovalKind, Item, ItemChange, ItemEvent, ItemHold, ItemQuery, ItemRefused,
+  ItemState, ItemsRelabel, ItemsRelabeled, NewItem, NoticesOff, NoticesOffGiven,
 };
 pub use label_values::{LabelValues, LabelValuesBody, LabelValuesQuery};
 pub use leases::{Frozen, ItemField, Lease, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait};

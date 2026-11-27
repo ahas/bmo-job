@@ -7,9 +7,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use bmo_job_client::{
-  ClientFailure, Item, ItemChange, ItemQuery, Lease, LeaseAsk, LeaseRenewal, LeaseWait, NewItem, NewNote,
-  NewQuestion, NewReply, NewReport, NewSubscription, Note, Page, Question, QuestionChange, Queue,
-  QueueQuery, Reply, Report, Review, ReviewQuery, Subscription, Task, TaskQuery, WaitQuery, WorkOrder,
+  ClientFailure, Item, ItemChange, ItemQuery, ItemsRelabel, ItemsRelabeled, Lease, LeaseAsk, LeaseRenewal,
+  LeaseWait, NewItem, NewNote, NewQuestion, NewReply, NewReport, NewSubscription, Note, Page, Question,
+  QuestionChange, Queue, QueueQuery, Reply, Report, Review, ReviewQuery, Subscription, Task, TaskQuery,
+  WaitQuery, WorkOrder,
 };
 use schemars::generate::SchemaGenerator;
 use schemars::{JsonSchema, Schema};
@@ -203,6 +204,16 @@ pub fn tools() -> Vec<JobTool> {
        see, and the item stays a draft.",
       "PATCH /items/{itemId}",
       |harness, input| async move { harness.client.change_item(input.key.item_id, &input.rest).await },
+    ),
+    tool::<ItemsRelabel, ItemsRelabeled, _, _>(
+      "job_items_relabel",
+      "Change several items' labels at once, the items by their numbers (job_items finds them by a filter): a \
+       label key given a value is set, a key given null is taken off, every other key stands, so moving every \
+       waiting item to another model is ids and labels {\"model\": \"q38fn-dq8\"}. Each item changes as its own \
+       change would; a leased one keeps what its lease holds fixed and comes back under refused with why, so hold \
+       it first where it must move now.",
+      "PATCH /items",
+      |harness, input| async move { harness.client.relabel_items(&input).await },
     ),
     tool::<Keyed<ItemKey, WaitQuery>, Page<Note>, _, _>(
       "job_notes",

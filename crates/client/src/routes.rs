@@ -8,7 +8,7 @@ use serde_json::Value;
 use crate::codes::Code;
 use crate::events::{Event, EventQuery, NewEvent};
 use crate::health::Health;
-use crate::items::{Item, ItemChange, ItemQuery, NewItem};
+use crate::items::{Item, ItemChange, ItemQuery, ItemsRelabel, ItemsRelabeled, NewItem};
 use crate::label_values::{LabelValues, LabelValuesBody, LabelValuesQuery};
 use crate::leases::{Lease, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait};
 use crate::notes::{NewNote, Note, WaitQuery};
@@ -212,6 +212,21 @@ pub fn routes() -> Vec<Route> {
       Some(referred::<NewItem>),
       vec![json::<Item>(201, "The item raised.")],
       &[BadRequest, UnknownItem, LabelValueUnknown],
+    ),
+    route(
+      Patch,
+      "/items",
+      "relabelItems",
+      "items",
+      "Change several items' labels at once: a key given a value is set, a key given null is taken off, every other \
+       key stands. Each item changes as its own change would, a leased one held to what its lease keeps fixed, and \
+       one refused does not hold back the rest.",
+    )
+    .with(
+      None,
+      Some(referred::<ItemsRelabel>),
+      vec![json::<ItemsRelabeled>(200, "The items changed, and each refused with why.")],
+      &[BadRequest],
     ),
     route(Get, "/items/{itemId}", "readItemsByItemId", "items", "One item: brief, state, approvals, queue place.")
       .with(None, None, vec![json::<Item>(200, "The item.")], &[NotFound]),

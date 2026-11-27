@@ -13,11 +13,12 @@ use serde_json::Value;
 use support::{ROOT, Service};
 
 /// The draft's tools, in its order.
-const DRAFT_TOOLS: [&str; 21] = [
+const DRAFT_TOOLS: [&str; 22] = [
   "job_items",
   "job_item_create",
   "job_item",
   "job_item_update",
+  "job_items_relabel",
   "job_notes",
   "job_note_add",
   "job_report",

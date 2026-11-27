@@ -12,7 +12,7 @@ use url::Url;
 use crate::codes::ErrorBody;
 use crate::events::{Event, EventQuery, NewEvent};
 use crate::health::Health;
-use crate::items::{Item, ItemChange, ItemQuery, NewItem};
+use crate::items::{Item, ItemChange, ItemQuery, ItemsRelabel, ItemsRelabeled, NewItem};
 use crate::label_values::{LabelValues, LabelValuesBody, LabelValuesQuery};
 use crate::leases::{Lease, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait};
 use crate::notes::{NewNote, Note, WaitQuery};
@@ -201,6 +201,11 @@ impl JobClient {
   /// One item.
   pub async fn item(&self, item_id: i64) -> Result<Item, ClientFailure> {
     answer(self.get(&["items", &item_id.to_string()])).await
+  }
+
+  /// Changes several items' labels at once.
+  pub async fn relabel_items(&self, relabel: &ItemsRelabel) -> Result<ItemsRelabeled, ClientFailure> {
+    answer(self.patch(&["items"]).json(relabel)).await
   }
 
   /// Changes an item.

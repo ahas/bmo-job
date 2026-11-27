@@ -10,10 +10,11 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use bmo_job_client::{
-  Health, ItemChange, LabelValuesBody, LabelValuesQuery, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait,
-  NewEvent, NewItem, NewNote, NewQuestion, NewReply, NewReport, NewReview, NewStep, NewSubscription, Page,
-  PageQuery, QuestionChange, QuestionQuery, QueueChange, QueueQuery, ReviewQuery, ScopeDeletion,
-  SubscriptionChange, SubscriptionQuery, TaskChange, TaskQuery, WaitQuery, WorkOrderBody, WorkOrderChange,
+  Health, ItemChange, ItemsRelabel, LabelValuesBody, LabelValuesQuery, LeaseAsk, LeaseQuery, LeaseRenewal,
+  LeaseWait, NewEvent, NewItem, NewNote, NewQuestion, NewReply, NewReport, NewReview, NewStep,
+  NewSubscription, Page, PageQuery, QuestionChange, QuestionQuery, QueueChange, QueueQuery, ReviewQuery,
+  ScopeDeletion, SubscriptionChange, SubscriptionQuery, TaskChange, TaskQuery, WaitQuery, WorkOrderBody,
+  WorkOrderChange,
 };
 use serde::Serialize;
 use tokio::time::Instant;
@@ -44,7 +45,7 @@ pub(super) fn routes() -> Router<App> {
   Router::new()
     .route("/health", get(health))
     .route("/events", get(stream::events).post(publish))
-    .route("/items", get(items).post(create_item))
+    .route("/items", get(items).post(create_item).patch(relabel_items))
     .route("/items/{itemId}", get(item).patch(change_item))
     .route("/rooms/{chat}/holdings", get(port::holdings))
     .route("/questions/open", get(port::open_questions))
@@ -132,6 +133,14 @@ async fn create_item(
 
 async fn item(State(app): State<App>, InPath(item_id): InPath<i64>) -> Answer {
   ok(app.store.item(item_id).await?)
+}
+
+async fn relabel_items(
+  State(app): State<App>,
+  Extension(caller): Extension<Caller>,
+  InBody(relabel): InBody<ItemsRelabel>,
+) -> Answer {
+  ok(app.store.relabel_items(relabel, &caller).await?)
 }
 
 async fn change_item(

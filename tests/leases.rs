@@ -4,8 +4,8 @@
 use crate::support;
 
 use bmo_job_client::{
-  Frozen, Hold, ItemChange, ItemField, ItemState, LeaseAsk, LeaseQuery, LeaseRenewal, LeaseWait, NewItem,
-  QueueChange, QueueState,
+  Frozen, Hold, ItemChange, ItemField, ItemState, ItemsRelabel, LeaseAsk, LeaseQuery, LeaseRenewal,
+  LeaseWait, NewItem, QueueChange, QueueState,
 };
 
 use support::{START, Service};
@@ -372,4 +372,90 @@ async fn what_a_lease_holds_fixed_stays_until_the_holder_lets_it_go() {
     .await
     .expect("nothing held fixed");
   assert_eq!(relabelled.labels["kind"], "b");
+}
+
+// Several items' labels changed at once (docs/api.md, Items, `PATCH /items`): each item's keys merged with those
+// given, a key given null taken off; a leased item keeps what its lease holds fixed and comes back refused with why,
+// the rest changing all the same.
+#[tokio::test]
+async fn several_items_labels_change_at_once_and_a_leased_one_keeps_what_its_lease_holds() {
+  let service = Service::start().await;
+  let client = service.client();
+  let first = service.open_item("build", "first").await;
+  let second = service.open_item("build", "second").await;
+  let held = service.open_item("build", "held").await;
+  let labelled = |pairs: &[(&str, &str)]| ItemChange {
+    labels: Some(pairs.iter().map(|(key, value)| ((*key).to_owned(), (*value).to_owned())).collect()),
+    ..ItemChange::default()
+  };
+
+  for item in [&first, &second, &held] {
+    client
+      .change_item(item.id, &labelled(&[("model", "model-a"), ("note", "x")]))
+      .await
+      .expect("labelled");
+  }
+
+  // The third is leased, its model held fixed.
+  let lease = client
+    .take_lease(
+      &LeaseAsk {
+        item_id: Some(held.id),
+        frozen: Some(Frozen {
+          fields: vec![],
+          labels: vec!["model".to_owned()],
+          reason: None,
+        }),
+        ..ask("build", "taker")
+      },
+      &AT_ONCE,
+    )
+    .await
+    .expect("answered")
+    .expect("a lease");
+
+  let relabel = ItemsRelabel {
+    ids: vec![first.id, second.id, held.id],
+    labels: [("model".to_owned(), Some("model-b".to_owned())), ("note".to_owned(), None)]
+      .into_iter()
+      .collect(),
+  };
+  let answered = client.relabel_items(&relabel).await.expect("answered");
+  let labels_of = |item: &bmo_job_client::Item| item.labels.clone().into_iter().collect::<Vec<_>>();
+
+  assert_eq!(answered.changed.iter().map(|item| item.id).collect::<Vec<_>>(), [first.id, second.id]);
+  assert!(
+    answered
+      .changed
+      .iter()
+      .all(|item| labels_of(item) == [("model".to_owned(), "model-b".to_owned())])
+  );
+  assert_eq!(answered.refused.len(), 1);
+  assert_eq!(
+    (answered.refused[0].item_id, answered.refused[0].code.as_str()),
+    (held.id, "item-frozen")
+  );
+  assert!(
+    answered.refused[0].error.contains(&format!("lease {}", lease.id)),
+    "{}",
+    answered.refused[0].error
+  );
+
+  // A call naming no item, an item twice, or no label is refused whole.
+  for wrong in [
+    ItemsRelabel {
+      ids: vec![],
+      labels: relabel.labels.clone(),
+    },
+    ItemsRelabel {
+      ids: vec![first.id, first.id],
+      labels: relabel.labels.clone(),
+    },
+    ItemsRelabel {
+      ids: vec![first.id],
+      labels: Default::default(),
+    },
+  ] {
+    assert_eq!(client.relabel_items(&wrong).await.expect_err("refused").code(), Some("bad-request"));
+  }
 }

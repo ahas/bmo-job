@@ -254,3 +254,30 @@ pub struct ItemQuery {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub limit: Option<i64>,
 }
+
+/// Several items' labels changed at once: the items by their numbers, and a merge of label keys, a key given a value
+/// set to it and a key given null taken off, every other key standing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ItemsRelabel {
+  pub ids: Vec<i64>,
+  pub labels: std::collections::BTreeMap<String, Option<String>>,
+}
+
+/// What a change of several items' labels came to: the items changed, as they now stand, and each item refused,
+/// with the code and sentence its own change would have been refused in.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemsRelabeled {
+  pub changed: Vec<Item>,
+  pub refused: Vec<ItemRefused>,
+}
+
+/// One item a change of several left as it stood, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemRefused {
+  pub item_id: i64,
+  pub code: String,
+  pub error: String,
+}

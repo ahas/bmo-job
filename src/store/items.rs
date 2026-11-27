@@ -2,7 +2,7 @@
 
 use bmo_job_client::{
   Approval, ApprovalKind, Code, EventKind, Item, ItemChange, ItemEvent, ItemHold, ItemQuery, ItemState,
-  NewItem, NewReport, NoticesOff, Page, ReportKind,
+  ItemsRelabel, ItemsRelabeled, NewItem, NewReport, NoticesOff, Page, ReportKind,
 };
 use serde::Deserialize;
 use sqlx::sqlite::SqliteRow;
@@ -401,6 +401,66 @@ impl Store {
   }
 
   /// Changes an item as a merge patch, its state by the moves allowed; an approval it carries is `caller`'s.
+  /// Several items' labels changed at once (docs/api.md, Items, `PATCH /items`): each item as a change of its labels
+  /// alone would change it, its keys merged with those given, and one refused does not hold back the rest. Refused
+  /// whole where no item or more than 200 are named, or an item is named twice.
+  pub async fn relabel_items(
+    &self,
+    relabel: ItemsRelabel,
+    caller: &Caller,
+  ) -> Result<ItemsRelabeled, Refusal> {
+    let mut seen = relabel.ids.clone();
+
+    seen.sort_unstable();
+    seen.dedup();
+
+    if relabel.ids.is_empty() || relabel.ids.len() > 200 || seen.len() != relabel.ids.len() {
+      return Err(Refusal::bad_request(
+        "ids names 1 to 200 items, each once; job_items lists them by a filter",
+      ));
+    }
+
+    if relabel.labels.is_empty() {
+      return Err(Refusal::bad_request(
+        "labels names at least one key, set to a value or to null to take it off",
+      ));
+    }
+
+    let mut answered = ItemsRelabeled::default();
+
+    for id in relabel.ids {
+      let merged = match self.item(id).await {
+        Ok(item) => {
+          let mut labels = item.labels.clone();
+
+          for (key, value) in &relabel.labels {
+            match value {
+              Some(value) => labels.insert(key.clone(), value.clone()),
+              None => labels.remove(key),
+            };
+          }
+
+          labels
+        }
+        Err(refusal) => {
+          answered.refused.push(refused(id, refusal));
+          continue;
+        }
+      };
+      let change = ItemChange {
+        labels: Some(merged),
+        ..ItemChange::default()
+      };
+
+      match self.change_item(id, change, caller).await {
+        Ok(item) => answered.changed.push(item),
+        Err(refusal) => answered.refused.push(refused(id, refusal)),
+      }
+    }
+
+    Ok(answered)
+  }
+
   pub async fn change_item(&self, id: i64, change: ItemChange, caller: &Caller) -> Result<Item, Refusal> {
     let now = self.now();
     let mut tx = self.begin().await?;
@@ -558,5 +618,14 @@ impl Store {
     told_changed(&mut tx, now, &item, previous, caller.name.as_deref()).await?;
     self.commit(tx).await?;
     Ok(item)
+  }
+}
+
+// One item a change of several left as it stood, in the code and sentence its own change was refused in.
+fn refused(item_id: i64, refusal: Refusal) -> bmo_job_client::ItemRefused {
+  bmo_job_client::ItemRefused {
+    item_id,
+    code: refusal.code.as_str().to_owned(),
+    error: refusal.sentence,
   }
 }

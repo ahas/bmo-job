@@ -189,6 +189,7 @@ to an item past `draft` is recorded beside the others and moves nothing.
 | `GET /items` | Items in queue order, filtered by `state`, `queueName`, `assigneeName`, `scope`, `label` (a key, or `key=value`), `ids`, `raisedBy` (the items raised from that item) and `q` (words found in the title or the brief, in any case) |
 | `POST /items` | Raises an item as a `draft`, or `open` where it carries an unattended label (above): `title`, `brief` and `queueName` required, `priority`, `assigneeName`, `requesterName`, `scope`, `labels` and `raisedBy` optional, `raisedBy` taken from the caller's one standing lease where it is left out (above). A `raisedBy` naming no item is answered 422 `unknown-item`, and a label value off its key's list 422 `label_value_unknown` (Label values). Answers 201 and the item |
 | `GET /items/{itemId}` | One item |
+| `PATCH /items` | Changes the labels of several items at once, `ids` (1 to 200 item numbers) and `labels`, a merge of label keys: a key given a value is set to it, a key given null is taken off, and every other key stands. Each item changes as `PATCH /items/{itemId}` changing its labels alone would, a leased one as "While leased" says, and one refused does not hold back the rest. Answers 200 with `changed`, the items as they now stand, and `refused`, each `itemId`, `code` and `error` as that item's own change would have been refused |
 | `PATCH /items/{itemId}` | Changes an item as a merge patch: `state`, `approval` (`at`, which is the time of the change where left out; the caller is the token's), `mergedInto`, `title`, `brief`, `queueName`, `priority`, `position`, `assigneeName`, `requesterName`, `scope`, `labels`, `reason` (with a move to `held`, above), `noticesOff` (above). A nullable field set to null is cleared. A label value new or changed off its key's list is answered 422 `label_value_unknown` (Label values). A leased item changes as "While leased" (above) says |
 
 A queue comes to stand with the first item raised or moved into it. A queue name is 1 to 64 letters, digits,
@@ -688,6 +689,7 @@ sentence. The OpenAPI document states each under `x-tools`.
 | `job_item_create` | `POST /items` |
 | `job_item` | `GET /items/{itemId}` |
 | `job_item_update` | `PATCH /items/{itemId}` |
+| `job_items_relabel` | `PATCH /items` |
 | `job_notes` | `GET /items/{itemId}/notes` |
 | `job_note_add` | `POST /items/{itemId}/notes` |
 | `job_report` | `POST /items/{itemId}/reports` |

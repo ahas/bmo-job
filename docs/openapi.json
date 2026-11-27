@@ -548,6 +548,27 @@
         ],
         "type": "object"
       },
+      "ItemRefused": {
+        "description": "One item a change of several left as it stood, and why.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "itemId": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "itemId",
+          "code",
+          "error"
+        ],
+        "type": "object"
+      },
       "ItemState": {
         "description": "Where an item stands in its life.",
         "enum": [
@@ -560,6 +581,55 @@
           "merged"
         ],
         "type": "string"
+      },
+      "ItemsRelabel": {
+        "additionalProperties": false,
+        "description": "Several items' labels changed at once: the items by their numbers, and a merge of label keys, a key given a value\nset to it and a key given null taken off, every other key standing.",
+        "properties": {
+          "ids": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "ids",
+          "labels"
+        ],
+        "type": "object"
+      },
+      "ItemsRelabeled": {
+        "description": "What a change of several items' labels came to: the items changed, as they now stand, and each item refused,\nwith the code and sentence its own change would have been refused in.",
+        "properties": {
+          "changed": {
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            },
+            "type": "array"
+          },
+          "refused": {
+            "items": {
+              "$ref": "#/components/schemas/ItemRefused"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "changed",
+          "refused"
+        ],
+        "type": "object"
       },
       "LabelValues": {
         "description": "The values one label key may take.",
@@ -2720,6 +2790,42 @@
           }
         },
         "summary": "Items by state, queue, assignee, scope, label, ids, the item they were raised from or words, in queue order.",
+        "tags": [
+          "items"
+        ],
+        "x-codes": [
+          "unauthorized",
+          "bad-request"
+        ]
+      },
+      "patch": {
+        "operationId": "relabelItems",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemsRelabel"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsRelabeled"
+                }
+              }
+            },
+            "description": "The items changed, and each refused with why."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Change several items' labels at once: a key given a value is set, a key given null is taken off, every other key stands. Each item changes as its own change would, a leased one held to what its lease keeps fixed, and one refused does not hold back the rest.",
         "tags": [
           "items"
         ],
@@ -5195,6 +5301,41 @@
         "$ref": "#/components/schemas/Item"
       },
       "route": "PATCH /items/{itemId}"
+    },
+    {
+      "description": "Change several items' labels at once, the items by their numbers (job_items finds them by a filter): a label key given a value is set, a key given null is taken off, every other key stands, so moving every waiting item to another model is ids and labels {\"model\": \"q38fn-dq8\"}. Each item changes as its own change would; a leased one keeps what its lease holds fixed and comes back under refused with why, so hold it first where it must move now.",
+      "input": {
+        "additionalProperties": false,
+        "description": "Several items' labels changed at once: the items by their numbers, and a merge of label keys, a key given a value\nset to it and a key given null taken off, every other key standing.",
+        "properties": {
+          "ids": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "ids",
+          "labels"
+        ],
+        "type": "object"
+      },
+      "name": "job_items_relabel",
+      "output": {
+        "$ref": "#/components/schemas/ItemsRelabeled"
+      },
+      "route": "PATCH /items"
     },
     {
       "description": "An item's notes after a cursor; waitMs holds the answer open until one is appended.",
