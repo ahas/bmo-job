@@ -278,18 +278,16 @@ async fn show(service: &Service, arguments: &Value, handed: &Handed, reader: Rea
     lines.push(brief);
   }
 
-  let notes = tool_call::get(service, &format!("/items/{id}/notes"), &[("limit", MOST.to_owned())]).await;
-  if let Ok(page) = notes
-    && let Some(items) = page.get("items").and_then(Value::as_array)
-    && !items.is_empty()
-  {
+  let notes = every(service, &format!("/items/{id}/notes")).await;
+  if !notes.is_empty() {
     lines.push(String::new());
     lines.push("Notes".to_owned());
-    for note in items {
+    lines.extend(left_out(notes.len(), SHOWN_NOTES, "notes"));
+    for note in newest(&notes, SHOWN_NOTES) {
       lines.push(format!(
         "- {}: {}",
         text(note, "actorName").unwrap_or_default(),
-        text(note, "text").unwrap_or_default()
+        cut(&text(note, "text").unwrap_or_default())
       ));
     }
   }
@@ -307,25 +305,88 @@ async fn show(service: &Service, arguments: &Value, handed: &Handed, reader: Rea
     }
   }
 
-  let reports =
-    tool_call::get(service, &format!("/items/{id}/reports"), &[("limit", MOST.to_owned())]).await;
-  if let Ok(page) = reports
-    && let Some(items) = page.get("items").and_then(Value::as_array)
-    && !items.is_empty()
-  {
+  let reports = every(service, &format!("/items/{id}/reports")).await;
+  if !reports.is_empty() {
     lines.push(String::new());
     lines.push("Reports".to_owned());
-    for report in items {
+    lines.extend(left_out(reports.len(), SHOWN_REPORTS, "reports"));
+    for report in newest(&reports, SHOWN_REPORTS) {
       lines.push(format!(
         "- {} ({}): {}",
         text(report, "actorName").unwrap_or_default(),
         text(report, "kind").unwrap_or_default(),
-        text(report, "body").unwrap_or_default()
+        cut(&text(report, "body").unwrap_or_default())
       ));
     }
   }
 
   Answer::lines(lines)
+}
+
+/// How many of an item's newest notes and reports a reading shows (docs/tools.md): an item a long job wrote on
+/// gathers hundreds, and a reading of every one of them whole fills the reader's context.
+pub const SHOWN_NOTES: usize = 30;
+pub const SHOWN_REPORTS: usize = 5;
+/// The most characters of one note or report a reading shows before it says how much it left out.
+pub const SHOWN_CHARS: usize = 4000;
+// The most pages of one list a reading reads.
+const PAGES: usize = 20;
+
+// Every member of a list the job service pages oldest first, read page after page; what a page that fails
+// leaves unread is left out.
+async fn every(service: &Service, path: &str) -> Vec<Value> {
+  let mut all: Vec<Value> = Vec::new();
+
+  // A list that pages by no key answers the same page again; the pages are bounded and a page holding nothing
+  // past what was read ends it.
+  for _ in 0..PAGES {
+    let mut query = vec![("limit", MOST.to_owned())];
+
+    if let Some(last) = all.last().and_then(|one| one.get("id")).and_then(Value::as_i64) {
+      query.push(("after", last.to_string()));
+    }
+
+    let Ok(page) = tool_call::get(service, path, &query).await else { break };
+    let items = page.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
+    let more = page.get("more").and_then(Value::as_bool).unwrap_or(false);
+    let last = all.last().and_then(|one| one.get("id")).and_then(Value::as_i64).unwrap_or(i64::MIN);
+    let fresh: Vec<Value> = items
+      .into_iter()
+      .filter(|one| one.get("id").and_then(Value::as_i64).is_none_or(|id| id > last))
+      .collect();
+    let read = fresh.len();
+
+    all.extend(fresh);
+
+    if !more || read == 0 {
+      break;
+    }
+  }
+
+  all
+}
+
+/// The newest `most` of a list read oldest first, oldest of them first.
+pub fn newest(all: &[Value], most: usize) -> &[Value] {
+  &all[all.len().saturating_sub(most)..]
+}
+
+/// The line saying how many older members a reading left out, none where it shows them all.
+pub fn left_out(count: usize, most: usize, what: &str) -> Option<String> {
+  (count > most).then(|| format!("({} older {what} not shown)", count - most))
+}
+
+/// A text cut to `SHOWN_CHARS` characters, saying how many it left out.
+pub fn cut(text: &str) -> String {
+  let count = text.chars().count();
+
+  if count <= SHOWN_CHARS {
+    return text.to_owned();
+  }
+
+  let kept: String = text.chars().take(SHOWN_CHARS).collect();
+
+  format!("{kept} … ({} more characters not shown)", count - SHOWN_CHARS)
 }
 
 // One question of an item as a line: its number, its state, its words and, where a reply settled it, that answer.

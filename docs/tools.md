@@ -22,7 +22,9 @@
   item's scope.
 - **`worker/todo_show`** and **`bmo/todo_show`** read one item whole: its number, or the title of one that is
   not finished. The answer carries the item, its notes, its questions, each with its number, its state, its
-  words and the answer it was settled with, and its reports.
+  words and the answer it was settled with, and its reports. It shows the newest thirty notes and the newest five
+  reports, saying how many older ones it left out, and cuts a note or a report past four thousand characters,
+  saying how much it left out, so an item a long job wrote on does not fill the reader's context.
 - **The worker's two readings show every title in the worker's language, English.** A title with no letter
   outside the Latin script stands as written. Any other is shown as the translation the gate keeps for it,
   read through the gate's kept translations by the title's digest, so the reading never asks the gate's

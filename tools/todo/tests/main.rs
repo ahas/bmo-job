@@ -6,7 +6,9 @@ use std::path::Path;
 
 use serde_json::json;
 use todo_tool::titles::AsWritten;
-use todo_tool::{ENTRIES, ListArgs, Reader, item_line, states};
+use todo_tool::{
+  ENTRIES, ListArgs, Reader, SHOWN_CHARS, SHOWN_NOTES, cut, item_line, left_out, newest, states,
+};
 
 fn manifest() -> toml::Table {
   let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tool.toml")).unwrap();
@@ -99,4 +101,24 @@ fn the_worker_namespace_alone_reads_titles_in_the_worker_s_language() {
     "the host hands the full name, its last part alike"
   );
   assert_eq!(Reader::of("bmo/todo_list"), Reader::Chat);
+}
+
+#[test]
+fn a_reading_shows_the_newest_notes_and_says_how_many_it_left_out() {
+  let notes: Vec<serde_json::Value> = (1..=40).map(|id| json!({ "id": id })).collect();
+  let shown = newest(&notes, SHOWN_NOTES);
+
+  assert_eq!(shown.len(), SHOWN_NOTES);
+  assert_eq!((shown[0]["id"].as_i64(), shown[SHOWN_NOTES - 1]["id"].as_i64()), (Some(11), Some(40)));
+  assert_eq!(left_out(40, SHOWN_NOTES, "notes").as_deref(), Some("(10 older notes not shown)"));
+  assert_eq!(left_out(3, SHOWN_NOTES, "notes"), None);
+  assert_eq!(newest(&notes[..3], SHOWN_NOTES).len(), 3);
+}
+
+#[test]
+fn a_long_note_is_cut_saying_how_much_it_left_out() {
+  let long = "a".repeat(SHOWN_CHARS + 25);
+
+  assert!(cut(&long).ends_with("(25 more characters not shown)"));
+  assert_eq!(cut("short"), "short");
 }
