@@ -3,7 +3,7 @@
 held_by = "job"
 
 [[memory]]
-key = "when"
+key = "job.when"
 type = "tip"
 recall_condition = "a decision that blocks the work, or an item finished"
 text = "Ask with job_question_ask; once the work and its checks pass, write job_report final and set the item done."
