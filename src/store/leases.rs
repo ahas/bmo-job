@@ -122,10 +122,12 @@ pub(crate) async fn refuse_frozen_change(tx: &mut Tx, before: &Item, after: &Ite
   Err(Refusal::new(
     Code::ItemFrozen,
     format!(
-      "The lease {lease_id} held by {} holds the item {}'s {} fixed until it ends{why}",
+      "The lease {lease_id} held by {} holds the item {}'s {} fixed until it ends{why}{} To change it now, hold the \
+       item (state held with a reason), which ends the lease, then change it and open it again.",
       lease.holder_name,
       before.id,
       touched.join(", "),
+      if why.ends_with('.') { "" } else { "." },
     ),
   ))
 }
@@ -225,11 +227,17 @@ impl Store {
         if !open {
           return Err(Refusal::new(
             Code::QueueNotOpen,
-            format!("The queue {} gives no lease now.", ask.queue_name),
+            format!(
+              "The queue {} gives no lease now: it is paused or held; job_queues says its state.",
+              ask.queue_name
+            ),
           ));
         }
         if item.state != ItemState::Open {
-          return Err(Refusal::conflict(format!("The item {item_id} is {}, not open.", item.state)));
+          return Err(Refusal::conflict(format!(
+            "The item {item_id} is {}, not open; only an open item is leased, so open it first where it is held.",
+            item.state
+          )));
         }
         if item.assignee_name.is_some() && item.assignee_name != ask.assignee_name {
           return Err(Refusal::conflict(format!("The item {item_id} is assigned to another.")));
