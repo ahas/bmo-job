@@ -1,0 +1,9 @@
+# This service's standing line in every agent's brain: when to reach for it. How its tools are called is
+# their manuals', handed with a tool's first call in a session.
+held_by = "job"
+
+[[memory]]
+key = "when"
+type = "tip"
+recall_condition = "a decision that blocks the work, or an item finished"
+text = "Ask with job_question_ask; once the work and its checks pass, write job_report final and set the item done."
