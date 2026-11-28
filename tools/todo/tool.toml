@@ -66,6 +66,14 @@ capabilities = ["room.tools"]
 
 [[entry]]
 namespace = "bmo"
+name = "todo_wait"
+description = "Say in one line why you let a TODO item wait rather than launch it, kept on the item so the queue's standing shows your reason; none to take it back."
+input = "todo_wait.json"
+hints = { idempotent = true }
+capabilities = ["room.tools"]
+
+[[entry]]
+namespace = "bmo"
 name = "todo_approve"
 description = "Approve a TODO item into the queue. The job service keeps an approval and cannot take one back."
 input = "todo_approve.json"

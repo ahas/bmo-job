@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["item"],
+  "properties": {
+    "item": {
+      "type": "string",
+      "description": "The item's number or title."
+    },
+    "why": {
+      "type": ["string", "null"],
+      "description": "Why you let it wait, in one line, which the queue's standing shows for it; none or empty to say it waits for you no more."
+    }
+  }
+}

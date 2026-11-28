@@ -40,6 +40,9 @@
   was concluded, the room it came from as its scope, its requester and, where named, its model. A row filed
   this way is a draft until an approver approves it.
 - **`bmo/todo_append`** adds words to an item as a note, so a running job reads them before it reports.
+- **`bmo/todo_wait`** keeps why its orderer lets an item wait rather than launch it: one line set as the item's
+  `waiting-why` label and said in a note, which agency's queue standing shows for the item in place of its own
+  reason; a call naming no reason takes the label off.
 - **`bmo/todo_approve`** gives the chat caller's approval through `PATCH /items/{itemId}`. The job service
   records an approval and has no route that takes one away, so a call asking to unapprove is refused with that
   sentence.

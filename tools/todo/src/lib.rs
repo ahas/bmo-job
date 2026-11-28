@@ -17,7 +17,7 @@ use tool_call::{
 use crate::titles::{AsWritten, Kept, Titles};
 
 /// The entries this executable answers, as its manifest declares them.
-pub const ENTRIES: [&str; 7] = [
+pub const ENTRIES: [&str; 8] = [
   "todo_list",
   "todo_show",
   "bmo_todo_list",
@@ -25,7 +25,12 @@ pub const ENTRIES: [&str; 7] = [
   "todo_add",
   "todo_append",
   "todo_approve",
+  "todo_wait",
 ];
+
+/// The label an item carries why its orderer lets it wait (docs/tools.md, `todo_wait`), which agency's queue
+/// standing reads beside its own reasons.
+pub const WAITING_WHY: &str = "waiting-why";
 
 /// The most rows one reading asks for.
 const MOST: &str = "200";
@@ -76,6 +81,14 @@ pub struct AppendArgs {
   pub text: String,
   #[serde(default)]
   pub by: Option<String>,
+}
+
+/// Why an item is let wait, or, where `why` is none or blank, that it waits no more.
+#[derive(Debug, Deserialize)]
+pub struct WaitArgs {
+  pub item: String,
+  #[serde(default)]
+  pub why: Option<String>,
 }
 
 /// An approval, or its taking back.
@@ -180,6 +193,7 @@ pub async fn answer(handed: &Handed) -> Answer {
     }
     "todo_add" => add(&service, &handed.arguments, handed).await,
     "todo_append" => append(&service, &handed.arguments, handed).await,
+    "todo_wait" => wait(&service, &handed.arguments, handed).await,
     "todo_approve" => approve(&service, &handed.arguments).await,
     other => Answer::refusal(format!("this executable holds no entry {other}")),
   }
@@ -461,6 +475,37 @@ async fn append(service: &Service, arguments: &Value, handed: &Handed) -> Answer
   match tool_call::post(service, &format!("/items/{id}/notes"), &body).await {
     Ok(_) => Answer::text(format!("Added the words to item #{id}.")),
     Err(why) => Answer::refusal(why),
+  }
+}
+
+/// Why the orderer lets an item wait kept on it as its `waiting-why` label and said in a note, or the label taken
+/// off where no reason is given, so the queue's standing says the orderer's own reason.
+async fn wait(service: &Service, arguments: &Value, handed: &Handed) -> Answer {
+  let args: WaitArgs = match serde_json::from_value(arguments.clone()) {
+    Ok(args) => args,
+    Err(why) => return Answer::refusal(format!("todo_wait: {why}")),
+  };
+  let item = match resolve(service, &args.item).await {
+    Ok(item) => item,
+    Err(why) => return Answer::refusal(why),
+  };
+  let id = item.get("id").and_then(Value::as_i64).unwrap_or(0);
+  let why = args.why.map(|why| why.trim().to_owned()).filter(|why| !why.is_empty());
+  let labels = json!({ "labels": { WAITING_WHY: why } });
+
+  if let Err(refused) = tool_call::patch(service, &format!("/items/{id}"), &labels).await {
+    return Answer::refusal(refused);
+  }
+
+  let Some(why) = why else {
+    return Answer::text(format!("Item #{id} waits for its orderer no more."));
+  };
+  let actor = turn_agent(&handed.session).unwrap_or_else(|| "agent-session".to_owned());
+  let note = json!({ "text": format!("Let wait: {why}"), "actorName": actor });
+
+  match tool_call::post(service, &format!("/items/{id}/notes"), &note).await {
+    Ok(_) => Answer::text(format!("Item #{id} waits: {why}")),
+    Err(refused) => Answer::refusal(refused),
   }
 }
 
