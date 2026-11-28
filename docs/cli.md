@@ -307,9 +307,14 @@ another, with neither settling it nor putting it to him: nothing the verb does p
 - **What a turn carries.** An order carries the notice's kind and number, the item's number and title, and the data
   it is about: the question, its options numbered with the recommended one marked or the word that it is open, and
   why it is asked; or the job's words in a talk, with the question's words and options again where the talk changed
-  it. An order for the supervisor also names the tools that settle the question, talk on it and put it to the
-  owner (docs/api.md, 「The tools」). It carries no other instruction, since how a notice is read stands in the
-  receiving session's own instructions.
+  it. An order for the supervisor also carries its judgement, so the supervisor needs no other document to answer
+  it: which questions are the supervisor's to settle and how (a node command, a deployment the job waits on, a
+  look-up, a choice the work or the owner's standing word settles: done, then settled with what was done), which
+  are the owner's and how they are put to him (two to four choices, a recommendation that is one of them word for
+  word, no wait of its own, and one line to him in his chat), that an unclear question is talked on, that the
+  question wait runs from the moment the order arrived and nothing lengthens it, and that every turn taking it ends
+  with the question settled, talked on or put to the owner; each beside the tool that does it (docs/api.md, 「The
+  tools」). Its words are a constant of the verb.
 - **While the supervisor holds it,** the question's due time is the service's question wait from the moment the
   supervisor was given it, and no word the supervisor says stops it; the supervisor's notice is read through the
   receiver's `GET /instructions/{id}` as the verb waits. The receiver keeps a notice with no expiry and holds it

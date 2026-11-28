@@ -392,10 +392,22 @@ fn question_data(text: &str, options: &[String], recommend: i64, why: &str) -> S
   format!("{text}\n\n{}\n\nwhy: {why}", lines.join("\n"))
 }
 
-// The tools a supervisor's order names: the ones that settle the question, talk on it and put it to the owner
-// (docs/api.md, 「The tools」).
-const SUPERVISOR_TOOLS: &str = "settle: job_reply with settles true; talk: job_reply with settles false; \
-  to the owner: job_question_change with addressee person";
+// The judgement a supervisor's order carries beside the tools that settle the question, talk on it and put it to the
+// owner (docs/cli.md, 「What a turn carries」; docs/api.md, 「The tools」).
+const SUPERVISOR_TOOLS: &str = "You have the question wait, a minute, from the moment this reached you; nothing you \
+  write lengthens it, and once it passes the question goes to the owner as the job wrote it. End this turn with the \
+  question settled, talked on or put to the owner.\n\
+- Yours to settle: a command on a node, a deployment the job's work waits on, a look-up or a read within your \
+  reach, or a choice the work, your memory or the owner's standing word already settles. Do it, then job_reply with \
+  settles true, its text what you did and what came of it, in English. Work longer than the minute: settle with what \
+  you started and that its outcome comes to the item. A refusal of your own tool is an answer: settle with it.\n\
+- The owner's: hard to undo, his own taste, money, an account or a credential no saved secret covers, a risk to \
+  what he holds, or anything his standing word does not cover. job_question_change with addressee person, in his \
+  language and your own words, written as if he knows nothing of the work, with two to four choices and a \
+  recommendation that is one of them word for word, and no waitMs; then tell him in one line in his own chat that a \
+  question waits for him.\n\
+- Unclear what is asked, or whose it is: job_reply with settles false asking the job, and judge again when it \
+  answers.";
 
 // The kind of order a question is handed to the room's supervisor under: one it holds itself, or one put to the
 // owner that it puts before him.

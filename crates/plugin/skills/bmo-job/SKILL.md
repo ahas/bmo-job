@@ -1,135 +1,123 @@
 ---
 name: bmo-job
-description: How the bmo-job MCP tools take an item from a job service's queue, read it, report on it, ask about it and close it, with the arguments each takes and what each refusal means.
+description: The bmo-job MCP tools of a job service's queue, each with its required arguments and its refusals: reading the queue and an item, changing an item (approve, hold, drop, merge, reorder, switch its notices off), notes, reports, leases, questions and their replies, reviews and subscriptions.
 ---
 
 # bmo-job
 
-A job service keeps work as items waiting in queues. It never does the work itself: whoever does it is told
-of an item, takes it with a lease, does it, reports on it and closes it. The `bmo-job` MCP server reaches one
-service through its API, one tool for each step, and keeps the leases and subscriptions you take alive while
-the server runs.
+A job service keeps work as items in queues. It does no work itself: a holder takes an item with a lease, does the
+work, reports on it and closes it. The `bmo-job` MCP server calls one service, one tool a route, as the caller its
+token names; the deployment starts it, so never start or address it yourself.
 
-## Starting the server
+## How a call answers
 
-Register the server with the harness as a stdio MCP server:
+- A call answers the route's JSON. A refusal comes back as a tool error (`isError` true) whose text is the
+  service's status, `code` and sentence. Read the sentence: it names what is wrong and, where there are any, the
+  values to choose from. Correct the one thing it names and call again; never call the same thing unchanged.
+- `not-found`: nothing has that key; read the list again. `conflict`: the item's state does not allow the move,
+  or another holder took it first; read the item and choose again. `gone`: the lease or subscription ended; take a
+  new one. `queue-not-open`: the queue is paused or under a hold; say so and leave it. `not-the-addressee`: your
+  token may not settle or move that question. `label_value_unknown`: a label value off its key's list; the
+  sentence names the values. `reason_required`: a hold with no reason. `item-frozen`: a lease holds that field
+  fixed; the sentence says why.
 
-```
-bmo-job mcp --service <the service's base address>
-```
+## Reading the queue
 
-The address is the one the deployment names for the service; never guess one. The bearer token goes in the `BMO_JOB_TOKEN` environment variable
-of the server, or `--token`; a wrong one answers every tool with a 401 `unauthorized` error. The token is the
-caller every call is made as: the shared token, or a caller's own, under whose name the service records what
-the token's caller approves.
+- `job_items`: items in queue order, filtered by `state` (one, or several comma-separated), `queueName`,
+  `assigneeName`, `scope`, `label` (`key` or `key=value`), `ids`, `raisedBy` or words (`q`); `limit` default 50.
+  Example: `job_items {"state": "draft,open", "label": "series=release"}`.
+- The order is `priority` from highest, then `position` from lowest, then `id`. An item filed with no priority
+  takes 0.
+- `job_item {"itemId": 4100}`: one item whole: title, brief, `requesterName`, `labels`, state, lease, approvals.
+- `job_work_order {"itemId": 4100}`: its purpose, directive and steps; 404 means it has none.
+  `job_tasks {"itemId": 4100, "current": true}`: the tasks of the stage under way.
+- `job_queues`: every queue, whether it is paused or held, and how many items are open and leased in it.
 
-To be told of items from the start, name the queues you serve and the name you hold work under:
+## States and moves
 
-```
-bmo-job mcp --service <the service's base address> --holder builder-1 --queue build --queue review
-```
+- `draft` waits for an approval; `open` waits for a lease; `leased` is a holder's; `held` is set aside; `done`,
+  `dropped` and `merged` are final.
+- An approval moves a draft to open. A lease moves an open item to leased; giving it back or letting it run out
+  moves it to open. `held` sets an open or leased item aside, and `open` takes it back. `done` closes a leased
+  item. Any unfinished item can be dropped, or merged into another. A move the state does not allow answers
+  `conflict` with the state it stands in.
 
-Where the harness takes messages pushed into its session on an experimental capability, give that capability
-with `--channel`, and each event also arrives as such a message.
+## Changing an item
 
-## Being told of work
+`job_item_update` is a merge patch: `itemId` and only the fields you change. A field left out stays; a nullable
+field set to null is cleared. `labels` is the exception: it replaces the item's labels whole, so send every label
+the item keeps.
 
-`job_subscribe` with your `holderName`, the `queueNames` you serve and the `kinds` to hear of (`item.created`
-and `item.changed` for new and reopened work, `note.created` for words added to an item, `reply.created` for
-answers to your questions, `lease.expired` for a lease you lost). Leave `url` out: the server reads the
-subscription itself and tells you of each event as a `notifications/resources/updated` on
-`job://items/{itemId}` or `job://queues/{queueName}`, which you read as a resource. Give a `ttlMs`, such as
-60000: the server renews it while it runs, and when the server stops nobody is told of work on your behalf.
+- Approve a draft: `job_item_update {"itemId": 4100, "approval": {}}`. The service records the approval under
+  your token's caller; it opens the draft only where the deployment marks that caller as an approver.
+- Hold, with the reason in the same change (a hold without one is refused `reason_required`):
+  `job_item_update {"itemId": 4100, "state": "held", "reason": "waits for the database move"}`. A standing lease
+  ends. Open it again with `"state": "open"`.
+- Drop a request that should never have been filed: `"state": "dropped"`.
+- Merge into the item that carries the work: `{"itemId": 4100, "state": "merged", "mergedInto": 4090}`.
+- Reorder: `priority` (higher first) or `position`. The service never renumbers the others.
+- Switch the item's standing notices off with a reason: `{"itemId": 4100, "noticesOff": {"reason": "waits for
+  the card upgrade"}}`; on again with `"noticesOff": null`. A switch-off without a reason is refused.
+- Change title, brief, `assigneeName`, `requesterName`, `queueName` or `scope` the same way.
+- Set or take off a few labels on one or many items without sending the rest: `job_items_relabel {"ids":
+  [4100, 4101], "labels": {"model": "model-b", "follows": null}}`. A key given null is taken off; every other key
+  stays. An item a lease holds fixed comes back under `refused` with why.
 
-A notification hands nothing over. Several harnesses may be told of the same item; the one that takes its
-lease first has it.
+## Notes and reports
 
-## Taking an item
+- `job_note_add {"itemId": 4100, "text": "...", "actorName": "harness"}`: one more condition or a record on an
+  item that stands. `job_notes {"itemId": 4100}` reads them; pass the last note's `id` as `after` and a `waitMs`
+  to wait for the next.
+- `job_report {"itemId": 4100, "kind": "progress", "body": "...", "actorName": "harness"}`: where the work
+  stands. `kind` `final` carries the account of finished work. `body` and `actorName` are required.
+- `job_reviews {"itemId": 4100}`: the item's whole review in order: every report, question, answer, rejection and
+  pass; `ref` narrows it to one job.
 
-`job_lease_next` with `queueName`, `holderName` and `ttlMs` takes the next open item of the queue, or, with
-`itemId`, the item a notification named. `lease` is null when nothing waits; give `waitMs` (at most 60000) to
-wait for one. A 409 `conflict` means another holder took that item first: leave it and take the next. An item
-assigned to a name is only taken by a lease asking with that same `assigneeName`.
+## Leases
 
-The lease holds the item for `ttlMs` (at most 3600000). The server renews it at half its span while it runs;
-`job_lease_renew` renews it yourself. A lease that runs out gives the item back to the queue for someone else.
-A lease may hold fixed what of its item its holder read to start the work, `frozen` on `job_lease_next` or
-`job_lease_renew`: item fields and label keys, with the holder's reason. While it stands, a change of the item
-that would give any of them another value is refused 409 `item-frozen` with that reason.
+- `job_lease_next {"queueName": "todo", "holderName": "harness", "ttlMs": 900000, "itemId": 4100}` takes the one
+  item named; without `itemId` it takes the next open item. `ttlMs` is 1000 to 3600000.
+- An item with an assignee is taken only by a lease that names the same `assigneeName`; leave `assigneeName` out
+  for an item assigned to no one.
+- `{"lease": null}` means nothing waits: it is no failure. `waitMs` (at most 60000) waits for one.
+- `conflict` on a named item: another holder took it first. Leave it; launch nothing.
+- `job_lease_renew {"leaseId": ..., "ttlMs": 900000}` renews; the server also renews at half the span while it
+  runs. `job_lease_release {"leaseId": ...}` gives the item back, open for the next taker.
+- One lease stands on an item at a time: an item already leased is never taken again.
+- `frozen` on a lease holds item fields or label keys fixed while it stands, with your reason.
 
-## Doing it
+## Questions
 
-1. `job_item`: the title, the brief, who asked (`requesterName`) and the caller's `labels`.
-2. `job_work_order`: the purpose, the directive and the steps, where the item has a work order (a 404 means it
-   has none). `job_tasks` with `current: true` lists the tasks of the stage under way.
-3. `job_notes`: words added after the item was raised. Pass the last note's `id` as `after` and a `waitMs` to
-   wait for the next one, or subscribe to `note.created` on the item.
-4. `job_report` with `itemId`, `kind: "progress"`, the words as `body` and your name as `actorName` as you go, so whoever watches the item knows where it stands.
-5. Blocked on a decision that is not yours: `job_question_ask` with the `itemId`, your name as `askerName`,
-   the `text` and the `choices` (empty for an open question, which only the supervisor takes), then
-   `job_replies` with a `waitMs` until a reply settles it. Write it for someone who knows nothing of the work, since
-   it may reach a person: what the work is, what each choice does, how the choices differ and what follows under
-   each, with no step number or internal term left unexplained. Keep the lease meanwhile. Give `recommendation` as `{answer, why}` only where you can make the
-   case for that answer on the merits of the work and the rules; never the safe or timid answer by default.
-   Leave it out where you cannot make the case. Where your token is not a caller the deployment marks as
-   supervising the work, the question goes to the supervisor, which settles it or puts it to a person; where the
-   supervisor has done neither within the deployment's question wait, a minute unless its settings name another,
-   the service puts it to a person as it stands, with your recommendation or none, so write it for him from the
-   start. A question asked of a person offers two choices or more, or is refused 422 `no-choices`. `waitMs` says
-   how long a question asked of a person waits for him, held to the question wait, which also stands where it is
-   left out; a longer one is cut to it. Leave it out unless he needs less: then its recommendation settles it, as a reply with `source`
-   `recommendation`, or, with none, it is told of as due and waits on. Name a choice in `recommendation.answer`
-   word for word, with no mark beside it.
-6. Holding a question put to the supervisor (`addressee` `supervisor`), where your token is a caller the
-   deployment marks as supervising the work, you have the deployment's question wait, a minute unless its settings
-   name another, counted from when it reached you: a word that settles nothing stops no clock, and a question
-   cannot be paused while you hold it. Once the wait passes with the question still yours, the service puts it to a
-   person as it stands. Within it, do or find what it asks and settle it with `job_reply`, what you did
-   or found as its `text`; talk it over with its asker by a `job_reply` that settles nothing; or, where the
-   choice is a person's to make, put it to a person with `job_question_change`, `addressee` `person`, and the
-   `text`, two to four `choices` and a `recommendation` in your own words, written for someone who knows nothing
-   of the work: what the work is, what each choice does, how they differ and what follows under each. A move with
-   fewer than two choices is refused 422 `no-choices`, and one with no recommendation 422 `no-recommendation`.
-   The person has the question wait: leave `waitMs` out, or name a shorter one, since a longer one is cut to it. Once it passes unanswered, the recommendation settles
-   the question, as a reply with `source` `recommendation`. A question put
-   to a person that nobody has settled, which you would rather settle yourself, you take back with
-   `job_question_change`, `addressee` `supervisor`, and it is yours again for a new question wait.
-
-## A base library missing a part
-
-Where the item needs something a base library does not serve, the job service's `docs/base-libraries.md` states
-the steps; stop only that part and go on with the rest.
-
-## Ending it
-
-- **Done:** `job_report` with `kind: "final"`, the account of the work as `body` and your name as `actorName`, then `job_item_update` with
-  `state: "done"`. The lease ends with it.
-- **Cannot go on now:** `job_item_update` with `state: "held"` and `reason` saying why, in the one change. The
-  item keeps the reason as its `hold`, and the same change writes it as the item's `held` report; a hold without
-  a reason is refused 400 `reason_required`. Whoever can release it sets it back to `open`.
-- **Giving it back undone:** `job_lease_release`; the item is open again for the next taker.
+- Ask a person: `job_question_ask {"itemId": 4100, "askerName": "harness", "text": "...", "choices": ["...",
+  "..."], "recommendation": {"answer": "<one choice word for word>", "why": "..."}}`. Give two to four choices;
+  fewer are refused `no-choices`. Leave `waitMs` out: the deployment's question wait, a minute unless its settings
+  name another, applies, and a longer one is cut to it. Once it passes unanswered, the recommendation settles the
+  question as a reply with `source` `recommendation`.
+- Write it for someone who knows nothing of the work: what the work is and why it stopped, what each choice does,
+  how they differ and what follows under each, with no step number or internal name.
+- `job_question {"questionId": ...}` reads one; `job_replies {"questionId": ..., "waitMs": 60000}` reads and
+  waits for its replies.
+- Holding a question put to the supervisor, you have the question wait from the moment it reached you, and
+  nothing you write lengthens it. Within it, do one of three:
+  - settle it: `job_reply {"questionId": ..., "text": "<what you did and what came of it, in English>",
+    "actorName": "harness", "settles": true}`;
+  - talk it over with its asker: the same call with `"settles": false`;
+  - put it to a person: `job_question_change {"questionId": ..., "addressee": "person", "text": "...",
+    "choices": [...], "recommendation": {...}}`, with no `waitMs`. Fewer than two choices are refused
+    `no-choices`, and no recommendation `no-recommendation`.
+- Once the wait passes with the question still yours, the service puts it to a person as its asker wrote it.
+- A question with a person that nobody settled you take back with `job_question_change {"questionId": ...,
+  "addressee": "supervisor"}`; settle it in the same turn, since taking it back buys no time.
 
 ## Raising work
 
-`job_item_create` raises an item as a `draft` in a queue; it is taken only once it is approved. `job_item_update`
-with an `approval` (`{}`, or with `at`) gives an approval, and it takes no name of who approves: the service
-records it under the caller whose token this server was started with. Only where the deployment marks that
-caller as an approver is it of the kind `approval`, which opens the draft; otherwise it is a `recommendation`,
-recorded on the item for an approver to see, and the item stays a draft. The item's `approvals` say which
-each one is.
+- `job_item_create {"title": "...", "brief": "...", "queueName": "todo"}` raises a draft, taken only once it is
+  approved. Where the deployment files items through a tool of its own, use that one instead.
 
-`job_items_relabel` changes several items' labels at once: `ids` from `job_items` with a filter, and `labels`, a
-key given a value set to it and a key given null taken off. Moving every waiting item to another model is one call.
-An item a lease holds fixed comes back under `refused` with why; hold it first where it must move now, then relabel
-it and open it again.
+## Subscriptions
 
-`job_items` lists items by `state`, `queueName`, `assigneeName`, `scope`, `label` or words (`q`), in queue order;
-`job_queues` lists the queues, whether each is paused or held, and how many items are open and leased in it.
-
-## Failures
-
-A refused call comes back as a tool error whose text is the service's `status`, `code` and `error` sentence.
-`not-found` names nothing at that key; `conflict` is a move the member's state does not allow; `gone` is a
-lease or subscription that has ended; `queue-not-open` is a queue paused or under a hold; `not-the-addressee` is a
-question whose addressee your token may not settle or move; `label_value_unknown` is a label value off the list
-of values published for its key, the sentence naming the values it takes.
+- `job_subscribe {"holderName": "harness", "queueNames": ["todo"], "kinds": ["item.created", "item.changed"],
+  "ttlMs": 60000}` tells you of each event as a resource update on `job://items/{itemId}` or
+  `job://queues/{queueName}`; leave `url` out. Kinds: `item.created`, `item.changed`, `note.created`,
+  `reply.created`, `lease.expired`. `job_unsubscribe {"subscriptionId": ...}` ends it. A notice hands nothing
+  over: whoever takes the lease first has the item.

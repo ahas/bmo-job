@@ -1091,6 +1091,12 @@ async fn a_job_asks_its_supervisor_first_and_the_supervisors_answer_comes_back_a
     turn.contains("job_reply") && turn.contains("job_question_change"),
     "the tools that answer it: {turn}"
   );
+  assert!(
+    ["Yours to settle", "The owner's", "Unclear", "a minute"]
+      .iter()
+      .all(|said| turn.contains(said)),
+    "the judgement that answers it: {turn}"
+  );
   assert_eq!(
     heard.orders.lock().expect("the orders")[0]["kind"],
     format!("question-for-supervisor:{}", question.id)
