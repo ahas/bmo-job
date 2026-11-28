@@ -8,10 +8,12 @@ install = 1
 restart = "systemctl --user restart bmo-job.service"
 
 [[needs]]
+build = true
 program = "cargo"
 what = "Rust's Cargo, which builds the service and its tools at every release: `curl https://sh.rustup.rs -sSf | sh`."
 
 [[needs]]
+build = true
 program = "bun"
 what = "Bun, which installs and checks the TypeScript client in package/ in the suite a later deployment runs: `curl -fsSL https://bun.sh/install | bash`."
 
